@@ -1,0 +1,13 @@
+# Repo nay chay tren Linux. Neu git doi LF -> CRLF (mac dinh tren Windows) thi
+# `bash run.sh` se chet ngay voi loi kieu "\r: command not found".
+# Ep LF cho moi file van ban, bat ke nguoi commit dung he dieu hanh nao.
+* text=auto eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+*.md text eol=lf
+dependencies text eol=lf
+hf_token text eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.pth binary

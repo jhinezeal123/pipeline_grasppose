@@ -1,0 +1,21 @@
+# Trong so model — tai bang run.sh, KHONG commit (hang GB)
+model/*
+!model/.gitkeep
+
+# Ket qua sinh ra
+output/*
+!output/.gitkeep
+
+# Anh cua nguoi dung
+img/*
+!img/.gitkeep
+
+# TOKEN — tuyet doi khong bao gio commit noi dung file nay.
+# Nguoi dung tu tao lai:  echo "hf_xxx" > hf_token
+hf_token
+
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+.DS_Store

@@ -1,0 +1,76 @@
+# =============================================================================
+# dependencies - NGUON DUY NHAT (single source of truth) cho run.sh biet can tai gi.
+# File nay vua de nguoi doc, vua duoc run.sh parse bang python3.
+#
+# CU PHAP: moi model la 1 block gom cac dong "KEY = VALUE",
+#          cac block cach nhau bang 1 dong chi chua "---",
+#          dong bat dau bang '#' la comment (bo qua).
+#
+# KIND co dung 3 gia tri:
+#   hf  = tai ca repo bang huggingface snapshot_download  -> can REPO (repo_id)
+#   git = git clone --depth 1                             -> can URL
+#   url = tai 1 file don bang wget/curl                    -> can URL
+#
+# DEST luon la duong dan TINH DOI voi thu muc goc cua repo (khong dung / tuyet doi).
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 1) Grounding DINO (tiny): text prompt -> bounding box cua vat the.
+# -----------------------------------------------------------------------------
+NAME = grounding-dino
+KIND = hf
+REPO = IDEA-Research/grounding-dino-tiny
+DEST = model/grounding-dino-tiny
+---
+# -----------------------------------------------------------------------------
+# 2) SAM (Segment Anything, vit-base): bounding box -> mask chinh xac.
+# -----------------------------------------------------------------------------
+NAME = sam
+KIND = hf
+REPO = facebook/sam-vit-base
+DEST = model/sam-vit-base
+---
+# -----------------------------------------------------------------------------
+# 3) MoGe v3 (ViT-L): anh -> depth map + point cloud + intrinsics.
+#    Luu y: day chi la WEIGHTS. Code cua MoGe nam o block "moge-repo" ben duoi
+#    va duoc cai bang: pip install -e model/moge_repo
+# -----------------------------------------------------------------------------
+NAME = moge
+KIND = hf
+REPO = Ruicheng/moge-3-vitl
+DEST = model/moge-3-vitl
+---
+# -----------------------------------------------------------------------------
+# 4) MoGe source code (microsoft/moge) - de import "from moge.model.v3 import
+#    MoGeModel". Cai bang pip -e, KHONG phai bang pip install moge tu PyPI.
+# -----------------------------------------------------------------------------
+NAME = moge-repo
+KIND = git
+URL = https://github.com/microsoft/moge.git
+DEST = model/moge_repo
+---
+# -----------------------------------------------------------------------------
+# 5) GraspNetAPI source code (graspnet/graspnetAPI) - bat buoc dung ban git clone.
+#    Goi "graspnetAPI" tren PyPI bi HONG (van import setuptools.extern.six da bi
+#    Python moi xoa), nen run.sh clone repo nay va them vao PYTHONPATH.
+# -----------------------------------------------------------------------------
+NAME = graspnetapi-repo
+KIND = git
+URL = https://github.com/graspnet/graspnetAPI.git
+DEST = model/graspnetAPI_repo
+---
+# -----------------------------------------------------------------------------
+# 6) Graspness checkpoint (GraspNet-1Billion).
+#    !!! CHECKPOINT NAY KHONG PHAI CONG KHAI - KHONG CO LINK CHINH THUC !!!
+#    Day la file "graspness_realsense.pth" (epoch = 10) cua GraspNet.
+#    Nguoi dung PHAI tu dan link tai cua minh vao dong URL= ben duoi:
+#      - link direct cua Kaggle dataset (dang /api/v1/datasets/download/... hoac
+#        file da upload), hoac
+#      - Google Drive direct download link.
+#    Neu de nguyen "PASTE_URL_HERE" thi run.sh se dung lai va bao loi ro rang.
+#    (run.sh cung chap nhan viec ban copy tay file vao DEST truoc khi chay.)
+# -----------------------------------------------------------------------------
+NAME = graspness
+KIND = url
+URL = PASTE_URL_HERE
+DEST = model/graspness_reckpt.pth
