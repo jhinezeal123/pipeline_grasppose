@@ -285,6 +285,20 @@ def main():
     finally:
         P.run_phases = orig
 
+    print("\n8. grasp_empty_msg: ba nguyen nhan phai ra ba cau KHAC NHAU")
+    # Truoc day ca ba truong hop deu hien dung mot cau "khong co tu the nao",
+    # nen nhin anh khong the biet GraspNess nap hong hay chi la loc qua chat.
+    m_fail = P.grasp_empty_msg(0, "thieu MinkowskiEngine", 0.080)
+    m_none = P.grasp_empty_msg(0, None, 0.080)
+    m_narrow = P.grasp_empty_msg(7, None, 0.080)
+    check("nap hong -> noi ro 'KHONG CHAY DUOC' + ly do",
+          "KHONG CHAY DUOC" in m_fail and "MinkowskiEngine" in m_fail, m_fail)
+    check("khong co tu the nao -> cau rieng", "khong co tu the nao" in m_none
+          and "KHONG CHAY DUOC" not in m_none, m_none)
+    check("co tu the nhung rong qua -> noi RO SO LUONG va nguong",
+          "7" in m_narrow and "80" in m_narrow, m_narrow)
+    check("ba cau that su khac nhau", len({m_fail, m_none, m_narrow}) == 3)
+
     return report()
 
 

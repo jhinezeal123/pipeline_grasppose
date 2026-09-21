@@ -638,7 +638,23 @@ def draw_depth(dep):
     return np.vstack([cm, bar])[:, :, ::-1]
 
 
-def draw_grasp(image, gg, K, max_width=GRIP_MAX_OPEN_M, top=1, min_sep=0.080):
+def grasp_empty_msg(n_raw, reason, max_width):
+    """Cau bao khi khong ve duoc tu the nao.
+
+    Tach rieng khoi draw_grasp de TEST duoc: ba nguyen nhan duoi day khac han
+    nhau, gop lai lam mot cau (nhu truoc) thi khong phan biet duoc "model nap
+    hong" voi "loc qua chat" — da lam mat thoi gian dung mot lan.
+    """
+    if reason:
+        return "grasp: KHONG CHAY DUOC - %s" % reason
+    if n_raw == 0:
+        return "grasp: khong co tu the nao (mask rong?)"
+    return ("grasp: %d tu the nhung TAT CA rong hon %.0f mm"
+            % (n_raw, max_width * 1000))
+
+
+def draw_grasp(image, gg, K, max_width=GRIP_MAX_OPEN_M, top=1, min_sep=0.080,
+               reason=None):
     """Anh 4/4: anh goc + tu the gap, ve bang CHINH mesh cua upstream.
 
     Dung graspnetAPI: GraspGroup.to_open3d_geometry_list() -> plot_gripper_pro_max
@@ -653,11 +669,10 @@ def draw_grasp(image, gg, K, max_width=GRIP_MAX_OPEN_M, top=1, min_sep=0.080):
     GraspGroup = _load_graspnetapi().GraspGroup
 
     im = np.ascontiguousarray(np.asarray(image)[:, :, ::-1].copy())
-    sel = np.asarray(gg, np.float64).reshape(-1, 17)
-    sel = sel[sel[:, 1] <= float(max_width)] if len(sel) else sel
+    raw = np.asarray(gg, np.float64).reshape(-1, 17)
+    sel = raw[raw[:, 1] <= float(max_width)] if len(raw) else raw
     if len(sel) == 0:
-        _put(im, "grasp: khong co tu the nao  (kep chi mo %.0f mm)"
-             % (max_width * 1000))
+        _put(im, grasp_empty_msg(len(raw), reason, max_width))
         return im[:, :, ::-1]
     pick = []
     for i in np.argsort(-sel[:, 0]):
@@ -900,7 +915,8 @@ def pipeline(img, prompt=DEFAULT_PROMPT, fov_x=None,
         "mask": draw_mask(img, r["seg"]),
         "depthmap": draw_depth(r["dep"]),
         "grasp": draw_grasp(img, r["grasp"]["graspgroup"], r["K"],
-                            max_width=max_width, top=top),
+                            max_width=max_width, top=top,
+                            reason=r["grasp"].get("reason")),
         "depth_m": r["depth_m"],
     }
 
