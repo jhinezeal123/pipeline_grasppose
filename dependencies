@@ -77,13 +77,18 @@ DEST = model/graspnetAPI_repo
 #      md5 = f2c14a02cf024de789f324ba2da76277, 184.4 MB, luu dang zip
 #      va quan trong nhat: chay ra ket qua dung (199 tu the, 108 vua khe kep 69 mm)
 #
-#    LUU Y KHI TU TAI: link Google Drive hay bi "Quota exceeded" (qua nhieu nguoi
-#    tai). Link .../file/d/<id>/view KHONG tai truc tiep duoc — no la trang xem,
-#    va file >100 MB con bi Google chan them mot buoc "Virus scan warning".
-#    Cach gon nhat: tai bang trinh duyet, giai nen .tar, roi copy file .pth vao
-#    DEST ben duoi TRUOC khi chay run.sh.
+#    CACH TAI TU DONG: dataset Kaggle cong khai, da kiem chung tai duoc
+#    KHONG can dang nhap (HTTP 200 voi isPrivate=false):
+#      https://www.kaggle.com/datasets/bbucxi/graspness-realsense-ckpt
+#    Day la ban sao cua dung file trong minkuresunet_realsense.tar o tren,
+#    md5 f2c14a02cf024de789f324ba2da76277 / 184429769 byte.
+#
+#    LUU Y: link Google Drive KHONG tai truc tiep duoc — .../file/d/<id>/view chi
+#    la trang xem, file >100 MB bi chan them buoc "Virus scan warning", va rat hay
+#    gap "Quota exceeded". Do la ly do ton tai ban sao tren Kaggle.
 # -----------------------------------------------------------------------------
 NAME = graspness
 KIND = url
-URL = PASTE_URL_HERE
+URL = https://www.kaggle.com/api/v1/datasets/download/bbucxi/graspness-realsense-ckpt
 DEST = model/graspness_reckpt.pth
+MD5 = f2c14a02cf024de789f324ba2da76277

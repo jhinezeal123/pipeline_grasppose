@@ -139,7 +139,9 @@ for b in blocks:
     src = b.get('REPO', '') if kind == 'hf' else b.get('URL', '')
     if not (kind and name and dest and src):
         sys.exit("LOI: block thieu KEY bat buoc: %r" % b)
-    print('\t'.join([kind, name, src, dest]))
+    # MD5 tuy chon: co thi phai khop, khong thi bo qua (truong rong).
+    md5 = b.get('MD5', '')
+    print('\t'.join([kind, name, src, dest, md5]))
 PY
 )"
 
@@ -147,7 +149,7 @@ PY
 # Windows in ra \r\n thi DEST/SRC se dinh '\r' o cuoi -> sai duong dan, khong skip duoc.
 MODELS_TSV="${MODELS_TSV//$'\r'/}"
 
-while IFS=$'\t' read -r KIND NAME SRC DEST; do
+while IFS=$'\t' read -r KIND NAME SRC DEST MD5; do
   case "$KIND" in
     # ------------------------- KIND = hf -------------------------
     hf)
@@ -183,6 +185,8 @@ snapshot_download(
       ;;
     # ------------------------- KIND = url ------------------------
     url)
+      # URL Kaggle (/api/v1/datasets/download/...) tra ve mot file ZIP chua
+      # .pth, nen sau khi tai phai giai nen. Cac URL khac tra ve file tran.
       if [ -s "$DEST" ]; then
         # -s = ton tai va > 0 byte (file tai do dang bi cat ngan => tai lai).
         echo "     DA CO $NAME -> bo qua"
@@ -198,17 +202,48 @@ snapshot_download(
         echo "!!   - .../file/d/<id>/view chi la trang xem, khong phai link tai;"
         echo "!!   - file > 100 MB con bi chan them buoc 'Virus scan warning';"
         echo "!!   - va rat hay gap 'Quota exceeded' khi nhieu nguoi tai."
-        echo "!! Cach gon nhat: tai bang trinh duyet, giai nen .tar, roi copy file"
+        echo "!! Cach gon nhat: tai bang trinh duyet, giai nen, roi copy file"
         echo "!! .pth vao: $DEST"
         echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
         exit 1
-      elif command -v curl >/dev/null 2>&1; then
-        echo "     [url] $NAME: curl -> $DEST"
-        curl -L --fail -o "$DEST" "$SRC"
-        echo "     XONG $NAME"
       else
-        echo "     [url] $NAME: wget (khong co curl) -> $DEST"
-        wget -O "$DEST" "$SRC"
+        TMP="$(mktemp -d)"
+        RAW="$TMP/download"
+        if command -v curl >/dev/null 2>&1; then
+          echo "     [url] $NAME: curl -> $DEST"
+          curl -L --fail -o "$RAW" "$SRC"
+        else
+          echo "     [url] $NAME: wget (khong co curl) -> $DEST"
+          wget -O "$RAW" "$SRC"
+        fi
+
+        # Giai nen neu la zip; neu khong thi dung luon file vua tai.
+        if unzip -o -q "$RAW" -d "$TMP/x" 2>/dev/null; then
+          FOUND="$(find "$TMP/x" -name '*.pth' -type f | head -1 || true)"
+          if [ -z "$FOUND" ]; then
+            echo "!! LOI: giai nen $NAME nhung khong thay file .pth nao."
+            echo "!!   noi dung: $(ls "$TMP/x" || true)"
+            rm -rf "$TMP"; exit 1
+          fi
+          echo "     [url] giai nen -> $(basename "$FOUND")"
+          cp "$FOUND" "$DEST"
+        else
+          cp "$RAW" "$DEST"
+        fi
+        rm -rf "$TMP"
+
+        # Kiem md5 neu 'dependencies' co khai bao. Tai hong (HTML thay vi file,
+        # file cut ngan, ban ghi sai) se bi bat o day thay vi chet mo ho sau nay.
+        if [ -n "${MD5:-}" ]; then
+          GOT="$(md5sum "$DEST" | cut -d' ' -f1)"
+          if [ "$GOT" != "$MD5" ]; then
+            echo "!! LOI: $NAME sai md5."
+            echo "!!   mong doi: $MD5"
+            echo "!!   nhan duoc: $GOT  ($(wc -c < "$DEST") byte)"
+            rm -f "$DEST"; exit 1
+          fi
+          echo "     [url] md5 khop: $GOT"
+        fi
         echo "     XONG $NAME"
       fi
       ;;
