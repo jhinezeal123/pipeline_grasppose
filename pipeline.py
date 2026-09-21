@@ -817,9 +817,20 @@ def run_phases(image, prompt, fov_x=None, detector=None, segmenter=None,
          % (out["seg"]["mask"].sum(), 100.0 * out["seg"]["mask"].mean(),
             out["seg"].get("reason") or "OK"))
 
+    # ---------------- DO SAU CUA VAT (1 con so, met) ----------------
+    # Trung vi do sau cua cac pixel NAM TRONG MASK SAM -> do sau cua VAT, khong
+    # phai cua ca anh. Dung trung vi (khong phai trung binh) de pixel nhieu o ria
+    # mask khong keo lech. Loc > 0 vi MoGe tra 0 o vung khong do duoc.
+    mask = np.asarray(out["seg"]["mask"]).astype(bool)
+    _dm = dep["depth"][mask]
+    _dm = _dm[np.isfinite(_dm) & (_dm > 0)]
+    out["depth_m"] = float(np.median(_dm)) if _dm.size else None
+    _log("  do sau vat: %s"
+         % ("khong co (mask rong)" if out["depth_m"] is None
+            else "%.3f m (trung vi tren %d px mask)" % (out["depth_m"], _dm.size)))
+
     # ---------------- PHASE 3: GraspNess ----------------
     _log("PHASE 3: nap GraspNess (tat ca da nha)")
-    mask = np.asarray(out["seg"]["mask"]).astype(bool)
     if not mask.any():
         out["cloud"] = np.zeros((0, 3), np.float32)
         out["grasp"] = {"graspgroup": np.zeros((0, 17), np.float64),
@@ -871,6 +882,10 @@ def pipeline(img, prompt=DEFAULT_PROMPT, fov_x=None,
             "mask"     : anh goc + mat na SAM phu len
             "depthmap" : do sau GOC cua MoGe tren toan anh
             "grasp"    : anh goc + tu the gap (mesh upstream)
+        va 1 con so:
+            "depth_m"  : float hoac None. Do sau cua VAT tinh bang met = TRUNG VI
+                         do sau MoGe tren cac pixel nam trong mask SAM (khong phai
+                         do sau ca anh). None khi mask rong / khong co pixel hop le.
 
     Khong raise khi model khong tim thay vat: anh tuong ung se ghi ro ly do.
     """
@@ -886,6 +901,7 @@ def pipeline(img, prompt=DEFAULT_PROMPT, fov_x=None,
         "depthmap": draw_depth(r["dep"]),
         "grasp": draw_grasp(img, r["grasp"]["graspgroup"], r["K"],
                             max_width=max_width, top=top),
+        "depth_m": r["depth_m"],
     }
 
 
@@ -937,6 +953,12 @@ def main():
         Image.fromarray(res[key]).save(p)
         saved.append(p)
         _log("  ghi %s  (%dx%d)" % (p, res[key].shape[1], res[key].shape[0]))
+
+    if res["depth_m"] is None:
+        _log("DO SAU VAT: khong xac dinh duoc (mask rong / DINO khong thay vat)")
+    else:
+        _log("DO SAU VAT: %.3f m" % res["depth_m"])
+
     print("\n".join(saved))
     return 0
 

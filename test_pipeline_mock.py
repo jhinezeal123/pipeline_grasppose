@@ -208,7 +208,8 @@ def main():
     finally:
         P.run_phases = orig
 
-    check("tra ve dung 4 anh", set(res.keys()) == {"box", "mask", "depthmap", "grasp"},
+    check("tra ve 4 anh + 1 con so",
+          set(res.keys()) == {"box", "mask", "depthmap", "grasp", "depth_m"},
           str(sorted(res.keys())))
     for k in ("box", "mask", "depthmap", "grasp"):
         a = res.get(k)
@@ -222,6 +223,24 @@ def main():
           not np.array_equal(res["depthmap"], img))
     check("anh 'mask' co pixel xanh la (mask duoc ve)",
           bool(((res["mask"][:, :, 1].astype(int) - res["mask"][:, :, 0].astype(int)) > 40).any()))
+
+    # ---- 5b. depth_m: TRUNG VI do sau TRONG MASK, khong phai ca anh ----
+    # Dung lai dung cong thuc cua FakeDepth de tinh ky vong DOC LAP voi pipeline.
+    print("\n5b. depth_m (do sau cua VAT)")
+    z1d = 0.5 + 0.5 * (np.arange(240, dtype=np.float32) / 240)
+    zz = np.repeat(z1d[:, None], 320, axis=1)
+    mref = np.zeros((240, 320), bool)
+    mref[120:200, 100:220] = True
+    expect_in_mask = float(np.median(zz[mref]))
+    expect_whole = float(np.median(zz))
+    dm = res["depth_m"]
+    check("depth_m la so float", isinstance(dm, float), repr(dm))
+    check("depth_m = trung vi depth TRONG MASK (%.4f)" % expect_in_mask,
+          dm is not None and abs(dm - expect_in_mask) < 1e-3,
+          "nhan duoc %s" % dm)
+    check("depth_m KHONG phai trung vi ca anh (%.4f)" % expect_whole,
+          dm is not None and abs(dm - expect_whole) > 1e-2,
+          "lech %.4f" % (abs(dm - expect_whole) if dm is not None else float("nan")))
 
     # ---- 6. Thu tu phase ----
     print("\n6. Thu tu 3 phase (VRAM khong bao gio giu 2 model nang)")
@@ -257,7 +276,9 @@ def main():
     P.run_phases = patched2
     try:
         res2 = P.pipeline(img, prompt="khong co gi")
-        check("mask rong -> van tra 4 anh, khong raise", len(res2) == 4)
+        check("mask rong -> van tra 4 anh + 1 so, khong raise", len(res2) == 5)
+        check("mask rong -> depth_m = None (khong bia ra so)",
+              res2["depth_m"] is None, repr(res2["depth_m"]))
     except Exception:
         traceback.print_exc()
         check("mask rong -> khong raise", False)

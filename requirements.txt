@@ -1,0 +1,52 @@
+# =============================================================================
+# requirements.txt - thu vien Python cho pipeline va web UI (chuan HuggingFace
+# Spaces). Day la ban song song cua buoc [5b] trong run.sh, viet theo dung dinh
+# dang ma HF Spaces doc duoc.
+#
+# =============================================================================
+# !!! DOC KY: FILE NAY KHONG DU DE DUNG MOT HF SPACE THAT !!!
+# -----------------------------------------------------------------------------
+# Hai thu BAT BUOC cua pipeline KHONG the cai bang requirements.txt:
+#
+#   1) graspnetAPI (graspnet/graspnetAPI)
+#      - Goi "graspnetAPI" tren PyPI bi HONG: no van import setuptools.extern.six,
+#        thu da bi Python moi xoa.
+#      - Cach dung duoc: git clone repo roi them vao PYTHONPATH. pipeline.py lam
+#        viec do qua ham _load_graspnetapi() (nap thang graspnetAPI.grasp va bo qua
+#        __init__.py, nen khong keo theo graspnet_eval -> dexnet -> skimage).
+#      - run.sh clone vao model/graspnetAPI_repo va export PYTHONPATH.
+#
+#   2) Checkpoint GraspNess (graspness_realsense.pth)
+#      - KHONG PHAI CONG KHAI, khong co link chinh thuc. Xem file 'dependencies'
+#        (block so 6): nguoi dung phai tu dan URL cua minh vao.
+#
+# Vi vay: KAGGLE LA DUONG CHAY CHINH THUC (xem README.md muc "Chay tren Kaggle").
+# File nay chi de repo hop chuan HF Spaces va de cai nhanh phan UI.
+# =============================================================================
+
+# --- Model + thi giac ---------------------------------------------------------
+transformers>=4.40
+torch
+timm
+
+# --- Anh / diem 3D ------------------------------------------------------------
+open3d
+opencv-python-headless
+pillow
+numpy
+scipy
+
+# --- Tien ich -----------------------------------------------------------------
+huggingface_hub
+# transforms3d BAT BUOC: graspnetAPI/utils/utils.py can no ngay dong import dau
+# ("from transforms3d.euler import euler2mat"). Thieu no thi viec ve tu the gap
+# bang mesh upstream se vo luc import, du moi thu khac chay tot.
+transforms3d
+
+# --- Web UI -------------------------------------------------------------------
+gradio>=4.44
+
+# --- MoGe: cai tu SOURCE, khong phai ban "moge" tren PyPI ---------------------
+# Goi "moge" tren PyPI la ban v2 (API khac: from moge.model import MoGeModel).
+# Pipeline nay can ban v3 (from moge.model.v3 import MoGeModel).
+git+https://github.com/microsoft/moge.git

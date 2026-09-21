@@ -12,6 +12,8 @@
 #   bash run.sh                      # tu lay anh dau tien trong img/
 #   bash run.sh img/anh-cua-ban.png  # chi dinh anh
 #   bash run.sh img/anh.png --prompt "cai coc"   # cac flag them duoc chuyen tiep
+#   bash run.sh --serve              # mo WEB UI (gradio) thay vi chay 1 anh
+#   bash run.sh --serve --port 7860  # doi cong (mac dinh 8080)
 #
 # KHONG co duong dan tuyet doi nao bi hardcode: moi thu tinh theo thu muc script.
 # =============================================================================
@@ -31,6 +33,31 @@ if [ -d /usr/local/nvidia/lib64 ]; then
 fi
 
 # -----------------------------------------------------------------------------
+# BUOC 1b: tach cac co RIENG cua run.sh ra khoi tham so se chuyen cho pipeline.py.
+# Phai lam TRUOC buoc 6, vi o do "$1" duoc coi la duong dan anh — neu khong tach
+# thi "--serve" se bi hieu la ten file anh.
+# -----------------------------------------------------------------------------
+SERVE=0
+PORT=8080
+_ARGS=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --serve)   SERVE=1; shift ;;
+    --port)    PORT="${2:?--port can 1 gia tri}"; shift 2 ;;
+    --port=*)  PORT="${1#--port=}"; shift ;;
+    *)         _ARGS+=("$1"); shift ;;
+  esac
+done
+# Tra lai phan tham so con lai, de "${1:-...}" va "${@:2}" ben duoi chay nhu cu.
+set -- ${_ARGS[@]+"${_ARGS[@]}"}
+
+case "$PORT" in
+  ''|*[!0-9]*)
+    echo "LOI: --port phai la so nguyen, nhan duoc '$PORT'" >&2
+    exit 1 ;;
+esac
+
+# -----------------------------------------------------------------------------
 # BUOC 2: in header cho nguoi dung biet dang chay o dau.
 # -----------------------------------------------------------------------------
 echo "=============================================================="
@@ -42,6 +69,7 @@ echo "  Anh vao    : $SCRIPT_DIR/img"
 echo "  Model      : $SCRIPT_DIR/model"
 echo "  Ket qua    : $SCRIPT_DIR/output"
 echo "  Python     : $(command -v python3 || echo 'KHONG THAY python3')"
+echo "  Che do     : $( [ "$SERVE" = "1" ] && echo "SERVE - web UI o cong $PORT" || echo "BATCH - chay 1 anh")"
 echo "=============================================================="
 
 # -----------------------------------------------------------------------------
@@ -213,12 +241,18 @@ if ! python3 -c "from moge.model.v3 import MoGeModel; print('moge v3 OK')"; then
   exit 1
 fi
 
-# 5b) Cac thu vien con lai.
+# 5b) Cac thu vien con lai. gradio CHI cai khi chay --serve, de duong chay batch
+# khong phai keo them ~150 MB (fastapi/uvicorn/pydantic) ma no khong dung den.
+GRADIO_PKG=()
+if [ "$SERVE" = "1" ]; then
+  GRADIO_PKG=(gradio)
+  echo "     [5b] (che do --serve nen cai them gradio)"
+fi
 echo "     [5b] pip install transformers/torch/open3d/opencv/transforms3d/..."
 # transforms3d BAT BUOC: graspnetAPI/utils/utils.py can no ngay dong import dau
 # ("from transforms3d.euler import euler2mat"). Thieu no thi viec ve tu the gap
 # bang mesh upstream se vo luc import, du moi thu khac chay tot.
-pip install -q "transformers>=4.40" "torch" open3d opencv-python-headless pillow numpy scipy huggingface_hub timm transforms3d
+pip install -q "transformers>=4.40" "torch" open3d opencv-python-headless pillow numpy scipy huggingface_hub timm transforms3d ${GRADIO_PKG[@]+"${GRADIO_PKG[@]}"}
 
 # 5c) Ghi chu co y (de nguoi sau khong mat thoi gian go loi):
 echo "     GHI CHU: goi 'graspnetAPI' tren PyPI bi HONG (loi setuptools.extern.six"
@@ -227,6 +261,23 @@ echo "              model/graspnetAPI_repo va them no vao PYTHONPATH."
 echo "     GHI CHU: KHONG can cai 'autolab_core' / 'scikit-image' / DexNet."
 echo "              pipeline.py nap thang graspnetAPI.grasp va bo qua __init__.py,"
 echo "              nen ca chuoi phan DANH GIA (graspnet_eval -> dexnet) khong bi keo theo."
+
+# -----------------------------------------------------------------------------
+# BUOC 5c: NEU la --serve thi mo web UI roi DUNG (khong chay 1 anh nao).
+# Dat ngay sau khi model + thu vien da san sang, truoc buoc 6 (chon anh) — vi
+# che do nay khong can anh dau vao.
+# -----------------------------------------------------------------------------
+if [ "$SERVE" = "1" ]; then
+  echo "--------------------------------------------------------------"
+  echo "[6/8] CHE DO --serve: mo web UI (khong chay 1 anh)."
+  echo "     http://<may-chu>:$PORT/"
+  echo "     Moi lan bam Submit nap lai 4 model, mat khoang 50 giay."
+  echo "     Ctrl-C de dung."
+  echo "--------------------------------------------------------------"
+  # exec: thay the shell bang app.py -> Ctrl-C di thang toi server, khong de lai
+  # tien trinh mo côi.
+  exec python3 app.py --port "$PORT"
+fi
 
 # -----------------------------------------------------------------------------
 # BUOC 6: chon anh dau vao.
