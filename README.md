@@ -80,6 +80,12 @@ nay rat de chan doan nham thanh "loc qua chat" hoac "mask rong", nen `run.sh`
 - thu ghi that vao `pointnet2/`; ghi duoc thi build tai cho, khong thi **copy
   sang `model/graspness_unofficial_build/`** roi tro `GRASPNESS_HOME` vao do
   (tren Kaggle `model/` la symlink vao `/kaggle/input` chi doc);
+  phep thu la mot lan `touch` that, **khong** dung `[ -w ]`: chay bang root thi
+  `[ -w ]` tra ve dung ca tren mount chi doc;
+- copy bang **`cp -rL`** chu khong phai `cp -r`. `model/graspness_unofficial`
+  thuong **la mot symlink** vao `/kaggle/input`, ma `cp -r` mac dinh **copy chinh
+  symlink do**, nen "ban sao" van tro vao cho chi doc va build chet bang
+  `error: could not create '...': Read-only file system`;
 - them `/usr/local/cuda/bin` vao `PATH` (nvcc co san nhung khong nam trong PATH);
 - dat `TORCH_CUDA_ARCH_LIST` theo GPU that, mac dinh `7.5`. Khong dat thi torch
   tu do arch, va tren may khong thay GPU se ra danh sach rong roi build chet voi
@@ -88,6 +94,26 @@ nay rat de chan doan nham thanh "loc qua chat" hoac "mask rong", nen `run.sh`
   ten goi thanh `pointnet2/` tuong doi voi CWD, ma CWD da la `pointnet2/`, nen doi
   thu muc `pointnet2/pointnet2/` khong ton tai) — nhung file `.so` **da duoc sinh
   ra**, nen script chep thang no vao cho ma `import pointnet2._ext` tim.
+
+### `set -euo pipefail` o dau `run.sh` va moi lenh co the that bai
+
+`run.sh` chay duoi `set -euo pipefail`. Nghia la **mot lenh that bai bat ky se
+giet ca script ngay lap tuc** — va vi `run.sh` la thu duy nhat ghi ra man hinh,
+nguoi dung chi thay kernel Kaggle bao `ERROR` ma **khong co log nao**.
+
+Ba cho trong BUOC 5d tung bi dung loi nay:
+
+```bash
+EXT_SO="$(find ... | head -1)"          # find loi, hoac head dong ong som
+                                        # -> pipefail tra ve khac 0
+TORCH_CUDA_ARCH_LIST=$(python3 -c ...)  # python3 loi -> khac 0, va gia tri
+                                        # mac dinh 7.5 khong bao gio duoc dat
+cp -r ... / chmod -R ...                # loi -> khac 0
+```
+
+Nay ca ba deu duoc chan (`|| true` cho phep gan, `if` cho `cp`). Khi sua BUOC 5d,
+**phai chay `vla_test/_test_runsh_build.sh`** — no trich dung khoi nay tu `run.sh`
+va chay duoi `set -euo pipefail` y nhu that.
 
 Mat khoang 2-4 phut, chi chay mot lan. Build that bai **khong** lam chet script:
 GraspNess se bao ro ly do ngay tren anh ket qua (xem `grasp_empty_msg`).
@@ -210,6 +236,27 @@ Thiet ke dang chu y:
 - **`share=False`** trong `launch()` la co y: chay trong notebook thi gradio tu
   bat `share=True` va mo mot duong cong khai ra Internet toi may dang chay GPU,
   khong xac thuc gi. Ta da co duong ham rieng nen khong can.
+
+### So do that, do tren Kaggle T4 (khong phai suy doan)
+
+Anh `example/bag_input.png`, prompt `"a little bag"`, qua dung duong web UI
+(`/gradio_api/call/run_one` tren cong 8080):
+
+| Buoc | Ket qua |
+|---|---|
+| Khoi dong (da gom build `_ext`) | 234-306 s, trong do build ~140 s |
+| MoGe | `fov_x=74.42 do`, depth toan anh 0.403..1.150 m |
+| Grounding-DINO | 1 hop `bag`, score 0.265 |
+| SAM | mask 136358 px (11.1%) |
+| Cloud tu mask | bbox 461 x 218 x 367 mm |
+| GraspNess | 196 tu the, 109 vua khe kep 69 mm |
+| **`depth_m`** | **0.482 m**, lap lai y nguyen qua 3 lan chay doc lap |
+| Anh grasp | 55999 byte — rut ra 5 tu the, rong 42.2 / 54.2 / 65.2 / 68.3 / 77.7 mm |
+| Ca am (prompt `"xyzzynotathing"`) | `depth_m = None`, 4 anh van tra ve, ghi ro ly do |
+
+Lam lai: `vla_test/_remote_e2e.py` goi Gradio API **tu trong may Kaggle**
+(127.0.0.1:8080) nen khong phu thuoc tunnel; `vla_test/_fetch_space_out.py` chay
+no qua SSH roi keo 4 anh ve.
 
 ### Ve `requirements.txt`
 
