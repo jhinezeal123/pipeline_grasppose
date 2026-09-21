@@ -291,12 +291,18 @@ else
     BUILD_DIR="$GRASPNESS_DIR"
   else
     BUILD_DIR="$SCRIPT_DIR/model/graspness_unofficial_build"
-    if [ ! -d "$BUILD_DIR/pointnet2" ]; then
+    # [ -L ] : neu lan chay truoc da de lai mot SYMLINK hong thi phai lam lai.
+    if [ ! -d "$BUILD_DIR/pointnet2" ] || [ -L "$BUILD_DIR" ]; then
       echo "     [5d] $GRASPNESS_DIR chi doc -> copy sang $BUILD_DIR"
       rm -rf "$BUILD_DIR"
+      # '-L' la BAT BUOC, khong phai cho chac: $GRASPNESS_DIR thuong LA MOT
+      # SYMLINK (model/graspness_unofficial -> /kaggle/input/...), va 'cp -r'
+      # mac dinh COPY CHINH SYMLINK DO chu khong copy noi dung. Ban "sao" khi do
+      # van tro vao cho chi doc, va build that bai bang:
+      #     error: could not create '...': Read-only file system
       # 'set -e' o dau script: moi lenh co the that bai deu phai duoc chan, neu
       # khong ca script thoat ngay va KHONG con co hoi bao ly do tren anh.
-      if cp -r "$GRASPNESS_DIR" "$BUILD_DIR" 2>/dev/null; then
+      if cp -rL "$GRASPNESS_DIR" "$BUILD_DIR" 2>/dev/null; then
         chmod -R u+w "$BUILD_DIR" 2>/dev/null || true
       else
         echo "     CANH BAO: copy that bai -> build tai cho (se hong neu chi doc)"
