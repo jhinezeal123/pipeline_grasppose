@@ -60,15 +60,28 @@ URL = https://github.com/graspnet/graspnetAPI.git
 DEST = model/graspnetAPI_repo
 ---
 # -----------------------------------------------------------------------------
-# 6) Graspness checkpoint (GraspNet-1Billion).
-#    !!! CHECKPOINT NAY KHONG PHAI CONG KHAI - KHONG CO LINK CHINH THUC !!!
-#    Day la file "graspness_realsense.pth" (epoch = 10) cua GraspNet.
-#    Nguoi dung PHAI tu dan link tai cua minh vao dong URL= ben duoi:
-#      - link direct cua Kaggle dataset (dang /api/v1/datasets/download/... hoac
-#        file da upload), hoac
-#      - Google Drive direct download link.
-#    Neu de nguyen "PASTE_URL_HERE" thi run.sh se dung lai va bao loi ro rang.
-#    (run.sh cung chap nhan viec ban copy tay file vao DEST truoc khi chay.)
+# 6) Graspness checkpoint (GraspNet-1Billion), ban RealSense.
+#
+#    NGUON CHINH THUC (da kiem chung, khong phai suy doan):
+#      repo  : https://github.com/graspnet/graspness_unofficial
+#      README: muc "Model Weights" -> Google Drive
+#      file  : minkuresunet_realsense.tar  (176 MB, ben trong co .pth)
+#      link  : https://drive.google.com/file/d/1RfdpEM2y0x98rV28d7B2Dg8LLFKnBkfL/view
+#      (ban Kinect: https://drive.google.com/file/d/10o5fc8LQsbI8H0pIC2RTJMNapW9eczqF/view)
+#
+#    DA DOI CHIEU NOI DUNG voi upstream — file ta dung dung la weight do:
+#      epoch            = 10   (khop --checkpoint_path logs/log_kn/minkresunet_epoch10.tar
+#                               trong command_test.sh cua upstream)
+#      216 tham so, gom 4 nhanh graspable/rotation/crop/swad — bon ten nay CHI
+#      co trong models/graspnet.py cua graspness_unofficial
+#      md5 = f2c14a02cf024de789f324ba2da76277, 184.4 MB, luu dang zip
+#      va quan trong nhat: chay ra ket qua dung (199 tu the, 108 vua khe kep 69 mm)
+#
+#    LUU Y KHI TU TAI: link Google Drive hay bi "Quota exceeded" (qua nhieu nguoi
+#    tai). Link .../file/d/<id>/view KHONG tai truc tiep duoc — no la trang xem,
+#    va file >100 MB con bi Google chan them mot buoc "Virus scan warning".
+#    Cach gon nhat: tai bang trinh duyet, giai nen .tar, roi copy file .pth vao
+#    DEST ben duoi TRUOC khi chay run.sh.
 # -----------------------------------------------------------------------------
 NAME = graspness
 KIND = url

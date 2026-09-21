@@ -189,12 +189,17 @@ snapshot_download(
       elif [ "$SRC" = "PASTE_URL_HERE" ] || [ -z "$SRC" ]; then
         echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
         echo "!! CANH BAO: $NAME chua co URL."
-        echo "!! Checkpoint 'graspness_realsense.pth' (epoch=10) cua GraspNet"
-        echo "!! KHONG phai tai lieu cong khai, khong co link chinh thuc."
-        echo "!! Ban phai tu mo file 'dependencies' va thay dong:"
-        echo "!!     URL = PASTE_URL_HERE"
-        echo "!! bang link tai cua ban (Kaggle dataset / Google Drive direct link),"
-        echo "!! hoac copy tay file vao: $DEST"
+        echo "!! Checkpoint RealSense cua GraspNet CO link chinh thuc, nam o muc"
+        echo "!! 'Model Weights' trong README cua:"
+        echo "!!     https://github.com/graspnet/graspness_unofficial"
+        echo "!! File goc ten 'minkuresunet_realsense.tar' (176 MB, chua .pth ben trong)."
+        echo "!!"
+        echo "!! Link Google Drive KHONG tai truc tiep duoc:"
+        echo "!!   - .../file/d/<id>/view chi la trang xem, khong phai link tai;"
+        echo "!!   - file > 100 MB con bi chan them buoc 'Virus scan warning';"
+        echo "!!   - va rat hay gap 'Quota exceeded' khi nhieu nguoi tai."
+        echo "!! Cach gon nhat: tai bang trinh duyet, giai nen .tar, roi copy file"
+        echo "!! .pth vao: $DEST"
         echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
         exit 1
       elif command -v curl >/dev/null 2>&1; then
