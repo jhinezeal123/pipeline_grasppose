@@ -66,6 +66,30 @@ Ten file la `<ten-anh>_<loai>.png`, gom 4 loai:
 - **depthmap** - ban do do sau tu MoGe.
 - **grasp** - anh goc + grasp pose (vi tri + huong dat tay).
 
+Anh mau trong `example/` (prompt "a little bag", anh 1280x960):
+
+| | |
+|---|---|
+| `bag_input.png` | anh goc |
+| `bag_box.png` | DINO: 1 hop `bag` score 0.265 |
+| `bag_mask.png` | SAM: 136358 px (11.1%) IoU 0.988 |
+| `bag_depthmap.png` | MoGe: fov_x 74.42 do, depth 0.403..1.150 m |
+| `bag_grasp.png` | 191 tu the, 114 vua khe kep that 69 mm |
+
+Tong thoi gian chay: **~51 s** tren Tesla T4 (MoGe 11 s, DINO 5 s, SAM CPU ~9 s,
+GraspNess phan con lai).
+
+### Vi sao gripper trong anh trong nhu mot thanh mong
+
+Khong phai loi ve. `plot_gripper_pro_max` cua upstream (graspnetAPI) dung ngon
+day `height = 0.004` (4 mm) va `finger_width = 0.004`. Khi truc tiep can nam gan
+mat phang anh, ta nhin nghieng tam 4 mm -> no ra mot vet mong.
+
+`o3d.visualization.draw_geometries` (duong ve goc cua upstream) khong chay duoc
+o day: `OffscreenRenderer` bao `Failed to load vulkan library`. Nen mesh duoc
+chieu va to tam giac bang tay, co them do bong Lambert cho ra khoi 3D.
+**Hinh hoc va mau (R=score, G=0, B=1-score) van lay nguyen tu upstream.**
+
 ## 5. Chien luoc VRAM 3 pha
 
 Khong bao gio giu 2 model nang cung luc tren VRAM. Model nao chay xong thi bi

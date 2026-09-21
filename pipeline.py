@@ -45,8 +45,16 @@ GRASPNESS_HOME = os.environ.get("GRASPNESS_HOME",
 #: Kich thuoc voxel cua GraspNet (met) — giong graspnet_dataset.py
 VOXEL = 0.005
 
-#: Khe mo toi da cua kep myArm M750 (met). Grasp rong hon muc nay KHONG gap duoc.
-GRIP_MAX_OPEN_M = 0.0694
+#: Khe mo TOI DA THAT cua kep myArm M750 (met).
+#: Lay tu myarm_m750_mujoco.xml: left/right_gripper_joint range="0 0.0345",
+#: hai ngon mo nguoc chieu nhau nen khe ho = 2 x 0.0345 = 0.069 m.
+GRIP_HW_OPEN_M = 0.0694
+
+#: Khe mo dung lam NGUONG MAC DINH khi loc tu the gap (met).
+#: = 80 mm theo yeu cau nguoi dung ("tang gioi han kep len 8cm"). Rong hon
+#: GRIP_HW_OPEN_M thi kep that KHONG mo toi, nhung van ve ra de nhin thay.
+#: Muon dung cho robot that: --max-width 0.0694
+GRIP_MAX_OPEN_M = 0.080
 
 #: Mac dinh cho cau lenh van ban neu nguoi dung khong truyen --prompt
 DEFAULT_PROMPT = "the object"
@@ -328,6 +336,27 @@ class MogeDepth(Depth_Estimate):
         self._out = None
         self._h = self._w = 0
 
+    def _resolve(self):
+        """MoGeModel.from_pretrained() chi nhan FILE.
+
+        Nhung run.sh tai bang huggingface snapshot_download(local_dir=...) nen
+        thuong ra mot THU MUC chua model.pt. Nhan ca hai cho khoi vo:
+          model/moge-3-vitl          (thu muc)  -> model/moge-3-vitl/model.pt
+          model/moge-3-vitl/model.pt (file)     -> dung nguyen
+          Ruicheng/moge-3-vitl       (repo id)  -> de nguyen, HF tu tai
+        """
+        p = self.model_path
+        if os.path.isdir(p):
+            for cand in ("model.pt", "model.safetensors", "pytorch_model.bin"):
+                if os.path.isfile(os.path.join(p, cand)):
+                    return os.path.join(p, cand)
+            raise RuntimeError(
+                "thu muc %r khong chua model.pt / model.safetensors — "
+                "xoa thu muc do roi chay lai run.sh" % p)
+        if os.path.sep in p and not os.path.isfile(p):
+            raise RuntimeError("khong thay trong so MoGe tai %r — chay run.sh" % p)
+        return p                                  # repo id -> HF tu tai
+
     def prepare(self, image, fov_x=None):
         import torch
         from moge.model.v3 import MoGeModel          # v3 — PyPI `moge` la v2
@@ -336,7 +365,7 @@ class MogeDepth(Depth_Estimate):
         self._h, self._w = rgb.shape[:2]
         if self.model is None:
             t0 = time.time()
-            self.model = MoGeModel.from_pretrained(self.model_path).to(self.device).eval()
+            self.model = MoGeModel.from_pretrained(self._resolve()).to(self.device).eval()
             _log("MoGe nap xong trong %.1fs (%s)" % (time.time() - t0, self.device))
         t = _to_tensor_chw(rgb, self.device)
         kw = {} if self._fov_x is None else {"fov_x": self._fov_x}
@@ -644,6 +673,7 @@ def draw_grasp(image, gg, K, max_width=GRIP_MAX_OPEN_M, top=1, min_sep=0.080):
         z = np.maximum(Pw[:, 2], 1e-6)
         return np.stack([fx * Pw[:, 0] / z + cx, fy * Pw[:, 1] / z + cy], -1)
 
+    lines = []
     for rank, gi in enumerate(pick):
         mesh = gl[gi]
         V = np.asarray(mesh.vertices)
@@ -652,30 +682,61 @@ def draw_grasp(image, gg, K, max_width=GRIP_MAX_OPEN_M, top=1, min_sep=0.080):
         uv = proj(V)
         fin = np.isfinite(uv).all(1)
         ov = im.copy()
+        # Lambert don gian theo phap tuyen tam giac — thay cho phan to bong ma
+        # o3d.visualization lam san (o day khong chay duoc: thieu Vulkan/X11).
+        # KHONG doi hinh hoc, chi doi do sang tung mat cho ra khoi 3D.
+        Vt = V[T]                                    # (n,3,3)
+        nrm = np.cross(Vt[:, 1] - Vt[:, 0], Vt[:, 2] - Vt[:, 0])
+        nl = np.linalg.norm(nrm, axis=1, keepdims=True)
+        nrm = nrm / np.maximum(nl, 1e-12)
+        lam = 0.45 + 0.55 * np.abs(nrm @ np.array([0.3, -0.5, 0.81]))
         for ti in np.argsort(-V[T].mean(1)[:, 2]):        # xa ve truoc
             tri = T[ti]
             if not fin[tri].all():
                 continue
-            c = np.clip(C[tri].mean(0), 0, 1)
+            c = np.clip(C[tri].mean(0), 0, 1) * lam[ti]
             cv2.fillPoly(ov, [uv[tri].astype(np.int32)],
-                         (int(c[2] * 255), int(c[1] * 255), int(c[0] * 255)))
-        cv2.addWeighted(ov, 0.85, im, 0.15, 0, im)
-        for tri in T:
+                         (int(min(c[2], 1) * 255), int(min(c[1], 1) * 255),
+                          int(min(c[0], 1) * 255)))
+        cv2.addWeighted(ov, 0.92, im, 0.08, 0, im)
+        # Vien toi MAU CUA CHINH MESH (khong phai den (25,25,25)): mesh upstream
+        # la tam mong day 4 mm, vien den 1px tren moi tam giac se nuot het mang
+        # mau va trong nhu cai long thep. Vien cung mau thi van thay duoc hinh
+        # khoi ma khong pha mau.
+        for ti, tri in enumerate(T):
             if fin[tri].all():
+                c = np.clip(C[tri].mean(0), 0, 1) * lam[ti]
+                edge = (int(min(c[2], 1) * 150), int(min(c[1], 1) * 150),
+                        int(min(c[0], 1) * 150))
                 cv2.polylines(im, [uv[tri].astype(np.int32)], True,
-                              (25, 25, 25), 1, cv2.LINE_AA)
+                              edge, 1, cv2.LINE_AA)
         g = sel[gi]
-        _put(im, "#%d score %.4f  width %.1f mm%s"
-             % (rank + 1, g[0], g[1] * 1000,
-                "  VUOT %.0f mm" % (max_width * 1000) if g[1] > max_width else ""))
+        # Kich thuoc chieu ra pixel — de DOI CHIEU bang so, khong doan bang mat.
+        span = (uv[fin].max(0) - uv[fin].min(0)) if fin.any() else np.zeros(2)
+        zc = float(g[15])
+        lines.append("#%d score %.4f  width %.1f mm  z=%.2fm  %dx%d px%s"
+                     % (rank + 1, g[0], g[1] * 1000, zc,
+                        span[0], span[1],
+                        "  VUOT %.0f mm" % (max_width * 1000)
+                        if g[1] > max_width else ""))
+    # Ghi nhan SAU khi ve xong: _put() xoa dai tren-trai, goi trong vong lap thi
+    # nhan sau de nhan truoc, cuoi cung chi con dong cuoi.
+    _put(im, lines)
     return im[:, :, ::-1]
 
 
 def _put(im, text, bg=(255, 255, 255), fg=(0, 0, 0)):
-    """Ghi dong chu o goc tren trai, co nen trang de doc duoc."""
+    """Ghi chu o goc tren trai, co nen trang de doc duoc.
+
+    `text` nhan str hoac list[str]; list thi ve thanh nhieu dong.
+    """
     import cv2
-    cv2.rectangle(im, (0, 0), (min(im.shape[1], 700), 32), bg, -1)
-    cv2.putText(im, text, (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, fg, 2)
+    lines = [text] if isinstance(text, str) else list(text)
+    hgt = 24
+    cv2.rectangle(im, (0, 0), (min(im.shape[1], 900), 8 + hgt * len(lines)), bg, -1)
+    for i, s in enumerate(lines):
+        cv2.putText(im, s, (8, 24 + i * hgt), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.55, fg, 1, cv2.LINE_AA)
 
 
 # ===========================================================================
@@ -781,10 +842,9 @@ def run_phases(image, prompt, fov_x=None, detector=None, segmenter=None,
             grasper.release()
             _vram(" sau khi GraspNess nha")
         gg = out["grasp"]["graspgroup"]
-        n_ok = int((gg[:, 1] <= GRIP_MAX_OPEN_M).sum()) if len(gg) else 0
-        _log("  GraspNess: %d tu the (%d trong gioi han %.0f mm) | %s"
-             % (len(gg), n_ok, GRIP_MAX_OPEN_M * 1000,
-                out["grasp"].get("reason") or "OK"))
+        n_ok = int((gg[:, 1] <= GRIP_HW_OPEN_M).sum()) if len(gg) else 0
+        _log("  GraspNess: %d tu the | %d vua khe kep THAT %.0f mm"
+             % (len(gg), n_ok, GRIP_HW_OPEN_M * 1000))
 
     out["K"] = K
     return out
