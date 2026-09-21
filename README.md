@@ -163,9 +163,11 @@ Thiet ke dang chu y:
 - **Moi lan Submit nap lai ca 4 model, mat khoang 50 giay.** Do la he qua truc
   tiep cua chien luoc VRAM 3 pha (muc 5): model dung xong bi day ra ngay, nen lan
   sau phai nap lai. Doi lay viec chay duoc tren GPU 16 GB.
-- **`concurrency_limit=1`** trong `app.py` la bat buoc, khong phai cho dep: 2 lan
-  chay song song se OOM T4 16 GB, vi thiet ke 3 pha chi giai phong VRAM khi chay
-  tuan tu.
+- **Chay song song bi gioi han ve 1** (mac dinh cua Gradio, khong phai cho dep): 2
+  lan chay cung luc se OOM T4 16 GB, vi thiet ke 3 pha chi giai phong VRAM khi chay
+  tuan tu. `app.py` co y **KHONG** viet `queue(concurrency_limit=...)`: tham so do
+  khong ton tai (da bi loi that tren Kaggle: `Blocks.queue() got an unexpected
+  keyword argument`), va mac dinh cua Gradio da la 1.
 - Prompt rong -> dung `the object`. DINO khong tim thay vat -> **van tra 4 anh**
   kem ly do ghi truc tiep tren anh, o do sau de trong, app khong crash.
 - `app.py` tach phan loi (`run_one`) khoi gradio de test duoc (muc 6). Import

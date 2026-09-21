@@ -123,9 +123,13 @@ def main():
     P._add_sys_path()
 
     demo = build_ui()
-    # concurrency_limit=1 la BAT BUOC: 2 lan chay song song se OOM T4 16 GB,
-    # vi thiet ke 3 pha chi giai phong VRAM khi chay tuan tu.
-    demo.queue(concurrency_limit=1)
+    # demo.queue() KHONG nhan tham so 'concurrency_limit' — da bi loi that tren
+    # Kaggle: "Blocks.queue() got an unexpected keyword argument 'concurrency_limit'".
+    # Khong can dat gi ca: tai lieu Gradio noi ro gioi han chay song song MAC DINH
+    # cua moi event listener LA 1 ("Defaults to 1 if not set otherwise"), dung y ta.
+    # Do la thu BAT BUOC phai co: 2 lan chay song song se OOM T4 16 GB, vi thiet ke
+    # 3 pha chi giai phong VRAM khi chay tuan tu.
+    demo.queue()
     demo.launch(server_name=args.host, server_port=args.port)
     return 0
 
