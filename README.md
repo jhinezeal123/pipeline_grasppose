@@ -57,6 +57,41 @@ bang link tai cua ban (Kaggle dataset / Google Drive direct link).
 De nguyen placeholder thi `run.sh` dung lai va bao loi ro rang.
 Cach khac: tu copy file vao `model/graspness_reckpt.pth` truoc khi chay.
 
+## 2b. `pointnet2._ext` — `run.sh` tu bien dich, khong can lam tay
+
+`graspness_unofficial/pointnet2/pointnet2_utils.py` co dong:
+
+```python
+import pointnet2._ext as _ext
+```
+
+`pointnet2/_ext` la mot **extension CUDA**, va trong repo upstream **chi co ma
+nguon** (`_ext_src/`), khong co ban dung san o bat ky dau. Thieu no thi
+`from models.graspnet import GraspNet` nem:
+
+```
+ImportError: Could not import _ext module.
+```
+
+va **GraspNess khong nap duoc** — hau qua la khong ra tu the nao ca. Trieu chung
+nay rat de chan doan nham thanh "loc qua chat" hoac "mask rong", nen `run.sh`
+(BUOC 5d) tu lo:
+
+- thu ghi that vao `pointnet2/`; ghi duoc thi build tai cho, khong thi **copy
+  sang `model/graspness_unofficial_build/`** roi tro `GRASPNESS_HOME` vao do
+  (tren Kaggle `model/` la symlink vao `/kaggle/input` chi doc);
+- them `/usr/local/cuda/bin` vao `PATH` (nvcc co san nhung khong nam trong PATH);
+- dat `TORCH_CUDA_ARCH_LIST` theo GPU that, mac dinh `7.5`. Khong dat thi torch
+  tu do arch, va tren may khong thay GPU se ra danh sach rong roi build chet voi
+  `IndexError` o `_get_cuda_arch_flags`;
+- `setup.py build_ext --inplace` hay hong o buoc **copy cuoi cung** (no giai ma
+  ten goi thanh `pointnet2/` tuong doi voi CWD, ma CWD da la `pointnet2/`, nen doi
+  thu muc `pointnet2/pointnet2/` khong ton tai) — nhung file `.so` **da duoc sinh
+  ra**, nen script chep thang no vao cho ma `import pointnet2._ext` tim.
+
+Mat khoang 2-4 phut, chi chay mot lan. Build that bai **khong** lam chet script:
+GraspNess se bao ro ly do ngay tren anh ket qua (xem `grasp_empty_msg`).
+
 ## 3. Chay
 
 ```bash
@@ -172,6 +207,9 @@ Thiet ke dang chu y:
   kem ly do ghi truc tiep tren anh, o do sau de trong, app khong crash.
 - `app.py` tach phan loi (`run_one`) khoi gradio de test duoc (muc 6). Import
   gradio o dau file se khien `import app` that bai tren may khong co gradio.
+- **`share=False`** trong `launch()` la co y: chay trong notebook thi gradio tu
+  bat `share=True` va mo mot duong cong khai ra Internet toi may dang chay GPU,
+  khong xac thuc gi. Ta da co duong ham rieng nen khong can.
 
 ### Ve `requirements.txt`
 

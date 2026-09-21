@@ -130,7 +130,11 @@ def main():
     # Do la thu BAT BUOC phai co: 2 lan chay song song se OOM T4 16 GB, vi thiet ke
     # 3 pha chi giai phong VRAM khi chay tuan tu.
     demo.queue()
-    demo.launch(server_name=args.host, server_port=args.port)
+    # share=False la CO Y, khong phai mac dinh: khi chay trong notebook (Kaggle
+    # dung %run) gradio tu doan la notebook roi TU BAT share=True, mo mot duong
+    # cong khai ra Internet toi may dang chay GPU ma khong co xac thuc nao.
+    # Ta da co duong ham rieng (tailcat) nen khong can.
+    demo.launch(server_name=args.host, server_port=args.port, share=False)
     return 0
 
 

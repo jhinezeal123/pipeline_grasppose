@@ -263,6 +263,75 @@ echo "              pipeline.py nap thang graspnetAPI.grasp va bo qua __init__.p
 echo "              nen ca chuoi phan DANH GIA (graspnet_eval -> dexnet) khong bi keo theo."
 
 # -----------------------------------------------------------------------------
+# BUOC 5d: pointnet2._ext — extension CUDA BAT BUOC phai duoc bien dich.
+#
+# 'graspness_unofficial/pointnet2/pointnet2_utils.py' co dong:
+#     import pointnet2._ext as _ext
+# va pointnet2/ chi co MA NGUON (_ext_src/), KHONG co ban dung san o bat ky dau.
+# Thieu no thi 'from models.graspnet import GraspNet' nem:
+#     ImportError: Could not import _ext module.
+# khien GraspNess khong nap duoc => khong ra tu the nao ca. Rat de chan doan
+# nham thanh "loc qua chat" hoac "mask rong", nen buoc nay phai nam trong script
+# chu khong the la thao tac tay.
+#
+# model/ thuong la symlink vao /kaggle/input (CHI DOC) nen phai build trong mot
+# ban sao ghi duoc, roi tro GRASPNESS_HOME vao ban sao do.
+# -----------------------------------------------------------------------------
+GRASPNESS_DIR="${GRASPNESS_HOME:-$SCRIPT_DIR/model/graspness_unofficial}"
+if [ ! -d "$GRASPNESS_DIR/pointnet2" ]; then
+  echo "     [5d] khong thay $GRASPNESS_DIR/pointnet2 -> bo qua"
+  echo "          (GraspNess se tu bao ro ly do nay tren anh ket qua)"
+elif ls "$GRASPNESS_DIR"/pointnet2/_ext*.so >/dev/null 2>&1; then
+  echo "     [5d] pointnet2._ext: DA CO -> bo qua"
+else
+  # KHONG dung `[ -w ... ]`: tien trinh chay bang root nen phep thu do bao "ghi
+  # duoc" ngay ca tren mount chi doc (/kaggle/input). Phai THU GHI THAT.
+  if touch "$GRASPNESS_DIR/pointnet2/.write_probe" 2>/dev/null; then
+    rm -f "$GRASPNESS_DIR/pointnet2/.write_probe"
+    BUILD_DIR="$GRASPNESS_DIR"
+  else
+    BUILD_DIR="$SCRIPT_DIR/model/graspness_unofficial_build"
+    if [ ! -d "$BUILD_DIR/pointnet2" ]; then
+      echo "     [5d] $GRASPNESS_DIR chi doc -> copy sang $BUILD_DIR"
+      rm -rf "$BUILD_DIR"
+      cp -r "$GRASPNESS_DIR" "$BUILD_DIR"
+      chmod -R u+w "$BUILD_DIR"
+    fi
+    # pipeline.py doc GRASPNESS_HOME luc import -> phai export truoc khi goi python.
+    export GRASPNESS_HOME="$BUILD_DIR"
+  fi
+  echo "     [5d] pointnet2._ext CHUA CO -> bien dich tai $BUILD_DIR (2-4 phut)"
+  # nvcc co san o /usr/local/cuda/bin nhung KHONG nam trong PATH mac dinh.
+  export PATH="/usr/local/cuda/bin:${PATH}"
+  # Khong dat thi torch tu do arch; gap may khong thay GPU se ra danh sach rong
+  # va build chet voi IndexError o _get_cuda_arch_flags.
+  if [ -z "${TORCH_CUDA_ARCH_LIST:-}" ]; then
+    TORCH_CUDA_ARCH_LIST=$(python3 -c "
+import torch
+print('%d.%d' % torch.cuda.get_device_capability(0)
+      if torch.cuda.is_available() else '7.5')
+" 2>/dev/null)
+    export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-7.5}"
+  fi
+  echo "     [5d] TORCH_CUDA_ARCH_LIST=$TORCH_CUDA_ARCH_LIST"
+  ( cd "$BUILD_DIR/pointnet2" && python3 setup.py build_ext --inplace ) \
+      >"$SCRIPT_DIR/model/_ext_build.log" 2>&1 || true
+  # 'build_ext --inplace' hay hong o buoc copy cuoi: no giai ma ten goi thanh
+  # 'pointnet2/' tuong doi voi CWD (da la pointnet2/) nen doi thu muc
+  # pointnet2/pointnet2/ khong ton tai. Nhung file .so DA duoc sinh ra roi ->
+  # chep thang vao cho ma 'import pointnet2._ext' tim.
+  EXT_SO=$(find "$BUILD_DIR/pointnet2/build" -name "_ext*.so" 2>/dev/null | head -1)
+  if [ -n "$EXT_SO" ]; then
+    cp "$EXT_SO" "$BUILD_DIR/pointnet2/"
+    echo "     [5d] XONG: $(basename "$EXT_SO")"
+  else
+    echo "     CANH BAO: khong bien dich duoc pointnet2._ext."
+    echo "              Xem log: model/_ext_build.log"
+    echo "              GraspNess se khong nap duoc nhung se bao RO ly do tren anh."
+  fi
+fi
+
+# -----------------------------------------------------------------------------
 # BUOC 5c: NEU la --serve thi mo web UI roi DUNG (khong chay 1 anh nao).
 # Dat ngay sau khi model + thu vien da san sang, truoc buoc 6 (chon anh) — vi
 # che do nay khong can anh dau vao.
