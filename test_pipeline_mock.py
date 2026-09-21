@@ -299,6 +299,82 @@ def main():
           "7" in m_narrow and "80" in m_narrow, m_narrow)
     check("ba cau that su khac nhau", len({m_fail, m_none, m_narrow}) == 3)
 
+    print("\n9. draw_grasp: phai ve HINH CHU U, khong phai may cai que")
+    # Loi that da gap: to_open3d_geometry_list() tra ve LineSet (4 hop RONG),
+    # nhung code cu doc geom.triangles — LineSet khong co truong do nen numpy
+    # tra mang rong, vong lap ve canh khong chay dong nao, va anh ket qua chi
+    # con may vach roi rac trong nhu "cai que".
+    #
+    # Dung hinh gia mo phong DUNG kieu LineSet cua upstream: 4 hop, mỗi hop 8
+    # dinh / 12 canh, kich thuoc that (do tren mesh that: 84 x 77 x 4 mm).
+    class _LS(object):
+        def __init__(self, V, E, C):
+            self.vertices = V
+            self.lines = E
+            self.vertex_colors = C
+            # CO Y khong co .triangles — giong LineSet that.
+
+    def _box(x0, x1, y0, y1, z0, z1):
+        v = np.array([[x, y, z] for x in (x0, x1) for y in (y0, y1)
+                      for z in (z0, z1)], np.float64)
+        e = []
+        for i in range(8):
+            for j in range(i + 1, 8):
+                if bin(i ^ j).count("1") == 1:
+                    e.append([i, j])
+        return v, np.array(e)
+
+    parts = [(-0.024, 0.020, -0.0385, -0.0345, -0.002, 0.002),   # ngon trai
+             (-0.024, 0.020, 0.0345, 0.0385, -0.002, 0.002),     # ngon phai
+             (-0.024, -0.020, -0.0345, 0.0345, -0.002, 0.002),   # thanh noi truoc
+             (-0.064, -0.024, -0.002, 0.002, -0.002, 0.002)]     # duoi
+    Vs, Es = [], []
+    for (x0, x1, y0, y1, z0, z1) in parts:
+        v, e = _box(x0, x1, y0, y1, z0, z1)
+        Es.append(e + len(Vs))
+        Vs.append(v)
+    VV = np.concatenate(Vs)
+    EE = np.concatenate(Es)
+    CC = np.tile(np.array([[0.5, 0.0, 0.5]]), (len(VV), 1))
+    ls = _LS(VV, EE, CC)
+
+    class _GG(object):
+        def __init__(self, a):
+            self.a = a
+
+        def to_open3d_geometry_list(self):
+            return [ls]
+
+    class _API(object):
+        GraspGroup = _GG
+
+    gg = np.zeros((1, 17), np.float64)
+    gg[0, 0] = 0.44
+    gg[0, 1] = 0.055                     # khe kep 55 mm -> nam trong nguong
+    gg[0, 15] = 0.5
+    Kd = P.K_from_fovy(60.0, 640, 480)
+    canvas = np.full((480, 640, 3), 255, np.uint8)
+
+    orig_api = P._load_graspnetapi
+    P._load_graspnetapi = lambda: _API()
+    try:
+        out = P.draw_grasp(canvas, gg, Kd, top=1)
+        n_pix = int((out != 255).any(-1).sum())
+        # "May cai que" cu cho khoang ~600 diem anh; chu U day du cho > 1500.
+        check("co ve ra nhieu hon may vach roi rac (>1500 px)", n_pix > 1500,
+              "%d px" % n_pix)
+        # Chu U phai trai RONG theo truc y (2 ngon cach nhau) chu khong phai
+        # vai duong song song manh.
+        ys, xs = np.where((out != 255).any(-1))
+        check("hinh trai rong theo CA HAI truc (khong phai 1 vach)",
+              (xs.max() - xs.min()) > 40 and (ys.max() - ys.min()) > 40,
+              "rong %d x %d px" % (xs.max() - xs.min(), ys.max() - ys.min()))
+    except Exception:
+        traceback.print_exc()
+        check("draw_grasp voi LineSet khong raise", False)
+    finally:
+        P._load_graspnetapi = orig_api
+
     return report()
 
 

@@ -657,11 +657,16 @@ def draw_grasp(image, gg, K, max_width=GRIP_MAX_OPEN_M, top=1, min_sep=0.080,
                reason=None):
     """Anh 4/4: anh goc + tu the gap, ve bang CHINH mesh cua upstream.
 
-    Dung graspnetAPI: GraspGroup.to_open3d_geometry_list() -> plot_gripper_pro_max
-    (4 hop: ngon trai, ngon phai, thanh ngang, duoi; mau R=score, G=0, B=1-score).
+    Dung graspnetAPI: GraspGroup.to_open3d_geometry_list() -> plot_gripper_pro_max_wo_side
+    (4 hop RONG: ngon trai, ngon phai, thanh noi truoc, duoi -> nhin thang ra chu U;
+    mau R=score, G=0, B=1-score).
+
+    Tra ve LineSet chu KHONG phai TriangleMesh, nen phai ve tung CANH bang
+    cv2.line. (Ban truoc doc nham geom.triangles cua LineSet -> numpy tra mang
+    rong -> chi con lai may vach roi rac trong nhu "cai que".)
 
     OffscreenRenderer cua Open3D KHONG chay duoc o day (thieu Vulkan/X11), nen
-    mesh duoc chieu va to tam giac bang tay. Hinh hoc va mau la cua upstream.
+    hinh duoc chieu bang tay. Hinh hoc va mau la cua upstream.
     """
     import cv2
     import open3d as o3d                                        # noqa: F401
@@ -690,41 +695,40 @@ def draw_grasp(image, gg, K, max_width=GRIP_MAX_OPEN_M, top=1, min_sep=0.080,
 
     lines = []
     for rank, gi in enumerate(pick):
-        mesh = gl[gi]
-        V = np.asarray(mesh.vertices)
-        T = np.asarray(mesh.triangles)
-        C = np.asarray(mesh.vertex_colors)
+        geom = gl[gi]
+        V = np.asarray(geom.vertices)
+        C = np.asarray(geom.vertex_colors)
         uv = proj(V)
         fin = np.isfinite(uv).all(1)
-        ov = im.copy()
-        # Lambert don gian theo phap tuyen tam giac — thay cho phan to bong ma
-        # o3d.visualization lam san (o day khong chay duoc: thieu Vulkan/X11).
-        # KHONG doi hinh hoc, chi doi do sang tung mat cho ra khoi 3D.
-        Vt = V[T]                                    # (n,3,3)
-        nrm = np.cross(Vt[:, 1] - Vt[:, 0], Vt[:, 2] - Vt[:, 0])
-        nl = np.linalg.norm(nrm, axis=1, keepdims=True)
-        nrm = nrm / np.maximum(nl, 1e-12)
-        lam = 0.45 + 0.55 * np.abs(nrm @ np.array([0.3, -0.5, 0.81]))
-        for ti in np.argsort(-V[T].mean(1)[:, 2]):        # xa ve truoc
-            tri = T[ti]
-            if not fin[tri].all():
-                continue
-            c = np.clip(C[tri].mean(0), 0, 1) * lam[ti]
-            cv2.fillPoly(ov, [uv[tri].astype(np.int32)],
-                         (int(min(c[2], 1) * 255), int(min(c[1], 1) * 255),
-                          int(min(c[0], 1) * 255)))
-        cv2.addWeighted(ov, 0.92, im, 0.08, 0, im)
-        # Vien toi MAU CUA CHINH MESH (khong phai den (25,25,25)): mesh upstream
-        # la tam mong day 4 mm, vien den 1px tren moi tam giac se nuot het mang
-        # mau va trong nhu cai long thep. Vien cung mau thi van thay duoc hinh
-        # khoi ma khong pha mau.
-        for ti, tri in enumerate(T):
-            if fin[tri].all():
-                c = np.clip(C[tri].mean(0), 0, 1) * lam[ti]
-                edge = (int(min(c[2], 1) * 150), int(min(c[1], 1) * 150),
-                        int(min(c[0], 1) * 150))
-                cv2.polylines(im, [uv[tri].astype(np.int32)], True,
-                              edge, 1, cv2.LINE_AA)
+        # Mesh gripper cua upstream gom 4 hop: ngon trai, ngon phai, thanh noi
+        # phia truoc, va duoi -> nhin thang ra CHU U.
+        #
+        # to_open3d_geometry_list() tra ve LineSet (ban 'wo_side': 4 hop RONG,
+        # chi 12 canh moi hop), KHONG phai TriangleMesh. Vi vay phai doc
+        # geom.lines va ve bang polylines. Tung ban sua truoc day to
+        # np.asarray(geom.triangles) — LineSet khong co truong do, numpy tra ve
+        # mang RONG, nen vong lap ve canh khong chay dong nao; thu duy nhat hien
+        # len la cac vach do fillPoly sinh ra, va ket qua trong nhu may cai que.
+        if hasattr(geom, "lines") and len(np.asarray(geom.lines)):
+            E = np.asarray(geom.lines).reshape(-1, 2)
+        else:                                   # phong khi la TriangleMesh
+            T = np.asarray(geom.triangles).reshape(-1, 3)
+            E = np.concatenate([T[:, [0, 1]], T[:, [1, 2]], T[:, [2, 0]]])
+        ok = fin[E[:, 0]] & fin[E[:, 1]]
+        E = E[ok]
+        if len(E):
+            # Ve canh XA truoc, GAN sau — de canh gan de len canh xa.
+            order = np.argsort(-V[E].mean(1)[:, 2])
+            E = E[order]
+            # Mau theo score giong upstream (R=score, B=1-score), lam sang hon
+            # vi nen anh that khong toi nhu khung mau cua o3d.
+            c = np.clip(C[E].mean(1), 0, 1)
+            for (a, b), cc in zip(E, c):
+                col = (int(min(cc[2] * 1.35, 1) * 255),
+                       int(cc[1] * 255),
+                       int(min(cc[0] * 1.35, 1) * 255))
+                cv2.line(im, tuple(uv[a].astype(int)), tuple(uv[b].astype(int)),
+                         col, 2, cv2.LINE_AA)
         g = sel[gi]
         # Kich thuoc chieu ra pixel — de DOI CHIEU bang so, khong doan bang mat.
         span = (uv[fin].max(0) - uv[fin].min(0)) if fin.any() else np.zeros(2)
