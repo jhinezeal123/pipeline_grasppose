@@ -357,22 +357,36 @@ def main():
 
     orig_api = P._load_graspnetapi
     P._load_graspnetapi = lambda: _API()
+    # Dem so doan thang duoc ve, de kiem tra da bo canh song song truc chua.
+    import cv2 as _cv2
+    n_seg = [0]
+    _orig_line = _cv2.line
+
+    def _count_line(img, p1, p2, *a, **k):
+        n_seg[0] += 1
+        return _orig_line(img, p1, p2, *a, **k)
+
+    _cv2.line = _count_line
     try:
         out = P.draw_grasp(canvas, gg, Kd, top=1)
         n_pix = int((out != 255).any(-1).sum())
-        # "May cai que" cu cho khoang ~600 diem anh; chu U day du cho > 1500.
-        check("co ve ra nhieu hon may vach roi rac (>1500 px)", n_pix > 1500,
+        # "May cai que" cu cho khoang ~600 diem anh; 4 mat chu nhat du cho > 800.
+        check("co ve ra nhieu hon may vach roi rac (>800 px)", n_pix > 800,
               "%d px" % n_pix)
-        # Chu U phai trai RONG theo truc y (2 ngon cach nhau) chu khong phai
-        # vai duong song song manh.
+        # Chu U phai trai RONG theo CA HAI truc (2 ngon cach nhau), chu khong
+        # phai vai duong song song manh.
         ys, xs = np.where((out != 255).any(-1))
         check("hinh trai rong theo CA HAI truc (khong phai 1 vach)",
               (xs.max() - xs.min()) > 40 and (ys.max() - ys.min()) > 40,
               "rong %d x %d px" % (xs.max() - xs.min(), ys.max() - ys.min()))
+        # 4 hop x 12 canh = 48; chi ve duong cheo mat -> 4 x 3 = 12 doan.
+        check("bo canh song song truc, chi con duong cheo mat (12 doan)",
+              n_seg[0] == 12, "%d doan" % n_seg[0])
     except Exception:
         traceback.print_exc()
         check("draw_grasp voi LineSet khong raise", False)
     finally:
+        _cv2.line = _orig_line
         P._load_graspnetapi = orig_api
 
     return report()
