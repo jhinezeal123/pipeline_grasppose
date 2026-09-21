@@ -294,8 +294,14 @@ else
     if [ ! -d "$BUILD_DIR/pointnet2" ]; then
       echo "     [5d] $GRASPNESS_DIR chi doc -> copy sang $BUILD_DIR"
       rm -rf "$BUILD_DIR"
-      cp -r "$GRASPNESS_DIR" "$BUILD_DIR"
-      chmod -R u+w "$BUILD_DIR"
+      # 'set -e' o dau script: moi lenh co the that bai deu phai duoc chan, neu
+      # khong ca script thoat ngay va KHONG con co hoi bao ly do tren anh.
+      if cp -r "$GRASPNESS_DIR" "$BUILD_DIR" 2>/dev/null; then
+        chmod -R u+w "$BUILD_DIR" 2>/dev/null || true
+      else
+        echo "     CANH BAO: copy that bai -> build tai cho (se hong neu chi doc)"
+        BUILD_DIR="$GRASPNESS_DIR"
+      fi
     fi
     # pipeline.py doc GRASPNESS_HOME luc import -> phai export truoc khi goi python.
     export GRASPNESS_HOME="$BUILD_DIR"
@@ -305,13 +311,15 @@ else
   export PATH="/usr/local/cuda/bin:${PATH}"
   # Khong dat thi torch tu do arch; gap may khong thay GPU se ra danh sach rong
   # va build chet voi IndexError o _get_cuda_arch_flags.
+  # '|| true' la bat buoc: duoi 'set -e' thi mot phep gan that bai se giet script
+  # ngay tai day (va TORCH_CUDA_ARCH_LIST se khong bao gio duoc dat mac dinh).
   if [ -z "${TORCH_CUDA_ARCH_LIST:-}" ]; then
-    TORCH_CUDA_ARCH_LIST=$(python3 -c "
+    DETECTED_ARCH="$(python3 -c "
 import torch
 print('%d.%d' % torch.cuda.get_device_capability(0)
       if torch.cuda.is_available() else '7.5')
-" 2>/dev/null)
-    export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-7.5}"
+" 2>/dev/null || true)"
+    export TORCH_CUDA_ARCH_LIST="${DETECTED_ARCH:-7.5}"
   fi
   echo "     [5d] TORCH_CUDA_ARCH_LIST=$TORCH_CUDA_ARCH_LIST"
   ( cd "$BUILD_DIR/pointnet2" && python3 setup.py build_ext --inplace ) \
@@ -320,9 +328,11 @@ print('%d.%d' % torch.cuda.get_device_capability(0)
   # 'pointnet2/' tuong doi voi CWD (da la pointnet2/) nen doi thu muc
   # pointnet2/pointnet2/ khong ton tai. Nhung file .so DA duoc sinh ra roi ->
   # chep thang vao cho ma 'import pointnet2._ext' tim.
-  EXT_SO=$(find "$BUILD_DIR/pointnet2/build" -name "_ext*.so" 2>/dev/null | head -1)
-  if [ -n "$EXT_SO" ]; then
-    cp "$EXT_SO" "$BUILD_DIR/pointnet2/"
+  # '|| true' cho CA duong ong: 'find' loi hoac 'head' dong ong som deu lam
+  # pipefail tra ve khac 0 du find da tim ra file.
+  EXT_SO="$(find "$BUILD_DIR/pointnet2/build" -name "_ext*.so" 2>/dev/null \
+            | head -1 || true)"
+  if [ -n "$EXT_SO" ] && cp "$EXT_SO" "$BUILD_DIR/pointnet2/" 2>/dev/null; then
     echo "     [5d] XONG: $(basename "$EXT_SO")"
   else
     echo "     CANH BAO: khong bien dich duoc pointnet2._ext."
