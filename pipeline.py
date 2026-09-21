@@ -709,13 +709,13 @@ def draw_grasp(image, gg, K, max_width=GRIP_MAX_OPEN_M, top=1, min_sep=0.080,
         # LineSet khong co truong do, numpy tra ve mang RONG, nen vong lap ve
         # canh khong chay dong nao; thu duy nhat hien len la cac vach do fillPoly
         # sinh ra, va ket qua trong nhu may cai que.
+        #
+        # Ve DU 12 canh moi hop, dung nhu upstream. Da thu loc bot cho do roi
+        # (chi giu duong cheo mat) nhung bo di: o goc nhin nay khong phan biet
+        # duoc "canh song song truc" voi "duong cheo mat", nen cach loc do lam
+        # mat net that cua hinh. Trung thanh voi upstream quan trong hon.
         if hasattr(geom, "lines") and len(np.asarray(geom.lines)):
             E = np.asarray(geom.lines).reshape(-1, 2)
-            # 24 canh cua 4 hop = 12 duong cheo mat. Chi ve 12 duong cheo do
-            # (bo 12 canh song song truc) -> ra 4 HINH CHU NHAT, khong con la
-            # khung day dac 12 canh chong cheo nhau.
-            d = np.linalg.norm(V[E[:, 0]] - V[E[:, 1]], axis=1)
-            E = E[d > 1.6 * np.median(d)]
         else:                                   # phong khi la TriangleMesh
             T = np.asarray(geom.triangles).reshape(-1, 3)
             E = np.concatenate([T[:, [0, 1]], T[:, [1, 2]], T[:, [2, 0]]])

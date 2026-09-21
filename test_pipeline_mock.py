@@ -379,9 +379,9 @@ def main():
         check("hinh trai rong theo CA HAI truc (khong phai 1 vach)",
               (xs.max() - xs.min()) > 40 and (ys.max() - ys.min()) > 40,
               "rong %d x %d px" % (xs.max() - xs.min(), ys.max() - ys.min()))
-        # 4 hop x 12 canh = 48; chi ve duong cheo mat -> 4 x 3 = 12 doan.
-        check("bo canh song song truc, chi con duong cheo mat (12 doan)",
-              n_seg[0] == 12, "%d doan" % n_seg[0])
+        # 4 hop x 12 canh = 48 doan, dung nhu upstream (khong loc bot).
+        check("ve du 12 canh moi hop, dung nhu upstream (48 doan)",
+              n_seg[0] == 48, "%d doan" % n_seg[0])
     except Exception:
         traceback.print_exc()
         check("draw_grasp voi LineSet khong raise", False)
