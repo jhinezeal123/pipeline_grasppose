@@ -5,7 +5,7 @@ Tu mot cau prompt (vi du "cai coc") + mot anh RGB -> vi tri dat tay de gap vat t
 
 1. **Grounding DINO** (tiny) - prompt -> **bounding box** cua vat the.
 2. **SAM** (vit-base) - box -> **mask** chinh xac cua vat the.
-3. **MoGe v3** (ViT-L) - anh -> **depth map** + point cloud + intrinsics (3D).
+3. **MoGe-2** (ViT-S Normal tren nhanh Jetson) - anh -> **depth map** + point cloud + intrinsics (3D).
 4. **GraspNet / Graspness** - point cloud + mask -> **grasp pose** (6-DoF).
 
 Co **2 che do chay**:
