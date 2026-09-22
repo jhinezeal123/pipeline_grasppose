@@ -62,6 +62,19 @@ class EnvironmentTests(unittest.TestCase):
                 self.assertNotIn(str(setup.ROOT / 'requirements.txt'), call.args[0])
             self.assertTrue((setup.ENV / 'host-constraints.txt').exists())
 
+    def test_host_without_minkowski_can_bootstrap(self):
+        distributions = [Mock(metadata={'Name': name}, version='1.0')
+                         for name in ('torch', 'torchvision', 'numpy')]
+        with tempfile.TemporaryDirectory() as temp, \
+                patch.object(setup, 'ENV', Path(temp) / '.venv'), \
+                patch.object(setup.metadata, 'distributions', return_value=distributions), \
+                patch.object(setup.subprocess, 'run') as run, \
+                patch.object(setup.sys, 'argv', ['setup_env.py']):
+            setup.main()
+            self.assertTrue((setup.ENV / 'host.json').exists())
+            for call in run.call_args_list:
+                self.assertNotIn('MinkowskiEngine', ' '.join(call.args[0]))
+
     def test_unmanaged_venv_is_not_overwritten(self):
         with tempfile.TemporaryDirectory() as temp, \
                 patch.object(setup, 'ENV', Path(temp)), \

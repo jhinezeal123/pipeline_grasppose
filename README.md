@@ -323,7 +323,7 @@ chuan va de cai nhanh phan UI.
 
 ## 8. Phu thuoc moi truong (CUDA, GPU, va cach ly)
 
-`run.sh` tạo `.venv` riêng, dùng lại bộ Torch/CUDA/MinkowskiEngine trên máy và
+`run.sh` tạo `.venv` riêng, dùng lại bộ Torch/CUDA trên máy và
 cài dependencies bổ sung bằng pip resolver. Phiên bản các thư viện ABI của máy
 được giữ bằng constraints; MoGe, GraspNetAPI và GraspNess source được ghim commit.
 Nếu thiếu native prerequisites hoặc extension lỗi ABI, setup dừng với thông báo.
@@ -332,3 +332,8 @@ Xem [hướng dẫn môi trường](env/README.md) để chuẩn bị máy, ch�
 môi trường cũ. `requirements.lock.txt` chỉ là snapshot lịch sử, không phải lock
 cài được trên mọi máy. Bản sửa bootstrap được kiểm thử bằng mock; vẫn cần kiểm
 chứng cài mới và suy luận trên GPU thật.
+
+MinkowskiEngine được cài sau bước tải model: dùng wheel chỉ định qua
+`MINKOWSKI_ENGINE_WHEEL`, dùng bản sẵn có nếu qua CUDA smoke test, hoặc thử build
+source ghim commit. Xem `env/README.md` cho native prerequisites và giới hạn
+chưa kiểm chứng trên Kaggle mới. Không yêu cầu host cài MinkowskiEngine từ trước.

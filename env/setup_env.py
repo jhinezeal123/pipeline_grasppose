@@ -6,7 +6,8 @@ Hai giai doan, tach roi co chu y:
     python env/setup_env.py            # giai doan 1: tao .venv + constraints
     python env/setup_env.py --install  # giai doan 2: cai requirements.txt
 
-Giai doan 1 KHONG dung mang, chi mat ~1 giay. Giai doan 2 moi tai hang tram MB.
+Giai doan 1 tao venv; chi can mang neu thieu huggingface_hub.
+Giai doan 2 moi cai runtime day du.
 Ly do tach: run.sh goi giai doan 1 TRUOC khi tai model (de phat hien som may
 hong), roi tai model, ROI MOI goi giai doan 2. Nho vay mot lan cai that bai vi
 mang/PyPI khong lam mat model da tai xong.
@@ -31,7 +32,7 @@ def protected_versions():
         if name in {'torch', 'torchvision', 'torchaudio', 'numpy', 'scipy',
                     'minkowskiengine', 'triton'} or name.startswith('nvidia-'):
             versions[name] = dist.version
-    for name in ('torch', 'torchvision', 'numpy', 'minkowskiengine'):
+    for name in ('torch', 'torchvision', 'numpy'):
         if name not in versions:
             raise RuntimeError(f'Missing host {name}. Install the matching CUDA stack first; see env/README.md.')
     return versions
@@ -42,7 +43,7 @@ def main():
     versions = protected_versions()
     # Fail before downloads if the native stack itself is broken.
     subprocess.run([sys.executable, '-c',
-                    'import torch, torchvision, numpy, MinkowskiEngine; '
+                    'import torch, torchvision, numpy; '
                     'assert torch.cuda.is_available(), "CUDA GPU is unavailable"'], check=True)
     fingerprint = {'python': sys.version, 'executable': sys.executable,
                    'protected': versions}

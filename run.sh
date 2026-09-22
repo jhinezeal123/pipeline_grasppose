@@ -72,10 +72,10 @@ echo "  Python     : $(command -v python3 || echo 'KHONG THAY python3')"
 echo "  Che do     : $( [ "$SERVE" = "1" ] && echo "SERVE - web UI o cong $PORT" || echo "BATCH - chay 1 anh")"
 echo "=============================================================="
 
-# Bootstrap GIAI DOAN 1: kiem tra host (torch/CUDA/MinkowskiEngine) va tao .venv.
-# KHONG dung mang, ~1 giay. Dat SOM de may hong bi phat hien truoc khi tai model.
+# Bootstrap GIAI DOAN 1: kiem tra host (torch/torchvision/numpy/CUDA) va tao .venv.
+# Chi tai huggingface_hub neu thieu. Phat hien loi host truoc khi tai model.
 # Giai doan 2 (cai requirements.txt) nam SAU buoc tai model — xem 'BUOC 5b'.
-HOST_PYTHON="${PYTHON:-python3}"
+HOST_PYTHON="$(command -v "${PYTHON:-python3}")"
 "$HOST_PYTHON" "$SCRIPT_DIR/env/setup_env.py"
 PYTHON="$SCRIPT_DIR/.venv/bin/python"
 export PATH="$SCRIPT_DIR/.venv/bin:/usr/local/cuda/bin:$PATH"
@@ -290,11 +290,14 @@ echo "--------------------------------------------------------------"
 # Dat O DAY (sau buoc 4 tai model) chu khong phai luc khoi dong, vi day la buoc
 # duy nhat tai hang tram MB tu PyPI. Neu mang/PyPI loi thi `set -e` dung script
 # — nhung model da tai xong o buoc 4 van con nguyen, lan chay sau chi viec cai
-# tiep. Gop vao giai doan 1 thi mot loi mang xoa sach cong tai model.
+# tiep. Cai runtime that bai khong xoa cac model da tai.
 #
 # pip tu bo qua nhung gi da dung -> chay lai la re.
 echo "     [5b] pip install -r requirements.txt -> .venv (co host-constraints)"
 "$HOST_PYTHON" "$SCRIPT_DIR/env/setup_env.py" --install
+
+# MinkowskiEngine belongs to the repo setup, not the host prerequisites.
+"$HOST_PYTHON" "$SCRIPT_DIR/env/install_minkowski.py"
 
 # Kiem chung THAT sau khi cai: hai goi kho nhat phai import duoc. Loi o day thi
 # bao ngay, khong de den luc chay inference moi vo.
