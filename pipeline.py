@@ -803,7 +803,15 @@ def _put(im, text, bg=(255, 255, 255), fg=(0, 0, 0)):
 # ===========================================================================
 def run_phases(image, prompt, fov_x=None, detector=None, segmenter=None,
                depther=None, grasper=None):
-    """Chay 4 model theo 3 phase, khong bao gio giu 2 model nang cung luc.
+    """Chay 4 model theo 3 phase.
+
+    PHASE 1 co y cho MoGe + Grounding-DINO chay SONG SONG (hai model nhe nhat,
+    tong VRAM van lot T4), doi lai giam gan mot nua thoi gian nap. Tu PHASE 2 tro
+    di moi phase chi giu DUNG MOT model nang: SAM xong moi den GraspNess. Ly do la
+    GraspNess + MinkowskiEngine an VRAM lon, khong the dung chung voi model khac.
+
+    Vi vay moi lan release() xong deu duoc kiem tra: neu khong nha duoc thi ham
+    dung ngay, vi VRAM luc do khong con dang tin de nap tiep.
 
     Tra ve dict: {"det":..., "seg":..., "dep":..., "grasp":..., "cloud":..., "K":...}
     """
@@ -902,6 +910,14 @@ def run_phases(image, prompt, fov_x=None, detector=None, segmenter=None,
     _log("  SAM: mask %d px (%.1f%%) | %s"
          % (out["seg"]["mask"].sum(), 100.0 * out["seg"]["mask"].mean(),
             out["seg"].get("reason") or "OK"))
+
+    # Dung NGAY tai day, khong doi toi cuoi ham. SAM khong nha duoc thi VRAM
+    # khong con dang tin, ma Phase 3 se nap them GraspNess — dung luc de nhat de
+    # OOM, va thong bao OOM se khong lien quan gi toi nguyen nhan that.
+    # Raise o cuoi ham la qua muon: GraspNess da prepare/inference xong roi.
+    if "seg" in rel_errs:
+        raise RuntimeError("khong nha duoc model phase 2 (VRAM chua duoc giai "
+                           "phong): seg -> %s" % rel_errs["seg"])
 
     # ---------------- DO SAU CUA VAT (1 con so, met) ----------------
     # Trung vi do sau cua cac pixel NAM TRONG MASK SAM -> do sau cua VAT, khong

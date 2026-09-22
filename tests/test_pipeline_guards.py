@@ -270,13 +270,14 @@ class ReleaseFailureTests(unittest.TestCase):
         def release(self):
             raise RuntimeError('release SAM hong')
 
-    def _run(self, det, dep, seg=None):
+    def _run(self, det, dep, seg=None, grasper=None):
         # Truyen DU segmenter/grasper gia: khong thi run_phases di tiep toi SAM
         # THAT, ma SamSegmenter can torch + model tren dia -> CI khong co.
+        self.grasper = grasper or _FakeGrasper()
         return P.run_phases(np.zeros((H, W, 3), np.uint8), 'a little bag',
                             fov_x=62.0, detector=det, depther=dep,
                             segmenter=seg or _FakeSegmenter(),
-                            grasper=_FakeGrasper())
+                            grasper=self.grasper)
 
     def test_release_failure_is_surfaced(self):
         """inference OK + release nem -> run_phases() phai raise RO rang."""
@@ -304,6 +305,22 @@ class ReleaseFailureTests(unittest.TestCase):
             self._run(_FakeDetector(), _FakeDepth(), seg=self._SegReleaseBoom())
         self.assertIn('khong nha duoc', str(cm.exception))
         self.assertIn('seg', str(cm.exception))
+
+    def test_phase3_not_started_when_sam_release_fails(self):
+        """SAM khong nha duoc VRAM -> GraspNess KHONG duoc nap.
+
+        Raise o CUOI ham la qua muon: luc do GraspNess da prepare/inference xong,
+        va ta da nap them mot model nang trong khi VRAM khong con dang tin — dung
+        luc de nhat de OOM. Test nay assert Phase 3 CHUA he chay, chu khong chi
+        assert rang cuoi cung co raise (test_sam_release_failure_is_surfaced chi
+        kiem tra ve sau, nen no khong phat hien Phase 3 da chay truoc do).
+        """
+        spy = _FakeGrasper()
+        with self.assertRaises(RuntimeError):
+            self._run(_FakeDetector(), _FakeDepth(),
+                      seg=self._SegReleaseBoom(), grasper=spy)
+        self.assertFalse(spy.prepared,
+                         'GraspNess da duoc prepare() du SAM khong nha duoc VRAM')
 
     def test_release_ok_still_runs_normally(self):
         """Chot chan: guard moi KHONG duoc chan nham duong binh thuong."""
