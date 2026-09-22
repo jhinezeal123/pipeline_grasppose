@@ -1,7 +1,7 @@
 """GraspNess — KHAI BAO giao dien, KHONG dinh nghia.
 
 Xem Object_Detection.py de biet quy uoc chung cua 4 module.
-Hien thuc cu the nam trong pipeline.py.
+Hien thuc cu the nam trong grasppose/adapters.py.
 """
 
 from abc import ABC, abstractmethod
