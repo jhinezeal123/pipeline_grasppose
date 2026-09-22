@@ -10,6 +10,7 @@ Tra ve 0 neu du dieu kien, 1 neu thieu thu gi do. Khong import model, khong
 can GPU that de chay — chi kiem tra sach se moi thu co mat.
 """
 import importlib
+import os
 import shutil
 import subprocess
 import sys
@@ -81,8 +82,25 @@ def main():
                 problems.append(
                     "torch KHONG build cho sm_%d%d -> _ext se loi khi chay" % cap)
         else:
-            print("  GPU              : KHONG THAY")
-            problems.append("torch khong thay GPU (can T4 tro len)")
+            # Rat hay gap tren Kaggle: co GPU that nhung torch khong thay, vi
+            # thieu LD_LIBRARY_PATH tro toi driver. run.sh co export bien nay,
+            # con chay tay thi khong — nen phai phan biet ro hai truong hop,
+            # khong thi de chan doan nham la "may khong co GPU".
+            nv = "/usr/local/nvidia/lib64"
+            has_nv = os.path.isdir(nv)
+            ld = os.environ.get("LD_LIBRARY_PATH", "")
+            if has_nv and nv not in ld:
+                print("  GPU              : KHONG THAY — nhung CO %s" % nv)
+                print("       -> thieu LD_LIBRARY_PATH. Chay lai bang:")
+                print("          LD_LIBRARY_PATH=%s:$LD_LIBRARY_PATH \\" % nv)
+                print("              python env/check_env.py")
+                print("       (run.sh tu export bien nay, nen chay qua run.sh thi khong gap)")
+                problems.append(
+                    "torch khong thay GPU vi thieu LD_LIBRARY_PATH=%s "
+                    "(khong phai may khong co GPU)" % nv)
+            else:
+                print("  GPU              : KHONG THAY")
+                problems.append("torch khong thay GPU (can T4 tro len)")
     except ImportError:
         print("  (bo qua: chua co torch)")
 
@@ -104,7 +122,6 @@ def main():
     print("  gcc: %s" % (shutil.which("gcc") or "khong co"))
 
     head("5. Extension da build chua")
-    import os
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     hits = []
     for base in ("model/graspness_unofficial_build", "model/graspness_unofficial"):
