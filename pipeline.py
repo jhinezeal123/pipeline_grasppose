@@ -118,15 +118,35 @@ def _vram(tag=""):
         pass
 
 
-def _free(*objs):
-    """Nha model khoi VRAM: xoa tham chieu -> gc -> empty_cache."""
-    import torch
-    for o in objs:
-        del o
+def _free(obj, *attrs):
+    """Nha model khoi VRAM: xoa attribute -> gc -> empty_cache.
+
+    Phai xoa attribute TRUOC khi gc/empty_cache, khong phai sau. Ban cu lam
+    `del o` tren tung doi so — nhung do chi xoa ten cuc bo trong vong lap, con
+    tuple tham so VA chinh `self.model` van giu reference. Nen gc.collect() va
+    empty_cache() chay luc model CHUA duoc giai phong, tuc la khong thu hoi duoc
+    gi; chi den khi ham return va dong `self.model = ... = None` chay sau do thi
+    moi nha — nhung luc do da khong con empty_cache nua.
+
+    Doi sang nhan (obj, ten_attr...): dat attribute ve None ngay tai day, roi moi
+    gc + empty_cache. `obj` giu ten trong suot ham la khong sao — quan trong la
+    attribute (tham chieu THAT toi model) da bi cat.
+    """
+    for name in attrs:
+        try:
+            setattr(obj, name, None)
+        except AttributeError:
+            pass
     gc.collect()
+    try:
+        import torch
+    except ImportError:
+        return
     if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+        # synchronize truoc: empty_cache() can moi kernel dung model da chay xong,
+        # neu khong thi bo nho co the chua kip duoc tra ve allocator.
         torch.cuda.synchronize()
+        torch.cuda.empty_cache()
 
 
 def K_from_fovy(fovy_deg, w, h):
@@ -266,8 +286,10 @@ class GroundingDinoDetector(Object_Detection):
                 "labels": [labels[i] for i in order], "reason": None}
 
     def release(self):
-        _free(self.model, self.proc, self._out)
-        self.model = self.proc = self._out = self._inp = None
+        # _free() dat attribute ve None roi moi gc + empty_cache — xem docstring.
+        # Dong `self._inp = None` sau day lo not thuoc tinh khong phai model nang.
+        _free(self, 'model', 'proc', '_out')
+        self._inp = None
 
 
 class SamSegmenter(Segmentation):
@@ -332,8 +354,7 @@ class SamSegmenter(Segmentation):
                 "best": best, "n_pred": len(mm), "reason": None}
 
     def release(self):
-        _free(self.model, self.proc)
-        self.model = self.proc = None
+        _free(self, 'model', 'proc')
 
 
 class MogeDepth(Depth_Estimate):
@@ -415,8 +436,7 @@ class MogeDepth(Depth_Estimate):
                 "fov_x_deg": fovx, "reason": None}
 
     def release(self):
-        _free(self.model, self._out)
-        self.model = self._out = None
+        _free(self, 'model', '_out')
 
 
 class GraspnessModel(GraspNess):
@@ -528,8 +548,10 @@ class GraspnessModel(GraspNess):
         return {"graspgroup": nms_grasps(gg), "reason": None}
 
     def release(self):
-        _free(self.net, self.ME)
-        self.net = self.ME = self.pred_decode = None
+        # pred_decode la tensor trung gian, khong phai model, nhung van giu VRAM
+        # nen dat ve None TRUOC _free() de no duoc thu hoi luon trong lan gc nay.
+        self.pred_decode = None
+        _free(self, 'net', 'ME')
 
 
 # ===========================================================================

@@ -420,5 +420,58 @@ class DrawGraspNonEmptyTests(unittest.TestCase):
         self.assertTrue((out != 255).any())
 
 
+class FreeOrderTests(unittest.TestCase):
+    """_free() phai CAT tham chieu TRUOC khi gc/empty_cache, khong phai sau.
+
+    Ban cu lam `del o` tren tung doi so — nhung do chi xoa ten cuc bo trong vong
+    lap; tuple tham so VA chinh `self.model` van giu reference. Nen gc.collect()
+    va empty_cache() chay luc model CHUA duoc giai phong, tuc la khong thu hoi
+    duoc gi co y nghia.
+    """
+
+    def test_attributes_are_none_before_empty_cache(self):
+        """Tai thoi diem empty_cache() chay, attribute PHAI da la None."""
+        import sys
+        import types
+        seen = {}
+
+        class _TorchStub(types.ModuleType):
+            class cuda(object):
+                @staticmethod
+                def is_available():
+                    return True
+
+                @staticmethod
+                def synchronize():
+                    pass
+
+                @staticmethod
+                def empty_cache():
+                    # Doc trang thai attribute ngay luc empty_cache duoc goi.
+                    seen['model'] = obj.model
+                    seen['net'] = obj.net
+
+        class _Holder(object):
+            def __init__(self):
+                self.model = object()       # gia lap model nang
+                self.net = object()
+
+        obj = _Holder()
+        with patch.dict(sys.modules, {'torch': _TorchStub('torch')}):
+            P._free(obj, 'model', 'net')
+
+        self.assertIn('model', seen, 'empty_cache() da khong duoc goi')
+        self.assertIsNone(seen['model'],
+                          'model van con tham chieu luc empty_cache() chay')
+        self.assertIsNone(seen['net'])
+        self.assertIsNone(obj.model, 'attribute phai la None sau _free()')
+
+    def test_missing_attribute_does_not_raise(self):
+        """Attribute khong ton tai -> bo qua, khong no."""
+        class _Holder(object):
+            pass
+        P._free(_Holder(), 'khong_co_that')     # khong duoc raise
+
+
 if __name__ == '__main__':
     unittest.main()
