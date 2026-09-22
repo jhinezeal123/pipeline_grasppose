@@ -1,0 +1,62 @@
+# =============================================================================
+# requirements.lock.txt - BAN GHIM CHINH XAC moi truong da CHAY DUOC.
+#
+# Sinh ra tu mot lan chay THAT tren Kaggle (khong phai suy doan). Moi dong o
+# day la phien ban da do duoc bang importlib.metadata tren may dang chay.
+#
+#   Python        3.12.13
+#   pip           24.1.2
+#   gcc           11.4.0 (Ubuntu 22.04)
+#   nvcc          CUDA 12.8, V12.8.93
+#   CUDA runtime  /usr/local/cuda-12.8
+#   GPU           Tesla T4 (sm_75)
+#
+# VI SAO PHAI GHIM: _ext (pointnet2) va MinkowskiEngine deu la C++/CUDA
+# extension, bien dich theo ABI cua torch. Doi ban torch thi .so cu khong nap
+# duoc ("undefined symbol"). Gim lai de biet chinh xac to hop nao da chay.
+#
+# CACH DUNG:
+#   pip install -r requirements.lock.txt
+#   (tren Kaggle: khong can, moi thu da co san — xem env/check_env.py)
+# =============================================================================
+
+# --- Nen tang CUDA (KHONG cai duoc bang pip, phai co san tren may) -----------
+# torch ban +cu128 nghia la build cho CUDA 12.8. May phai co driver tuong thich.
+# Kaggle: co san. May khac: phai cai CUDA toolkit 12.8 + driver >= 525.
+torch==2.10.0+cu128
+torchvision==0.25.0+cu128
+
+# --- Model + thi giac ---------------------------------------------------------
+# transformers 5.x: pipeline dung AutoModelForZeroShotObjectDetection (co tu 4.40)
+# va SamModel/SamProcessor. Da chay that voi 5.0.0.
+transformers==5.0.0
+tokenizers==0.22.2
+safetensors==0.7.0
+timm==1.0.26
+
+# --- Anh / diem 3D ------------------------------------------------------------
+open3d==0.20.0
+opencv-python-headless==4.13.0.88
+pillow==11.3.0
+numpy==2.0.2
+scipy==1.16.3
+trimesh==5.1.0
+
+# --- Tien ich -----------------------------------------------------------------
+huggingface_hub==1.32.0
+einops==0.8.2
+# transforms3d BAT BUOC: graspnetAPI/utils/utils.py can no ngay dong import dau
+# ("from transforms3d.euler import euler2mat"). Thieu no thi viec ve tu the gap
+# bang mesh upstream se vo luc import, du moi thu khac chay tot.
+transforms3d==0.4.2
+
+# --- Web UI -------------------------------------------------------------------
+gradio==6.28.0
+
+# --- KHONG cai duoc bang pip (xem README muc "Phu thuoc moi truong") ----------
+# MinkowskiEngine==0.5.4  -> wheel dung san, KHONG co tren PyPI cho cau hinh nay.
+#                            Kaggle: lay tu dataset ngoai.
+# pointnet2 _ext          -> bien dich tu source bang setup.py (can nvcc).
+#                            run.sh lo viec nay, build vao trong repo.
+# graspnetAPI             -> ban tren PyPI bi hong (con import setuptools.extern.six).
+#                            run.sh git clone vao model/graspnetAPI_repo.
