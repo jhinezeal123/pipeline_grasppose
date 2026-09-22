@@ -1,19 +1,18 @@
-# Runtime requirements. run.sh resolves these inside .venv with host CUDA
-# constraints; do not install them into a shared notebook interpreter.
-# This is not a full lock: see env/README.md for native prerequisites.
-transformers>=5.0,<6
-timm>=1,<2
-open3d>=0.19,<0.21
-opencv-python-headless>=4.10,<5
-pillow>=11,<13
-numpy>=2,<3
-scipy>=1.14,<2
-huggingface_hub>=1,<2
+# Jetson AGX Xavier / JetPack 5.1.4 runtime overlay.
+# Host Python 3.8 already provides the ABI-sensitive stack:
+# torch/torchvision (NVIDIA CUDA 11.4 build), numpy, scipy, OpenCV and Pillow.
+# DO NOT add/upgrade those here: env/setup_env.py pins the host versions.
+transformers==4.44.2
+tokenizers==0.19.1
+safetensors==0.4.5
+huggingface_hub==0.24.7
+timm==1.0.9
+einops==0.8.1
 transforms3d==0.4.2
-trimesh>=4.11,<6
-einops>=0.8,<1
-gradio>=6,<7
-moge @ git+https://github.com/microsoft/MoGe.git@74fbce054ebed49800de42d0ad0e83495065719a
 
-# MinkowskiEngine: native wheel/source installer in env/install_minkowski.py,
-# invoked by run.sh after runtime installation (not a host prerequisite).
+# MoGe-2 is cloned from a pinned source revision in `dependencies`, rather than
+# installed as a package. Its package metadata requires Python >=3.9 even though
+# the inference code used by this port is Python-3.8 compatible.
+#
+# MinkowskiEngine and pointnet2 are native CUDA extensions installed/built by
+# run.sh for the host Torch 2.1 / CUDA 11.4 ABI.
