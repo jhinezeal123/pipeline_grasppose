@@ -1,6 +1,8 @@
 # grasp_pipeline_repo
 
-Pipeline: **text prompt -> grasp pose**, chay tren may Linux GPU (Kaggle).
+> **Jetson AGX Xavier / JetPack 5.1.4:** xem [JETSON_XAVIER.md](JETSON_XAVIER.md). Nhanh nay giu Torch/CUDA cua JetPack, dung MoGe-2 ViT-S va khong can Open3D.
+
+Pipeline: **text prompt -> grasp pose**. Ban goc ho tro Kaggle; nhanh nay bo sung profile Jetson AGX Xavier.
 Tu mot cau prompt (vi du "cai coc") + mot anh RGB -> vi tri dat tay de gap vat the:
 
 1. **Grounding DINO** (tiny) - prompt -> **bounding box** cua vat the.
