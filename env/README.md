@@ -30,19 +30,19 @@ Không xem nó là bằng chứng rằng máy mới đã được kiểm thử.
 `run.sh` gọi `env/install_minkowski.py` sau `setup_env.py --install`:
 
 1. Nếu đặt `MINKOWSKI_ENGINE_WHEEL`, cài đúng file đó vào `.venv` với `--no-deps`.
-2. Nếu không đặt, dùng **wheel đi kèm repo** `model/minkowskiengine-*.whl`.
-   Repo mang sẵn wheel này vì không thể tái tạo nó:
-   `pip download MinkowskiEngine` chỉ ra source và **build thất bại** với
-   Torch 2.10/CUDA 12.8. Đã đo trên Kaggle trong **cùng một box**:
-   `pointnet2._ext` build được, `MinkowskiEngine` thì không — nên nguyên nhân
-   không phải thiếu compiler hay CUDA headers, mà do bản upstream quá cũ.
-   Có wheel sẵn thì box trắng chạy được hoàn toàn, không cần dataset ngoài.
-3. Nếu vẫn chưa có (repo bị xoá wheel), thử bản đã cài bằng **CUDA sparse
-   convolution thật**, không chỉ import.
-4. Nếu chưa có package, build source NVIDIA ghim commit
-   `02fc608bea4c0549b0a7b00ca1bf15dee4a0b228`, rồi cài wheel vào `.venv`.
-5. Nếu package có nhưng lỗi ABI/CUDA, giữ traceback và yêu cầu wheel tương thích;
-   không tự ghi đè bản lỗi bằng một source build khác.
+2. Nếu không đặt, kiểm tra bản đã cài bằng **CUDA sparse convolution thật**.
+   Nếu chạy được, giữ nguyên bản đó; không cài đè dù repo có wheel.
+3. Nếu kiểm tra thất bại, tìm wheel đi kèm trong `model/`, lọc theo Python/ABI/platform
+   của **interpreter `.venv`**. Wheel `cp312` không được tự chọn trên Python 3.10/3.11.
+   Nếu nhiều wheel cùng tương thích, yêu cầu đặt `MINKOWSKI_ENGINE_WHEEL` rõ ràng.
+4. Nếu không có wheel phù hợp và package chưa cài, thử build source NVIDIA ghim
+   commit `02fc608bea4c0549b0a7b00ca1bf15dee4a0b228` như trước.
+5. Nếu bản đã cài bị lỗi và không có wheel phù hợp, giữ traceback và báo lỗi;
+   không che lỗi ABI bằng một source build khác.
+
+Wheel tags chỉ kiểm tra Python/ABI/platform, **không xác nhận Torch/CUDA ABI**.
+Sau mỗi lần cài vẫn bắt buộc chạy CUDA smoke test. Wheel bundled chưa được xác nhận
+trên Kaggle Torch 2.10/CUDA 12.8; cần kiểm chứng trước khi khẳng định box trắng chạy hết.
 
 Ví dụ ghi đè bằng wheel khác (thay đường dẫn bằng file thật):
 
@@ -95,3 +95,4 @@ python3 -m unittest discover -s tests -v
 python3 test_pipeline_mock.py
 python3 test_app.py
 ```
+
