@@ -119,9 +119,6 @@ def main():
                     help="dia chi lang nghe (mac dinh 0.0.0.0)")
     args = ap.parse_args()
 
-    # Them model/graspnetAPI_repo vao sys.path TRUOC khi model duoc nap.
-    P._add_sys_path()
-
     demo = build_ui()
     # demo.queue() KHONG nhan tham so 'concurrency_limit' — da bi loi that tren
     # Kaggle: "Blocks.queue() got an unexpected keyword argument 'concurrency_limit'".
