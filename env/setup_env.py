@@ -1,5 +1,18 @@
 #!/usr/bin/env python3
-"""Create a repo-local overlay while preserving the host CUDA ABI stack."""
+"""Create a repo-local overlay while preserving the host CUDA ABI stack.
+
+Hai giai doan, tach roi co chu y:
+
+    python env/setup_env.py            # giai doan 1: tao .venv + constraints
+    python env/setup_env.py --install  # giai doan 2: cai requirements.txt
+
+Giai doan 1 KHONG dung mang, chi mat ~1 giay. Giai doan 2 moi tai hang tram MB.
+Ly do tach: run.sh goi giai doan 1 TRUOC khi tai model (de phat hien som may
+hong), roi tai model, ROI MOI goi giai doan 2. Nho vay mot lan cai that bai vi
+mang/PyPI khong lam mat model da tai xong.
+
+`--install` chay lai duoc nhieu lan: pip tu bo qua nhung gi da dung.
+"""
 import importlib.metadata as metadata
 import json
 from pathlib import Path
@@ -25,6 +38,7 @@ def protected_versions():
 
 
 def main():
+    # --- Giai doan 1: kiem tra host + tao .venv. KHONG dung mang. ---
     versions = protected_versions()
     # Fail before downloads if the native stack itself is broken.
     subprocess.run([sys.executable, '-c',
@@ -43,6 +57,25 @@ def main():
         stamp.write_text(json.dumps(fingerprint, indent=2) + '\n')
     constraints = ENV / 'host-constraints.txt'
     constraints.write_text(''.join(f'{k}=={v}\n' for k, v in sorted(versions.items())))
+
+    if '--install' not in sys.argv:
+        # huggingface_hub phai co TRUOC buoc tai model, ma requirements.txt chi
+        # duoc cai o giai doan 2 (sau khi tai xong). Tren Kaggle no thuong co san
+        # trong host va system_site_packages=True lam no hien ra qua .venv; neu
+        # host KHONG co thi tai model se chet ngay dong dau. Cai rieng mot goi
+        # nhe nay (~500 KB) ngay bay gio, ghim theo constraints.
+        try:
+            subprocess.run([str(ENV / 'bin/python'), '-c', 'import huggingface_hub'],
+                           check=True, capture_output=True)
+        except subprocess.CalledProcessError:
+            print('huggingface_hub thieu trong host -> cai vao .venv truoc khi tai model')
+            subprocess.run([sys.executable, '-m', 'pip', '--python',
+                            str(ENV / 'bin/python'), 'install', '-c', str(constraints),
+                            'huggingface_hub'], check=True)
+        print(f'.venv ready ({ENV}); run with --install to resolve requirements')
+        return
+
+    # --- Giai doan 2: cai requirements.txt vao overlay. ---
     # The host pip drives installation into the overlay; it does not install into
     # the host interpreter. Requires pip >=22.3 (--python).
     subprocess.run([sys.executable, '-m', 'pip', '--python', str(ENV / 'bin/python'),
