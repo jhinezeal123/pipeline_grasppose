@@ -12,9 +12,9 @@
 
 Dau ra: 4 anh (box / mask / depthmap / grasp pose).
 
-Chien luoc VRAM — 3 phase, khong bao gio giu 2 model nang cung luc:
-    phase 1: MoGe + Grounding-DINO cung tren VRAM, chay SONG SONG.
-             Model nao xong truoc thi nha ngay.
+Chien luoc bo nho — 3 phase:
+    phase 1: MoGe + Grounding-DINO; Jetson Xavier chay TUAN TU.
+             May GPU manh co the bo PIPELINE_SERIAL_GPU de chay song song.
     phase 2: DINO da nha -> nap SAM -> chay -> nha.
     phase 3: tat ca da nha -> nap GraspNess -> chay -> nha.
 
@@ -377,9 +377,9 @@ class MogeDepth(Depth_Estimate):
 
         Nhung run.sh tai bang huggingface snapshot_download(local_dir=...) nen
         thuong ra mot THU MUC chua model.pt. Nhan ca hai cho khoi vo:
-          model/moge-3-vitl          (thu muc)  -> model/moge-3-vitl/model.pt
-          model/moge-3-vitl/model.pt (file)     -> dung nguyen
-          Ruicheng/moge-3-vitl       (repo id)  -> de nguyen, HF tu tai
+          model/moge-2-vits-normal          (thu muc) -> .../model.pt
+          model/moge-2-vits-normal/model.pt (file)    -> dung nguyen
+          Ruicheng/moge-2-vits-normal        (repo id) -> de nguyen, HF tu tai
         """
         p = self.model_path
         if os.path.isdir(p):
@@ -831,9 +831,10 @@ def run_phases(image, prompt, fov_x=None, detector=None, segmenter=None,
                depther=None, grasper=None):
     """Chay 4 model theo 3 phase.
 
-    PHASE 1 co y cho MoGe + Grounding-DINO chay SONG SONG (hai model nhe nhat,
-    tong VRAM van lot T4), doi lai giam gan mot nua thoi gian nap. Tu PHASE 2 tro
-    di moi phase chi giu DUNG MOT model nang: SAM xong moi den GraspNess. Ly do la
+    PHASE 1 co the chay song song tren GPU manh; tren Jetson Xavier run.sh dat
+    PIPELINE_SERIAL_GPU=1 de chay MoGe roi DINO tuan tu, giam contention va peak
+    unified memory. Tu PHASE 2 tro di moi phase chi giu DUNG MOT model nang:
+    SAM xong moi den GraspNess. Ly do la
     GraspNess + MinkowskiEngine an VRAM lon, khong the dung chung voi model khac.
 
     Vi vay moi lan release() xong deu duoc kiem tra: neu khong nha duoc thi ham
