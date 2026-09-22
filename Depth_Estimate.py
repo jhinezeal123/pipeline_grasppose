@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 class Depth_Estimate(ABC):
     """Uoc luong do sau + dung point cloud tu MOT anh RGB.
 
-    Vi du hien thuc: MoGe-3 (Ruicheng/moge-3-vitl).
+    Vi du hien thuc: MoGe-2 (Ruicheng/moge-2-vits-normal).
 
     LUU Y QUAN TRONG:
       - Model chay tren TOAN ANH, khong chay tren mask. Mask chi duoc dung
