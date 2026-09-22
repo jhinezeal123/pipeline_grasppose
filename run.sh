@@ -281,18 +281,90 @@ if ! python3 -c "from moge.model.v3 import MoGeModel; print('moge v3 OK')"; then
   exit 1
 fi
 
-# 5b) Cac thu vien con lai. gradio CHI cai khi chay --serve, de duong chay batch
-# khong phai keo them ~150 MB (fastapi/uvicorn/pydantic) ma no khong dung den.
-GRADIO_PKG=()
+# 5b) Cac thu vien con lai, cai vao TRONG REPO (env/lib), KHONG dung he thong.
+#
+# VI SAO: cach cu dung `pip install` tran da PHA moi truong cua chinh notebook
+# chua no. Bang chung do duoc tu log:
+#     ERROR: pip's dependency resolver ...
+#     google-adk 1.29.0 requires starlette<1.0.0,>=0.49.1,
+#     but you have starlette 1.6.0 which is incompatible
+# Nen bat ky setup thi nghiem nao khac trong cung session deu bi anh huong.
+#
+# Cach lam: `pip install --target env/lib` roi dua env/lib len dau PYTHONPATH.
+# Da do thuc te: goi nap tu env/lib, con ban he thong van nguyen ven.
+#
+# CANH BAO da do duoc: --target VAN keo theo phu thuoc moi (cai transforms3d
+# cung keo numpy 2.5.3, trong khi he thong co numpy 2.0.2 da kiem chung), va
+# gay xung dot "numba requires numpy<2.1, but you have numpy 2.5.3". Vi vay o
+# day chi cai nhung goi HE THONG CHUA CO, va ghim version lay tu
+# requirements.lock.txt. Goi nao he thong da co thi dung nguyen ban cua no —
+# nho vay torch/CUDA/MinkowskiEngine (nang, va phai khop ABI) khong bi dung toi.
+ENV_DIR="$SCRIPT_DIR/env/lib"
+echo "     [5b] cai thu vien vao env/lib (khong dung he thong)"
+mkdir -p "$ENV_DIR"
+
+# Danh sach goi BAT BUOC phai co. Goi nao import duoc roi thi bo qua.
+# (ten import | ten goi pip | version da kiem chung hoac rong)
+NEED="
+numpy|numpy|2.0.2
+scipy|scipy|1.16.3
+torch|torch|
+transformers|transformers|5.0.0
+PIL|pillow|11.3.0
+cv2|opencv-python-headless|4.13.0.88
+open3d|open3d|0.20.0
+huggingface_hub|huggingface_hub|1.32.0
+transforms3d|transforms3d|0.4.2
+"
 if [ "$SERVE" = "1" ]; then
-  GRADIO_PKG=(gradio)
-  echo "     [5b] (che do --serve nen cai them gradio)"
+  NEED="$NEED
+gradio|gradio|6.28.0"
 fi
-echo "     [5b] pip install transformers/torch/open3d/opencv/transforms3d/..."
-# transforms3d BAT BUOC: graspnetAPI/utils/utils.py can no ngay dong import dau
-# ("from transforms3d.euler import euler2mat"). Thieu no thi viec ve tu the gap
-# bang mesh upstream se vo luc import, du moi thu khac chay tot.
-pip install -q "transformers>=4.40" "torch" open3d opencv-python-headless pillow numpy scipy huggingface_hub timm transforms3d ${GRADIO_PKG[@]+"${GRADIO_PKG[@]}"}
+
+# Loc ra nhung goi con thieu (import that, khong tin danh sach pip).
+MISSING=""
+while IFS='|' read -r IMP Pkg Ver; do
+  [ -z "$IMP" ] && continue
+  if python3 -c "import $IMP" 2>/dev/null; then
+    echo "     [5b]   co san: $Pkg"
+  else
+    if [ -n "$Ver" ]; then
+      MISSING="$MISSING $Pkg==$Ver"
+    else
+      MISSING="$MISSING $Pkg"
+    fi
+    echo "     [5b]   THIEU : $Pkg"
+  fi
+done <<< "$NEED"
+
+if [ -n "$MISSING" ]; then
+  echo "     [5b] pip install --target env/lib:$MISSING"
+  # --no-deps: tranh keo theo ban phu thuoc moi de len ban he thong da kiem chung
+  # (da do: cai transforms3d keo numpy 2.5.3, lam vo numba/torch).
+  pip install -q --target "$ENV_DIR" --no-deps $MISSING
+else
+  echo "     [5b] moi thu da co san, khong cai gi"
+fi
+
+# env/lib len DAU PYTHONPATH de goi thieu duoc lay tu do; goi he thong van thay
+# duoc o phia sau nen torch/CUDA khong bi anh huong.
+export PYTHONPATH="$ENV_DIR:$SCRIPT_DIR/model/moge_repo:$SCRIPT_DIR/model/graspnetAPI_repo:${PYTHONPATH:-}"
+
+# Kiem tra that: moi goi bat buoc phai import duoc.
+BAD=""
+while IFS='|' read -r IMP Pkg Ver; do
+  [ -z "$IMP" ] && continue
+  python3 -c "import $IMP" 2>/dev/null || BAD="$BAD $Pkg"
+done <<< "$NEED"
+if [ -n "$BAD" ]; then
+  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+  echo "!! LOI: van khong import duoc:$BAD"
+  echo "!! Thu chay tay de xem loi that:"
+  echo "!!   PYTHONPATH=$ENV_DIR python3 -c 'import ${BAD## }'"
+  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+  exit 1
+fi
+echo "     [5b] tat ca thu vien bat buoc: OK"
 
 # 5c) Ghi chu co y (de nguoi sau khong mat thoi gian go loi):
 echo "     GHI CHU: goi 'graspnetAPI' tren PyPI bi HONG (loi setuptools.extern.six"
