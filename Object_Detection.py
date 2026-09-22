@@ -1,7 +1,7 @@
 """Object_Detection — KHAI BAO giao dien, KHONG dinh nghia.
 
 File nay chi mo ta mot class de sau nay thao/lap model khac vao.
-Hien thuc cu the nam trong pipeline.py (lop con ke thua class nay).
+Hien thuc cu the nam trong grasppose/adapters.py (lop con ke thua class nay).
 
 Quy uoc chung cho ca 4 module:
   - model_path : thuoc tinh, duong dan trong so tren dia
