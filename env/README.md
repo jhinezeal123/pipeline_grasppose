@@ -1,64 +1,50 @@
-# env/ — phu thuoc moi truong
+# Môi trường chạy
 
-Thu muc nay tra loi cau hoi: **"may nay co chay duoc pipeline khong?"**
+`bash run.sh img/anh.png` tạo `.venv` riêng với `--system-site-packages`,
+để dùng lại Torch/CUDA/MinkowskiEngine của máy. Mọi gói bổ sung được cài vào
+`.venv`, không vào Python của notebook. Không cần `ensurepip`: pip của Python
+chủ quản cài qua `--python .venv/bin/python` (cần pip >=22.3).
 
-## Vi sao khong chua thu vien o day
+## Điều kiện trước khi chạy
 
-Cach dong goi chuyen nghiep la **repo chua cong thuc, khong chua ket qua**. Copy
-thu vien vao repo (vendoring) hau nhu khong ai lam, vi:
+- Linux, Python >=3.10; môi trường cũ ghi nhận trong snapshot dùng Python 3.12.
+- Torch, torchvision, NumPy và MinkowskiEngine phải được cài sẵn và import được.
+- GPU CUDA dùng được với Torch; CUDA toolkit (`nvcc`) và compiler để build pointnet2.
+- MinkowskiEngine phải khớp Python/Torch/CUDA của máy. Repo không cung cấp wheel
+  dùng chung cho mọi máy. Nếu thiếu, setup dừng trước khi tải model và báo tên gói.
+- Internet để tải dependencies và model lần đầu.
 
-- torch + CUDA ~2.5 GB, MinkowskiEngine + phan con lai ~0.5 GB;
-- `MinkowskiEngine` va `pointnet2._ext` la **C++/CUDA extension**, bien dich cho
-  dung ABI cua mot ban torch + mot ban CUDA + mot ban Python. Copy sang may khac
-  **khong chay duoc** — no khong mang lai tinh dong goi, chi mang lai dung luong;
-- `git diff` tro nen vo dung, va moi lan nang cap phai copy lai tu dau.
+`requirements.txt` là danh sách runtime có giới hạn phiên bản, **không phải lock
+đầy đủ**. MoGe được ghim commit; pip giải cả dependencies gián tiếp của MoGe.
+Các phiên bản Torch, torchvision, NumPy, SciPy, MinkowskiEngine, Triton và NVIDIA
+đang có trên máy được ghi vào `.venv/host-constraints.txt`. Nếu yêu cầu mới xung đột,
+pip dừng thay vì tự đổi bộ CUDA. `.venv/host.json` phát hiện thay đổi môi trường chủ.
 
-Thu can tai lap khong phai *thu vien*, ma la **to hop CUDA + torch +
-MinkowskiEngine + _ext**. To hop do duoc ghim trong `requirements.lock.txt`.
+`requirements.lock.txt` là snapshot lịch sử do repo cung cấp, không dùng để
+bootstrap: thiếu dependencies gián tiếp/MoGe và không xác định đầy đủ index CUDA.
+Không xem nó là bằng chứng rằng máy mới đã được kiểm thử.
 
-## Noi dung
-
-| File | Vai tro |
-|---|---|
-| `check_env.py` | Kiem tra may nay co du dieu kien khong. Chay TRUOC `run.sh`. |
-| `../requirements.lock.txt` | Ban ghim chinh xac moi thu da chay duoc. |
-
-## Dung
+## Chạy và chẩn đoán
 
 ```bash
-python env/check_env.py
+bash run.sh img/anh.png
+bash run.sh --serve --port 8080
+.venv/bin/python env/check_env.py
 ```
 
-Tra ve 0 neu du dieu kien, 1 neu thieu. Kiem tra: Python, thu vien (kem doi chieu
-phien ban da kiem chung), GPU + compute capability so voi arch torch ho tro, `nvcc`
-de bien dich `_ext`, va `_ext` da build chua.
+Nếu setup báo môi trường chủ thay đổi, di chuyển `.venv` cũ sang nơi khác rồi
+chạy lại. Build lại pointnet2 với bộ Torch/CUDA mới; chỉ có file `.so` là chưa đủ,
+`run.sh` còn kiểm tra import thực để phát hiện lỗi ABI.
 
-## To hop da kiem chung that
+Không thêm `env/lib` hoặc `model/moge_repo` cũ vào `PYTHONPATH`: chúng có thể che
+khuất gói mới. Với shell từng export các đường dẫn này, mở shell mới trước khi chạy.
+Gói bổ sung được cách ly nhưng thư viện native vẫn phụ thuộc môi trường chủ;
+đây không phải môi trường hermetic hay image Docker đã kiểm thử.
 
-Do bang `importlib` tren may Kaggle dang chay, khong phai suy doan:
+## Kiểm thử không cần GPU
 
-| | |
-|---|---|
-| Python | 3.12.13 |
-| torch | 2.10.0+cu128 |
-| CUDA | 12.8 (`nvcc` V12.8.93) |
-| transformers | 5.0.0 |
-| numpy | 2.0.2 |
-| GPU | Tesla T4 (sm_75) |
-| MinkowskiEngine | 0.5.4 |
-| gcc | 11.4.0 |
-
-## Ba thu KHONG cai duoc bang pip
-
-1. **MinkowskiEngine** — khong co wheel tren PyPI cho cau hinh nay. Kaggle lay tu
-   dataset ngoai; may khac phai tu build (rat kho, xem repo NVIDIA/MinkowskiEngine).
-2. **pointnet2 `_ext`** — upstream chi co ma nguon. `run.sh` tu bien dich bang
-   `setup.py`, build **vao trong repo** (`model/graspness_unofficial_build/`).
-3. **graspnetAPI** — ban tren PyPI bi hong (con import `setuptools.extern.six`, da
-   bi Python moi xoa). `run.sh` `git clone` vao `model/graspnetAPI_repo`.
-
-## Vi sao `venv` khong dung duoc o day
-
-Da thu that tren Kaggle va **that bai**: `python3 -m venv` bao
-`ModuleNotFoundError: No module named 'ensurepip'`, va venv tao ra con **mat luon
-`torch`** cua he thong. Nen khong the co lap bang venv theo cach thong thuong.
+```bash
+python3 -m unittest discover -s tests -v
+python3 test_pipeline_mock.py
+python3 test_app.py
+```

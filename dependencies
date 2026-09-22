@@ -32,22 +32,13 @@ DEST = model/sam-vit-base
 ---
 # -----------------------------------------------------------------------------
 # 3) MoGe v3 (ViT-L): anh -> depth map + point cloud + intrinsics.
-#    Luu y: day chi la WEIGHTS. Code cua MoGe nam o block "moge-repo" ben duoi
-#    va duoc cai bang: pip install -e model/moge_repo
+#    Luu y: day chi la WEIGHTS. Code MoGe duoc ghim commit
+#    va duoc cai tu requirements.txt vao .venv.
 # -----------------------------------------------------------------------------
 NAME = moge
 KIND = hf
 REPO = Ruicheng/moge-3-vitl
 DEST = model/moge-3-vitl
----
-# -----------------------------------------------------------------------------
-# 4) MoGe source code (microsoft/moge) - de import "from moge.model.v3 import
-#    MoGeModel". Cai bang pip -e, KHONG phai bang pip install moge tu PyPI.
-# -----------------------------------------------------------------------------
-NAME = moge-repo
-KIND = git
-URL = https://github.com/microsoft/moge.git
-DEST = model/moge_repo
 ---
 # -----------------------------------------------------------------------------
 # 5) GraspNetAPI source code (graspnet/graspnetAPI) - bat buoc dung ban git clone.
@@ -58,6 +49,7 @@ NAME = graspnetapi-repo
 KIND = git
 URL = https://github.com/graspnet/graspnetAPI.git
 DEST = model/graspnetAPI_repo
+REVISION = eb57dd2092d8dbe05312a29c3d0c22f3226efbfc
 ---
 # -----------------------------------------------------------------------------
 # 6) Graspness checkpoint (GraspNet-1Billion), ban RealSense.
@@ -92,3 +84,11 @@ KIND = url
 URL = https://www.kaggle.com/api/v1/datasets/download/bbucxi/graspness-realsense-ckpt
 DEST = model/graspness_reckpt.pth
 MD5 = f2c14a02cf024de789f324ba2da76277
+
+---
+# Native GraspNess source (pointnet2 is compiled by run.sh).
+NAME = graspness-repo
+KIND = git
+URL = https://github.com/graspnet/graspness_unofficial.git
+DEST = model/graspness_unofficial
+REVISION = b5abf5aaaf3a797514f89161d8ccc8dfc2ec0eca

@@ -72,12 +72,19 @@ echo "  Python     : $(command -v python3 || echo 'KHONG THAY python3')"
 echo "  Che do     : $( [ "$SERVE" = "1" ] && echo "SERVE - web UI o cong $PORT" || echo "BATCH - chay 1 anh")"
 echo "=============================================================="
 
+# Bootstrap using the selected interpreter, then use that exact environment
+# for every download, build and inference subprocess.
+HOST_PYTHON="${PYTHON:-python3}"
+"$HOST_PYTHON" "$SCRIPT_DIR/env/setup_env.py"
+PYTHON="$SCRIPT_DIR/.venv/bin/python"
+export PATH="$SCRIPT_DIR/.venv/bin:/usr/local/cuda/bin:$PATH"
+
 # -----------------------------------------------------------------------------
 # BUOC 3: doc hf_token (neu co) -> export HF_TOKEN.
 # File hf_token de TRONG cung chay duoc, nhung model tren HuggingFace se tai
 # cham hon / co the bi gioi han toc do. Token KHONG bao gio bi in ra man hinh.
 # -----------------------------------------------------------------------------
-HF_TOKEN=""
+HF_TOKEN="${HF_TOKEN:-}"
 if [ -s hf_token ]; then
   # -s = file ton tai VA co noi dung (> 0 byte). Xoa khoang trang / xuong dong thua.
   HF_TOKEN="$(tr -d ' \t\r\n' < hf_token)"
@@ -102,7 +109,7 @@ echo "--------------------------------------------------------------"
 
 # Parser in ra TSV: KIND <TAB> NAME <TAB> SRC(REPO hoac URL) <TAB> DEST
 # Neu parse loi thi set -e se dung script ngay (khong tai thieu model).
-MODELS_TSV="$(python3 - <<'PY'
+MODELS_TSV="$("$PYTHON" - <<'PY'
 import os
 import sys
 
@@ -141,7 +148,8 @@ for b in blocks:
         sys.exit("LOI: block thieu KEY bat buoc: %r" % b)
     # MD5 tuy chon: co thi phai khop, khong thi bo qua (truong rong).
     md5 = b.get('MD5', '')
-    print('\t'.join([kind, name, src, dest, md5]))
+    revision = b.get('REVISION', '-')
+    print('\t'.join([kind, name, src, dest, md5 or '-', revision]))
 PY
 )"
 
@@ -149,7 +157,9 @@ PY
 # Windows in ra \r\n thi DEST/SRC se dinh '\r' o cuoi -> sai duong dan, khong skip duoc.
 MODELS_TSV="${MODELS_TSV//$'\r'/}"
 
-while IFS=$'\t' read -r KIND NAME SRC DEST MD5; do
+while IFS=$'\t' read -r KIND NAME SRC DEST MD5 REVISION; do
+  [ "$MD5" = "-" ] && MD5=""
+  mkdir -p "$(dirname "$DEST")"
   case "$KIND" in
     # ------------------------- KIND = hf -------------------------
     hf)
@@ -158,10 +168,9 @@ while IFS=$'\t' read -r KIND NAME SRC DEST MD5; do
         echo "     DA CO $NAME -> bo qua"
       else
         echo "     [hf]  $NAME: snapshot_download $SRC -> $DEST"
-        # huggingface_hub chac chan phai co truoc khi tai (buoc 5 moi cai hang loat).
-        python3 -c "import huggingface_hub" 2>/dev/null || pip install -q huggingface_hub
+        # huggingface_hub da duoc cai vao .venv truoc khi tai.
         # Token truyen sang python qua argv (khong nhung vao chuoi lenh).
-        python3 -c '
+        "$PYTHON" -c '
 import sys
 from huggingface_hub import snapshot_download
 snapshot_download(
@@ -181,6 +190,17 @@ snapshot_download(
         echo "     [git] $NAME: clone $SRC -> $DEST"
         git clone --depth 1 "$SRC" "$DEST"
         echo "     XONG $NAME"
+      fi
+      if [ "$REVISION" != "-" ]; then
+        CURRENT="$(git -C "$DEST" rev-parse HEAD)"
+        if [ "$CURRENT" != "$REVISION" ]; then
+          if [ -n "$(git -C "$DEST" status --porcelain)" ]; then
+            echo "LOI: $DEST co thay doi local; khong ghi de." >&2
+            exit 1
+          fi
+          git -C "$DEST" fetch --depth 1 origin "$REVISION"
+          git -C "$DEST" checkout --detach "$REVISION"
+        fi
       fi
       ;;
     # ------------------------- KIND = url ------------------------
@@ -263,177 +283,10 @@ echo "     TAT CA MODEL DA SAN SANG."
 echo "[5/8] Cai dat thu vien python ..."
 echo "--------------------------------------------------------------"
 
-# 5.0) LD_LIBRARY_PATH — BAT BUOC, va phai dat TRUOC moi lenh `import` kiem tra.
-#
-# Tren Kaggle driver nam o /usr/local/nvidia/lib64 nhung thu muc do KHONG nam
-# trong ldconfig mac dinh. Thieu bien nay thi:
-#   - `torch.cuda.is_available()` -> False du may CO T4;
-#   - `import open3d` THAT BAI (no can libcuda), va vi ta kiem tra bang
-#     `2>/dev/null` nen no im lang -> bi hieu nham thanh "chua cai open3d",
-#     roi tai ve 400 MB vo ich va van khong import duoc.
-# Da gap dung the nay: log bao 'THIEU : open3d' trong khi Kaggle co san open3d.
-if [ -d /usr/local/nvidia/lib64 ]; then
-  export LD_LIBRARY_PATH="/usr/local/nvidia/lib64:${LD_LIBRARY_PATH:-}"
-  echo "     [5.0] LD_LIBRARY_PATH=/usr/local/nvidia/lib64 (bat buoc cho open3d/torch)"
-fi
-# CUDA toolkit tren Kaggle nam ngoai PATH mac dinh; can cho buoc 5d (build _ext).
-export PATH="/usr/local/cuda/bin:${PATH}"
-
-# 5a) MoGe: cai tu source (khong phai ban PyPI) roi kiem tra import that.
-#
-# KHONG dung --no-deps tran: da thu va no lam VO MoGe. Bang chung tu log:
-#     moge/model/v3.py line 8:  import utils3d_moge as utils3d
-#     ModuleNotFoundError: No module named 'utils3d_moge'
-#     ... line 10:              import utils3d
-#     ModuleNotFoundError: No module named 'utils3d'
-# Ba goi duoi day den tu git, KHONG co tren PyPI, nen --no-deps chan luon chung.
-#
-# Nhung cung KHONG the de pip tu giai phu thuoc: pyproject.toml cua MoGe khai
-# bao torch>=2.4 / torchvision>=0.19 / starlette / gradio>=6.0, va trong
-# [tool.uv.sources] tro torch vao index "pytorch-cu130" (CUDA 13.0). De pip tu do
-# thi no thay torch cu128 cua Kaggle bang ban khac -> driver khong khop.
-#
-# Cach dung: cai moge voi --no-deps (chi lay chinh no), roi cai TAY dung ba goi
-# git ma no can, cung bang --no-deps de khong keo torch moi.
-echo "     [5a] pip install -e model/moge_repo --no-deps"
-pip install -e model/moge_repo --no-deps 2>&1 | tail -4
-
-# Ba goi git ma moge can, da DOC NGUON de xac nhan chu khong doan:
-#   moge/model/v3.py            : import utils3d_moge as utils3d
-#   moge/model/modules/sparse_unet.py : from flex_gemm.ops import NeighborCache
-#   (goi 'pipeline' khong duoc import truc tiep, nhung nam trong danh sach
-#    dependencies cua pyproject.toml — de lai cho day du, cai thieu con hon.)
-# Ghim dung commit trong pyproject.toml cua MoGe de ket qua lap lai duoc.
-MOGE_GIT_DEPS=(
-  "utils3d_moge|utils3d_moge @ git+https://github.com/EasternJournalist/utils3d-moge.git@62f09d58509485564e24d5d9f6aac9ee9ebc0c37"
-  "flex_gemm|flex-gemm @ git+https://github.com/JeffreyXiang/FlexGEMM.git@b2fadb29d41846c7981ade6801ffc689fae119cf"
-  "pipeline|pipeline @ git+https://github.com/EasternJournalist/pipeline.git@1c511390d90226c00c101f34b84df26a0f8789b4"
-)
-echo "     [5a] cai 3 goi git ma MoGe can (utils3d_moge / flex_gemm / pipeline)"
-for entry in "${MOGE_GIT_DEPS[@]}"; do
-  mod="${entry%%|*}"
-  dep="${entry#*|}"
-  # Da co roi thi bo qua — moi goi nay mat 30-60s de build tu source.
-  if python3 -c "import $mod" 2>/dev/null; then
-    echo "     [5a]   co san: $mod"
-  else
-    echo "     [5a]   cai   : $mod"
-    pip install --no-deps "$dep" 2>&1 | tail -3
-  fi
-done
-
-# Cho python tim thay source cua MoGe va GraspNetAPI truoc khi verify / chay pipeline.
-export PYTHONPATH="$SCRIPT_DIR/model/moge_repo:$SCRIPT_DIR/model/graspnetAPI_repo:${PYTHONPATH:-}"
-
-echo "     [5a] verify: from moge.model.v3 import MoGeModel"
-if ! python3 -c "from moge.model.v3 import MoGeModel; print('moge v3 OK')"; then
-  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-  echo "!! LOI: import MoGe v3 that bai."
-  echo "!! Kiem tra: model/moge_repo da clone chua? torch da cai chua?"
-  echo "!! Thu chay tay:  PYTHONPATH=model/moge_repo python3 -c \\"
-  echo "!!     \"from moge.model.v3 import MoGeModel; print('ok')\""
-  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-  exit 1
-fi
-
-# 5b) Cac thu vien con lai, cai vao TRONG REPO (env/lib), KHONG dung he thong.
-#
-# VI SAO: cach cu dung `pip install` tran da PHA moi truong cua chinh notebook
-# chua no. Bang chung do duoc tu log:
-#     ERROR: pip's dependency resolver ...
-#     google-adk 1.29.0 requires starlette<1.0.0,>=0.49.1,
-#     but you have starlette 1.6.0 which is incompatible
-# Nen bat ky setup thi nghiem nao khac trong cung session deu bi anh huong.
-#
-# Cach lam: `pip install --target env/lib` roi dua env/lib len dau PYTHONPATH.
-# Da do thuc te: goi nap tu env/lib, con ban he thong van nguyen ven.
-#
-# CANH BAO da do duoc: --target VAN keo theo phu thuoc moi (cai transforms3d
-# cung keo numpy 2.5.3, trong khi he thong co numpy 2.0.2 da kiem chung), va
-# gay xung dot "numba requires numpy<2.1, but you have numpy 2.5.3". Vi vay o
-# day chi cai nhung goi HE THONG CHUA CO, va ghim version lay tu
-# requirements.lock.txt. Goi nao he thong da co thi dung nguyen ban cua no —
-# nho vay torch/CUDA/MinkowskiEngine (nang, va phai khop ABI) khong bi dung toi.
-ENV_DIR="$SCRIPT_DIR/env/lib"
-echo "     [5b] cai thu vien vao env/lib (khong dung he thong)"
-mkdir -p "$ENV_DIR"
-
-# Danh sach goi BAT BUOC phai co. Goi nao import duoc roi thi bo qua.
-# (ten import | ten goi pip | version da kiem chung hoac rong)
-NEED="
-numpy|numpy|2.0.2
-scipy|scipy|1.16.3
-torch|torch|
-transformers|transformers|5.0.0
-PIL|pillow|11.3.0
-cv2|opencv-python-headless|4.13.0.88
-open3d|open3d|0.20.0
-huggingface_hub|huggingface_hub|1.32.0
-transforms3d|transforms3d|0.4.2
-"
-if [ "$SERVE" = "1" ]; then
-  NEED="$NEED
-gradio|gradio|6.28.0"
-fi
-
-# Loc ra nhung goi con thieu (import that, khong tin danh sach pip).
-# KHONG dung 2>/dev/null: nuốt loi that se khien "import loi" bi hieu nham thanh
-# "chua cai", roi tai ve 400 MB vo ich. Giu lai thong bao loi de con chan doan.
-MISSING=""
-while IFS='|' read -r IMP Pkg Ver; do
-  [ -z "$IMP" ] && continue
-  ERR="$(python3 -c "import $IMP" 2>&1)"
-  if [ -z "$ERR" ]; then
-    echo "     [5b]   co san: $Pkg"
-  else
-    if [ -n "$Ver" ]; then
-      MISSING="$MISSING $Pkg==$Ver"
-    else
-      MISSING="$MISSING $Pkg"
-    fi
-    echo "     [5b]   THIEU : $Pkg"
-    # In dong loi dau tien — neu la loi CUDA/thu vien chu khong phai thieu goi
-    # thi nhin la biet ngay, khong phai doan.
-    echo "$ERR" | tail -3 | sed 's/^/     [5b]     | /'
-  fi
-done <<< "$NEED"
-
-if [ -n "$MISSING" ]; then
-  echo "     [5b] pip install --target env/lib:$MISSING"
-  # --no-deps: tranh keo theo ban phu thuoc moi de len ban he thong da kiem chung
-  # (da do: cai transforms3d keo numpy 2.5.3, lam vo numba/torch).
-  pip install -q --target "$ENV_DIR" --no-deps $MISSING
-else
-  echo "     [5b] moi thu da co san, khong cai gi"
-fi
-
-# env/lib len DAU PYTHONPATH de goi thieu duoc lay tu do; goi he thong van thay
-# duoc o phia sau nen torch/CUDA khong bi anh huong.
-export PYTHONPATH="$ENV_DIR:$SCRIPT_DIR/model/moge_repo:$SCRIPT_DIR/model/graspnetAPI_repo:${PYTHONPATH:-}"
-
-# Kiem tra that: moi goi bat buoc phai import duoc.
-BAD=""
-while IFS='|' read -r IMP Pkg Ver; do
-  [ -z "$IMP" ] && continue
-  python3 -c "import $IMP" 2>/dev/null || BAD="$BAD $Pkg"
-done <<< "$NEED"
-if [ -n "$BAD" ]; then
-  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-  echo "!! LOI: van khong import duoc:$BAD"
-  echo "!! Thu chay tay de xem loi that:"
-  echo "!!   PYTHONPATH=$ENV_DIR python3 -c 'import ${BAD## }'"
-  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-  exit 1
-fi
-echo "     [5b] tat ca thu vien bat buoc: OK"
-
-# 5c) Ghi chu co y (de nguoi sau khong mat thoi gian go loi):
-echo "     GHI CHU: goi 'graspnetAPI' tren PyPI bi HONG (loi setuptools.extern.six"
-echo "              da bi Python moi xoa) -> script nay dung ban git clone trong"
-echo "              model/graspnetAPI_repo va them no vao PYTHONPATH."
-echo "     GHI CHU: KHONG can cai 'autolab_core' / 'scikit-image' / DexNet."
-echo "              pipeline.py nap thang graspnetAPI.grasp va bo qua __init__.py,"
-echo "              nen ca chuoi phan DANH GIA (graspnet_eval -> dexnet) khong bi keo theo."
+# All Python dependencies (including MoGe transitive dependencies) were resolved
+# into .venv before model downloads. Never install into the notebook interpreter.
+export PYTHONPATH="$SCRIPT_DIR/model/graspnetAPI_repo:${PYTHONPATH:-}"
+"$PYTHON" -c 'from moge.model.v3 import MoGeModel; import MinkowskiEngine; print("MoGe / MinkowskiEngine OK")'
 
 # -----------------------------------------------------------------------------
 # BUOC 5d: pointnet2._ext — extension CUDA BAT BUOC phai duoc bien dich.
@@ -453,7 +306,7 @@ echo "              nen ca chuoi phan DANH GIA (graspnet_eval -> dexnet) khong b
 GRASPNESS_DIR="${GRASPNESS_HOME:-$SCRIPT_DIR/model/graspness_unofficial}"
 if [ ! -d "$GRASPNESS_DIR/pointnet2" ]; then
   echo "     [5d] khong thay $GRASPNESS_DIR/pointnet2 -> bo qua"
-  echo "          (GraspNess se tu bao ro ly do nay tren anh ket qua)"
+  exit 1
 elif ls "$GRASPNESS_DIR"/pointnet2/_ext*.so >/dev/null 2>&1; then
   echo "     [5d] pointnet2._ext: DA CO -> bo qua"
 else
@@ -463,7 +316,8 @@ else
     rm -f "$GRASPNESS_DIR/pointnet2/.write_probe"
     BUILD_DIR="$GRASPNESS_DIR"
   else
-    BUILD_DIR="$SCRIPT_DIR/model/graspness_unofficial_build"
+    BUILD_DIR="$SCRIPT_DIR/.venv/native/graspness_unofficial"
+    mkdir -p "$(dirname "$BUILD_DIR")"
     # [ -L ] : neu lan chay truoc da de lai mot SYMLINK hong thi phai lam lai.
     if [ ! -d "$BUILD_DIR/pointnet2" ] || [ -L "$BUILD_DIR" ]; then
       echo "     [5d] $GRASPNESS_DIR chi doc -> copy sang $BUILD_DIR"
@@ -493,7 +347,7 @@ else
   # '|| true' la bat buoc: duoi 'set -e' thi mot phep gan that bai se giet script
   # ngay tai day (va TORCH_CUDA_ARCH_LIST se khong bao gio duoc dat mac dinh).
   if [ -z "${TORCH_CUDA_ARCH_LIST:-}" ]; then
-    DETECTED_ARCH="$(python3 -c "
+    DETECTED_ARCH="$("$PYTHON" -c "
 import torch
 print('%d.%d' % torch.cuda.get_device_capability(0)
       if torch.cuda.is_available() else '7.5')
@@ -501,7 +355,7 @@ print('%d.%d' % torch.cuda.get_device_capability(0)
     export TORCH_CUDA_ARCH_LIST="${DETECTED_ARCH:-7.5}"
   fi
   echo "     [5d] TORCH_CUDA_ARCH_LIST=$TORCH_CUDA_ARCH_LIST"
-  ( cd "$BUILD_DIR/pointnet2" && python3 setup.py build_ext --inplace ) \
+  ( cd "$BUILD_DIR/pointnet2" && "$PYTHON" setup.py build_ext --inplace ) \
       >"$SCRIPT_DIR/model/_ext_build.log" 2>&1 || true
   # 'build_ext --inplace' hay hong o buoc copy cuoi: no giai ma ten goi thanh
   # 'pointnet2/' tuong doi voi CWD (da la pointnet2/) nen doi thu muc
@@ -516,9 +370,20 @@ print('%d.%d' % torch.cuda.get_device_capability(0)
   else
     echo "     CANH BAO: khong bien dich duoc pointnet2._ext."
     echo "              Xem log: model/_ext_build.log"
-    echo "              GraspNess se khong nap duoc nhung se bao RO ly do tren anh."
+    exit 1
   fi
 fi
+
+"$PYTHON" - "$GRASPNESS_DIR" <<'PY_EXT'
+import os
+import sys
+import torch
+sys.path.insert(0, os.environ.get('GRASPNESS_HOME', sys.argv[1]))
+try:
+    import pointnet2._ext
+except (ImportError, OSError) as exc:
+    sys.exit(f'pointnet2 ABI/import error: {exc}. Rebuild pointnet2 with the current torch/CUDA.')
+PY_EXT
 
 # -----------------------------------------------------------------------------
 # BUOC 5c: NEU la --serve thi mo web UI roi DUNG (khong chay 1 anh nao).
@@ -534,7 +399,7 @@ if [ "$SERVE" = "1" ]; then
   echo "--------------------------------------------------------------"
   # exec: thay the shell bang app.py -> Ctrl-C di thang toi server, khong de lai
   # tien trinh mo côi.
-  exec python3 app.py --port "$PORT"
+  exec "$PYTHON" app.py --port "$PORT"
 fi
 
 # -----------------------------------------------------------------------------
@@ -560,7 +425,7 @@ fi
 mkdir -p output
 
 echo "[6/8] Anh dau vao : $IMG"
-echo "[7/8] Chay: python3 pipeline.py --img \"$IMG\" --out output ..."
+echo "[7/8] Chay: $PYTHON pipeline.py --img \"$IMG\" --out output ..."
 echo "--------------------------------------------------------------"
 
 # HF_TOKEN da duoc export o buoc 3 nen huggingface_hub tu doc duoc. Ngoai ra, neu
@@ -571,7 +436,7 @@ if [ -n "$HF_TOKEN" ] && grep -q -- "--token" pipeline.py 2>/dev/null; then
   TOKEN_ARGS=(--token "$HF_TOKEN")
 fi
 
-python3 pipeline.py --img "$IMG" --out output "${TOKEN_ARGS[@]+"${TOKEN_ARGS[@]}"}" "${@:2}"
+"$PYTHON" pipeline.py --img "$IMG" --out output "${TOKEN_ARGS[@]+"${TOKEN_ARGS[@]}"}" "${@:2}"
 
 # -----------------------------------------------------------------------------
 # BUOC 8: bao ket qua - 4 anh mong doi trong output/.

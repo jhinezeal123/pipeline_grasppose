@@ -1,55 +1,16 @@
-# =============================================================================
-# requirements.txt - thu vien Python cho pipeline va web UI (chuan HuggingFace
-# Spaces). Day la ban song song cua buoc [5b] trong run.sh, viet theo dung dinh
-# dang ma HF Spaces doc duoc.
-#
-# =============================================================================
-# !!! DOC KY: FILE NAY KHONG DU DE DUNG MOT HF SPACE THAT !!!
-# -----------------------------------------------------------------------------
-# Hai thu BAT BUOC cua pipeline KHONG the cai bang requirements.txt:
-#
-#   1) graspnetAPI (graspnet/graspnetAPI)
-#      - Goi "graspnetAPI" tren PyPI bi HONG: no van import setuptools.extern.six,
-#        thu da bi Python moi xoa.
-#      - Cach dung duoc: git clone repo roi them vao PYTHONPATH. pipeline.py lam
-#        viec do qua ham _load_graspnetapi() (nap thang graspnetAPI.grasp va bo qua
-#        __init__.py, nen khong keo theo graspnet_eval -> dexnet -> skimage).
-#      - run.sh clone vao model/graspnetAPI_repo va export PYTHONPATH.
-#
-#   2) Checkpoint GraspNess (graspness_realsense.pth)
-#      - run.sh TU TAI tu mot dataset Kaggle cong khai (xem block NAME=graspness
-#        trong file 'dependencies'). Khong can lam gi thu cong.
-#      - Nguon goc: link chinh thuc nam trong README cua
-#        graspnet/graspness_unofficial (Google Drive, file minkuresunet_realsense.tar),
-#        nhung link do khong dung truc tiep duoc — xem README.md muc 2.
-#
-# Vi vay: KAGGLE LA DUONG CHAY CHINH THUC (xem README.md muc "Chay tren Kaggle").
-# File nay chi de repo hop chuan HF Spaces va de cai nhanh phan UI.
-# =============================================================================
-
-# --- Model + thi giac ---------------------------------------------------------
-transformers>=4.40
-torch
-timm
-
-# --- Anh / diem 3D ------------------------------------------------------------
-open3d
-opencv-python-headless
-pillow
-numpy
-scipy
-
-# --- Tien ich -----------------------------------------------------------------
-huggingface_hub
-# transforms3d BAT BUOC: graspnetAPI/utils/utils.py can no ngay dong import dau
-# ("from transforms3d.euler import euler2mat"). Thieu no thi viec ve tu the gap
-# bang mesh upstream se vo luc import, du moi thu khac chay tot.
-transforms3d
-
-# --- Web UI -------------------------------------------------------------------
-gradio>=4.44
-
-# --- MoGe: cai tu SOURCE, khong phai ban "moge" tren PyPI ---------------------
-# Goi "moge" tren PyPI la ban v2 (API khac: from moge.model import MoGeModel).
-# Pipeline nay can ban v3 (from moge.model.v3 import MoGeModel).
-git+https://github.com/microsoft/moge.git
+# Runtime requirements. run.sh resolves these inside .venv with host CUDA
+# constraints; do not install them into a shared notebook interpreter.
+# This is not a full lock: see env/README.md for native prerequisites.
+transformers>=5.0,<6
+timm>=1,<2
+open3d>=0.19,<0.21
+opencv-python-headless>=4.10,<5
+pillow>=11,<13
+numpy>=2,<3
+scipy>=1.14,<2
+huggingface_hub>=1,<2
+transforms3d==0.4.2
+trimesh>=4.11,<6
+einops>=0.8,<1
+gradio>=6,<7
+moge @ git+https://github.com/microsoft/MoGe.git@74fbce054ebed49800de42d0ad0e83495065719a
