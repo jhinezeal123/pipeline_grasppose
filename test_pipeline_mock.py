@@ -16,7 +16,8 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-import pipeline as P                                          # noqa: E402
+import pipeline as P
+import grasppose.rendering as R                                          # noqa: E402
 
 FAIL = []
 # Muc bi bo qua vi thieu phu thuoc ngoai repo (khong phai loi code). In ra o
@@ -387,8 +388,8 @@ def main():
     Kd = P.K_from_fovy(60.0, 640, 480)
     canvas = np.full((480, 640, 3), 255, np.uint8)
 
-    orig_api = P._load_graspnetapi
-    P._load_graspnetapi = lambda: _API()
+    orig_api = R._load_graspnetapi
+    R._load_graspnetapi = lambda: _API()
     # Dem so doan thang duoc ve, de kiem tra da bo canh song song truc chua.
     import cv2 as _cv2
     n_seg = [0]
@@ -425,7 +426,7 @@ def main():
             check("draw_grasp voi LineSet khong raise", False)
     finally:
         _cv2.line = _orig_line
-        P._load_graspnetapi = orig_api
+        R._load_graspnetapi = orig_api
 
     return report()
 
