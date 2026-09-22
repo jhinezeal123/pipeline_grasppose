@@ -91,7 +91,10 @@ class EnvironmentTests(unittest.TestCase):
         with patch.object(setup.metadata, 'distributions', return_value=distributions):
             result = setup.protected_versions()
         self.assertIn('nvidia-cublas-cu12', result)
-        self.assertIn('minkowskiengine', result)
+        # MinkowskiEngine KHONG duoc ghim vao constraints: installer rieng
+        # (env/install_minkowski.py) tu lo phien ban, va constraints ghim se lam
+        # pip tu choi bundled wheel khac phien ban (ResolutionImpossible).
+        self.assertNotIn('minkowskiengine', result)
         self.assertNotIn('gradio', result)
 
 

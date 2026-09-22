@@ -17,13 +17,38 @@ chủ quản cài qua `--python .venv/bin/python` (cần pip >=22.3).
 
 `requirements.txt` là danh sách runtime có giới hạn phiên bản, **không phải lock
 đầy đủ**. MoGe được ghim commit; pip giải cả dependencies gián tiếp của MoGe.
-Các phiên bản Torch, torchvision, NumPy, SciPy, MinkowskiEngine, Triton và NVIDIA
+Các phiên bản Torch, torchvision, torchaudio, NumPy, SciPy, Triton và NVIDIA
 đang có trên máy được ghi vào `.venv/host-constraints.txt`. Nếu yêu cầu mới xung đột,
 pip dừng thay vì tự đổi bộ CUDA. `.venv/host.json` phát hiện thay đổi môi trường chủ.
+
+MinkowskiEngine **không** nằm trong constraints: installer riêng của nó
+(`env/install_minkowski.py`) cũng truyền `-c host-constraints.txt`, nên nếu host
+đang có 0.5.3 thì constraints sẽ ghim `minkowskiengine==0.5.3` và pip từ chối
+bundled wheel 0.5.4 bằng `ResolutionImpossible` — tức là chính constraints phá cơ
+chế fallback mà nó sinh ra để bảo vệ.
 
 `requirements.lock.txt` là snapshot lịch sử do repo cung cấp, không dùng để
 bootstrap: thiếu dependencies gián tiếp/MoGe và không xác định đầy đủ index CUDA.
 Không xem nó là bằng chứng rằng máy mới đã được kiểm thử.
+
+## Tải model: ghim revision
+
+`run.sh` đọc `dependencies`. Mỗi block `KIND = hf` có `REVISION` là commit SHA
+trên HuggingFace, truyền vào `snapshot_download(revision=...)`. Không ghim thì HF
+trả bản mới nhất và nội dung có thể đổi bất cứ lúc nào — kết quả không tái lập được.
+Các block `git` cũng ghim `REVISION`.
+
+`run.sh` **luôn** gọi `snapshot_download`, không tự kiểm tra "đã tải xong chưa" rồi
+bỏ qua. Đó không phải là bỏ sót tối ưu: mọi cách tự kiểm tra đều không thể biết repo
+**cần** bao nhiêu file, vì nó chỉ nhìn thấy file đang có trên đĩa. Repo cần 10 file,
+tải xong `config.json` rồi mất mạng → thư mục không rỗng, file đó có metadata hợp lệ
+→ lần sau bỏ qua → model thiếu 9 file weights, lỗi chỉ lộ ra rất muộn.
+
+Gọi lại mỗi lần là **đúng và rẻ**: `snapshot_download` liệt kê file của repo rồi gọi
+`hf_hub_download` cho **từng** file (`_snapshot_download.py`), mà `hf_hub_download`
+tự kiểm *"file đã có + metadata khớp commit_hash ⇒ trả luôn"* (`file_download.py`).
+Nên nó chỉ tải file còn thiếu, và bản tải dở nằm ở `*.incomplete` nên lần sau tự
+resume tiếp. Đổi lại, bỏ được một hàm kiểm tra tự viết và cái bug của nó.
 
 ## MinkowskiEngine: cài sau khi tải model
 

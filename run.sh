@@ -164,25 +164,41 @@ while IFS=$'\t' read -r KIND NAME SRC DEST MD5 REVISION; do
   case "$KIND" in
     # ------------------------- KIND = hf -------------------------
     hf)
-      # Da co san va co it nhat 1 file -> bo qua (idempotent).
-      if [ -d "$DEST" ] && [ -n "$(ls -A "$DEST" 2>/dev/null || true)" ]; then
-        echo "     DA CO $NAME -> bo qua"
-      else
-        echo "     [hf]  $NAME: snapshot_download $SRC -> $DEST"
-        # huggingface_hub co san tu host (qua system_site_packages) hoac da duoc
-        # cai rieng o giai doan 1 — xem env/setup_env.py.
-        # Token truyen sang python qua argv (khong nhung vao chuoi lenh).
-        "$PYTHON" -c '
+      # LUON goi snapshot_download, KHONG tu kiem tra "da tai xong chua" roi bo qua.
+      #
+      # Y do ban dau la tranh tai lai cho nhanh, nhung moi cach tu kiem tra deu
+      # khong the biet repo CAN bao nhieu file — no chi nhin thay file dang co tren
+      # dia. Vi du repo can 10 file, tai xong config.json roi mat mang: config.json
+      # co .metadata hop le, thu muc khong rong, nen phep kiem tra tra "xong" va
+      # lan sau BO QUA -> model thieu 9 file weights, loi chi lo ra rat muon.
+      #
+      # Goi lai moi lan lai la DUNG va RE: snapshot_download liet ke file cua repo
+      # roi goi hf_hub_download cho TUNG file (_snapshot_download.py dong 296), ma
+      # hf_hub_download tu kiem "file da co + metadata khop commit_hash => return
+      # luon" (file_download.py dong 1057-1063). Nen no chi tai file con thieu, va
+      # ban tai do nam o '*.incomplete' nen lan sau tu resume tiep.
+      #
+      # Doi lai: bo han mot ham kiem tra tu viet (~50 dong) va cai bug cua no.
+      HF_REV="${REVISION:-}"
+      [ "$HF_REV" = "-" ] && HF_REV=""
+
+      echo "     [hf]  $NAME: snapshot_download $SRC -> $DEST${HF_REV:+ @ $HF_REV}"
+      # huggingface_hub co san tu host (qua system_site_packages) hoac da duoc
+      # cai rieng o giai doan 1 — xem env/setup_env.py.
+      # Token truyen sang python qua argv (khong nhung vao chuoi lenh).
+      # REVISION cung truyen qua argv: ghim commit de moi lan chay ra dung 1 ban
+      # (khong ghim thi HF tra ve ban moi nhat, noi dung doi bat cu luc nao).
+      "$PYTHON" -c '
 import sys
 from huggingface_hub import snapshot_download
 snapshot_download(
     repo_id=sys.argv[1],
     local_dir=sys.argv[2],
     token=(sys.argv[3] or None),
+    revision=(sys.argv[4] or None),
 )
-' "$SRC" "$DEST" "${HF_TOKEN:-}"
-        echo "     XONG $NAME"
-      fi
+' "$SRC" "$DEST" "${HF_TOKEN:-}" "$HF_REV"
+      echo "     XONG $NAME"
       ;;
     # ------------------------- KIND = git ------------------------
     git)

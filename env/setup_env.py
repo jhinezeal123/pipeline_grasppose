@@ -26,11 +26,17 @@ ENV = ROOT / '.venv'
 
 
 def protected_versions():
+    # KHONG ghim minkowskiengine vao host-constraints.txt. MinkowskiEngine co
+    # installer rieng (env/install_minkowski.py) va installer do cung truyen
+    # '-c host-constraints.txt'; neu host dang co 0.5.3 thi constraints se ghim
+    # minkowskiengine==0.5.3, va pip se tu choi bundled wheel 0.5.4 bang
+    # ResolutionImpossible — tuc la chinh constraints pha co che fallback.
+    # Cac goi con lai van giu vi chung thuoc ABI stack cua host.
     versions = {}
     for dist in metadata.distributions():
         name = dist.metadata['Name'].lower().replace('_', '-')
         if name in {'torch', 'torchvision', 'torchaudio', 'numpy', 'scipy',
-                    'minkowskiengine', 'triton'} or name.startswith('nvidia-'):
+                    'triton'} or name.startswith('nvidia-'):
             versions[name] = dist.version
     for name in ('torch', 'torchvision', 'numpy'):
         if name not in versions:

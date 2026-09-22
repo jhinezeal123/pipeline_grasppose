@@ -118,15 +118,32 @@ def _vram(tag=""):
         pass
 
 
-def _free(*objs):
-    """Nha model khoi VRAM: xoa tham chieu -> gc -> empty_cache."""
-    import torch
-    for o in objs:
-        del o
+def _free(obj, *attrs):
+    """Nha model khoi VRAM: xoa attribute -> gc -> empty_cache.
+
+    Phai xoa attribute TRUOC khi gc/empty_cache, khong phai sau. Ban cu lam
+    `del o` tren tung doi so — nhung do chi xoa ten cuc bo trong vong lap, con
+    tuple tham so VA chinh `self.model` van giu reference. Nen gc.collect() va
+    empty_cache() chay luc model CHUA duoc giai phong, tuc la khong thu hoi duoc
+    gi; chi den khi ham return va dong `self.model = ... = None` chay sau do thi
+    moi nha — nhung luc do da khong con empty_cache nua.
+
+    Doi sang nhan (obj, ten_attr...): dat attribute ve None ngay tai day, roi moi
+    gc + empty_cache. `obj` giu ten trong suot ham la khong sao — quan trong la
+    attribute (tham chieu THAT toi model) da bi cat.
+    """
+    for name in attrs:
+        setattr(obj, name, None)
     gc.collect()
+    try:
+        import torch
+    except ImportError:
+        return
     if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+        # synchronize truoc: empty_cache() can moi kernel dung model da chay xong,
+        # neu khong thi bo nho co the chua kip duoc tra ve allocator.
         torch.cuda.synchronize()
+        torch.cuda.empty_cache()
 
 
 def K_from_fovy(fovy_deg, w, h):
@@ -144,6 +161,22 @@ def fov_x_from_fovy(fovy_deg, w, h):
     """fov_x = 2*atan(tan(fovy/2) * w/h) — tham so MoGe can cho anh render."""
     return float(2.0 * np.degrees(np.arctan(
         np.tan(np.radians(fovy_deg) / 2.0) * float(w) / float(h))))
+
+
+def depth_range_str(depth, zmin=0.05):
+    """Mo ta khoang do sau de IN LOG, chiu duoc mang KHONG co pixel hop le.
+
+    MoGe khong do duoc gi thi tra ve toan so 0 (hoac toan inf/nan). Loc roi moi
+    lay min/max la sai: mang rong thi `.min()` nem
+    "zero-size array to reduction operation minimum which has no identity",
+    va ca pipeline chet ngay o dong log chan doan — dung luc can log nhat.
+    O day tra ve CHUOI noi ro la khong do duoc, khong tra so bia.
+    """
+    d = np.asarray(depth, np.float64)
+    fin = d[np.isfinite(d) & (d > zmin)]
+    if fin.size == 0:
+        return "khong do duoc (0 px hop le)"
+    return "%.3f..%.3f m (%d px hop le)" % (fin.min(), fin.max(), fin.size)
 
 
 def depth_to_cloud(depth, K, mask=None):
@@ -250,8 +283,11 @@ class GroundingDinoDetector(Object_Detection):
                 "labels": [labels[i] for i in order], "reason": None}
 
     def release(self):
-        _free(self.model, self.proc, self._out)
-        self.model = self.proc = self._out = self._inp = None
+        # _free() dat attribute ve None roi moi gc + empty_cache — xem docstring.
+        # PHAI gom ca '_inp': prepare() luu input da .to(self.device), nen tren
+        # CUDA day la tensor GPU that. De no lai thi empty_cache() van chay khi
+        # con tham chieu GPU — dung cai loi ordering ma _free() sinh ra de tranh.
+        _free(self, 'model', 'proc', '_out', '_inp')
 
 
 class SamSegmenter(Segmentation):
@@ -316,8 +352,7 @@ class SamSegmenter(Segmentation):
                 "best": best, "n_pred": len(mm), "reason": None}
 
     def release(self):
-        _free(self.model, self.proc)
-        self.model = self.proc = None
+        _free(self, 'model', 'proc')
 
 
 class MogeDepth(Depth_Estimate):
@@ -399,8 +434,7 @@ class MogeDepth(Depth_Estimate):
                 "fov_x_deg": fovx, "reason": None}
 
     def release(self):
-        _free(self.model, self._out)
-        self.model = self._out = None
+        _free(self, 'model', '_out')
 
 
 class GraspnessModel(GraspNess):
@@ -512,8 +546,11 @@ class GraspnessModel(GraspNess):
         return {"graspgroup": nms_grasps(gg), "reason": None}
 
     def release(self):
-        _free(self.net, self.ME)
-        self.net = self.ME = self.pred_decode = None
+        # pred_decode la FUNCTION (import tu models.graspnet, goi o
+        # `self.pred_decode(self.net(batch))`), khong phai tensor. Dat ve None
+        # ngay trong _free() cho nhat quan: moi tham chieu tới model/function cua
+        # upstream deu duoc cat TRUOC khi gc + empty_cache chay.
+        _free(self, 'net', 'ME', 'pred_decode')
 
 
 # ===========================================================================
@@ -652,6 +689,21 @@ def grasp_empty_msg(n_raw, reason, max_width):
             % (n_raw, max_width * 1000))
 
 
+def hw_open_note(width, hw_open=GRIP_HW_OPEN_M):
+    """Chu thich them cho mot tu the: no co lot vao KHE MO THAT cua kep khong.
+
+    Nhanh cu trong draw_grasp hoi `g[1] > max_width`, nhung `g` lay tu `sel` da
+    loc `<= max_width` — dieu kien do KHONG BAO GIO dung, nen chu "VUOT" la code
+    chet. Doi sang so sanh voi GRIP_HW_OPEN_M moi co nghia: `max_width` (mac dinh
+    80 mm) la nguong LOC de VE, con GRIP_HW_OPEN_M (69.4 mm) la khe mo THAT cua
+    myArm M750. Tu the rong hon 69.4 mm van duoc ve ra cho nguoi dung nhin thay
+    (dung y do o comment dau file), nhung can noi ro la kep that khong mo toi.
+    """
+    if width > hw_open:
+        return "  VUOT khe mo that %.0f mm" % (hw_open * 1000)
+    return ""
+
+
 def draw_grasp(image, gg, K, max_width=GRIP_MAX_OPEN_M, top=1, min_sep=0.080,
                reason=None):
     """Anh 4/4: anh goc + tu the gap, ve bang CHINH mesh cua upstream.
@@ -668,16 +720,22 @@ def draw_grasp(image, gg, K, max_width=GRIP_MAX_OPEN_M, top=1, min_sep=0.080,
     hinh duoc chieu bang tay. Hinh hoc va mau la cua upstream.
     """
     import cv2
-    import open3d as o3d                                        # noqa: F401
-    _add_sys_path()
-    GraspGroup = _load_graspnetapi().GraspGroup
 
     im = np.ascontiguousarray(np.asarray(image)[:, :, ::-1].copy())
     raw = np.asarray(gg, np.float64).reshape(-1, 17)
     sel = raw[raw[:, 1] <= float(max_width)] if len(raw) else raw
     if len(sel) == 0:
+        # Duong THOAT SOM: chi can cv2 de ve chu. KHONG import open3d va KHONG
+        # _load_graspnetapi() o day — hai thu do chi can khi that su ve gripper.
+        # Truoc day chung chay TRUOC phep kiem tra nay, nen khi GraspNess da fail
+        # (khong co tu the nao) ma graspnetAPI/open3d cung thieu thi ham raise
+        # them mot lan nua — mat luon anh 4/4, trong khi dang le chi can ve chu.
         _put(im, grasp_empty_msg(len(raw), reason, max_width))
         return im[:, :, ::-1]
+
+    import open3d as o3d                                        # noqa: F401
+    _add_sys_path()
+    GraspGroup = _load_graspnetapi().GraspGroup
     pick = []
     for i in np.argsort(-sel[:, 0]):
         c = sel[i, 13:16]
@@ -740,8 +798,7 @@ def draw_grasp(image, gg, K, max_width=GRIP_MAX_OPEN_M, top=1, min_sep=0.080,
         lines.append("#%d score %.4f  width %.1f mm  z=%.2fm  %dx%d px%s"
                      % (rank + 1, g[0], g[1] * 1000, zc,
                         span[0], span[1],
-                        "  VUOT %.0f mm" % (max_width * 1000)
-                        if g[1] > max_width else ""))
+                        hw_open_note(g[1])))
     # Ghi nhan SAU khi ve xong: _put() xoa dai tren-trai, goi trong vong lap thi
     # nhan sau de nhan truoc, cuoi cung chi con dong cuoi.
     _put(im, lines)
@@ -767,7 +824,15 @@ def _put(im, text, bg=(255, 255, 255), fg=(0, 0, 0)):
 # ===========================================================================
 def run_phases(image, prompt, fov_x=None, detector=None, segmenter=None,
                depther=None, grasper=None):
-    """Chay 4 model theo 3 phase, khong bao gio giu 2 model nang cung luc.
+    """Chay 4 model theo 3 phase.
+
+    PHASE 1 co y cho MoGe + Grounding-DINO chay SONG SONG (hai model nhe nhat,
+    tong VRAM van lot T4), doi lai giam gan mot nua thoi gian nap. Tu PHASE 2 tro
+    di moi phase chi giu DUNG MOT model nang: SAM xong moi den GraspNess. Ly do la
+    GraspNess + MinkowskiEngine an VRAM lon, khong the dung chung voi model khac.
+
+    Vi vay moi lan release() xong deu duoc kiem tra: neu khong nha duoc thi ham
+    dung ngay, vi VRAM luc do khong con dang tin de nap tiep.
 
     Tra ve dict: {"det":..., "seg":..., "dep":..., "grasp":..., "cloud":..., "K":...}
     """
@@ -780,6 +845,12 @@ def run_phases(image, prompt, fov_x=None, detector=None, segmenter=None,
     depther = depther or MogeDepth()
     detector = detector or GroundingDinoDetector()
     errs = {}
+    # Loi release() phai de RIENG, khong gop vao errs: errs chi duoc doc khi
+    # thieu ket qua ("dep" not in out). Neu inference THANH CONG roi release moi
+    # nem, out["dep"] van ton tai nen loi trong errs se khong bao gio duoc doc.
+    # Ma release that bai nghia la VRAM chua duoc nha — invariant "DINO/MoGe da
+    # nha truoc SAM" khong con dung, phase sau co the OOM.
+    rel_errs = {}
 
     def _depth_job():
         try:
@@ -788,7 +859,12 @@ def run_phases(image, prompt, fov_x=None, detector=None, segmenter=None,
         except Exception as e:
             errs["dep"] = "%s: %s" % (type(e).__name__, e)
         finally:
-            depther.release()                    # xong la nha ngay
+            # Exception trong luong phu KHONG lam job that bai — no chi in
+            # traceback ra stderr roi bien mat. Bat tai day de khong bi che.
+            try:
+                depther.release()                # xong la nha ngay
+            except Exception as e:
+                rel_errs["dep"] = "%s: %s" % (type(e).__name__, e)
             _vram(" sau khi MoGe nha")
 
     def _det_job():
@@ -798,7 +874,10 @@ def run_phases(image, prompt, fov_x=None, detector=None, segmenter=None,
         except Exception as e:
             errs["det"] = "%s: %s" % (type(e).__name__, e)
         finally:
-            detector.release()
+            try:
+                detector.release()
+            except Exception as e:
+                rel_errs["det"] = "%s: %s" % (type(e).__name__, e)
             _vram(" sau khi DINO nha")
 
     t0 = time.time()
@@ -810,6 +889,14 @@ def run_phases(image, prompt, fov_x=None, detector=None, segmenter=None,
         t.join()
     _log("PHASE 1 xong trong %.1fs" % (time.time() - t0))
 
+    # VRAM chua duoc nha => dung NGAY, dung di tiep sang SAM/GraspNess. Chay tiep
+    # thi model truoc van chiem VRAM, va loi OOM o phase sau se mang thong bao
+    # khong lien quan gi toi nguyen nhan that.
+    if rel_errs:
+        raise RuntimeError(
+            "khong nha duoc model phase 1 (VRAM chua duoc giai phong): %s"
+            % "; ".join("%s -> %s" % kv for kv in sorted(rel_errs.items())))
+
     if "dep" not in out:
         raise RuntimeError("MoGe that bai: %s" % errs.get("dep", "?"))
     out.setdefault("det", {"boxes": np.zeros((0, 4), np.float32),
@@ -817,9 +904,8 @@ def run_phases(image, prompt, fov_x=None, detector=None, segmenter=None,
                            "reason": errs.get("det", "?")})
     dep = out["dep"]
     K = np.asarray(dep["intrinsics"], np.float64)
-    _log("  MoGe: fov_x=%.2f do | depth toan anh %.3f..%.3f m"
-         % (dep["fov_x_deg"], dep["depth"][dep["depth"] > 0].min(),
-            dep["depth"].max()))
+    _log("  MoGe: fov_x=%.2f do | depth toan anh %s"
+         % (dep["fov_x_deg"], depth_range_str(dep["depth"])))
     _log("  DINO: %d hop | %s" % (len(out["det"]["boxes"]),
                                   out["det"].get("reason") or "OK"))
 
@@ -834,11 +920,25 @@ def run_phases(image, prompt, fov_x=None, detector=None, segmenter=None,
                       "best": -1, "n_pred": 0,
                       "reason": "%s: %s" % (type(e).__name__, e)}
     finally:
-        segmenter.release()
+        # release() co the nem (vi du thieu torch). O day no nam trong finally
+        # nen neu de no thoat ra thi no DE LUON ca out["seg"] vua tinh xong —
+        # mask tot van bi vut di va run_phases chet. Bat lai, ghi vao rel_errs.
+        try:
+            segmenter.release()
+        except Exception as e:
+            rel_errs["seg"] = "%s: %s" % (type(e).__name__, e)
         _vram(" sau khi SAM nha")
     _log("  SAM: mask %d px (%.1f%%) | %s"
          % (out["seg"]["mask"].sum(), 100.0 * out["seg"]["mask"].mean(),
             out["seg"].get("reason") or "OK"))
+
+    # Dung NGAY tai day, khong doi toi cuoi ham. SAM khong nha duoc thi VRAM
+    # khong con dang tin, ma Phase 3 se nap them GraspNess — dung luc de nhat de
+    # OOM, va thong bao OOM se khong lien quan gi toi nguyen nhan that.
+    # Raise o cuoi ham la qua muon: GraspNess da prepare/inference xong roi.
+    if "seg" in rel_errs:
+        raise RuntimeError("khong nha duoc model phase 2 (VRAM chua duoc giai "
+                           "phong): seg -> %s" % rel_errs["seg"])
 
     # ---------------- DO SAU CUA VAT (1 con so, met) ----------------
     # Trung vi do sau cua cac pixel NAM TRONG MASK SAM -> do sau cua VAT, khong
@@ -863,22 +963,46 @@ def run_phases(image, prompt, fov_x=None, detector=None, segmenter=None,
         # CLOUD = MASK THUAN (khong phai bbox mo rong)
         cloud = depth_to_cloud(dep["depth"], K, mask=mask)
         out["cloud"] = cloud
-        _log("  cloud tu mask: %d diem | bbox %.0f x %.0f x %.0f mm"
-             % (len(cloud), *((cloud.max(0) - cloud.min(0)) * 1000)))
-        grasper = grasper or GraspnessModel()
-        try:
-            grasper.prepare(cloud)
-            out["grasp"] = grasper.inference()
-        except Exception as e:
+        if len(cloud) == 0:
+            # mask.any() la True nhung KHONG pixel nao co depth hop le (MoGe
+            # tra 0 trong vung mask) -> cloud rong. Neu cu di tiep thi
+            # cloud.max(0) nem "zero-size array to reduction operation maximum",
+            # va goi GraspNess voi cloud rong cung vo nghia.
+            # Xu ly Y HET nhanh mask rong ngay tren: cung cloud rong, cung ly do
+            # noi ro, cung BO QUA GraspNess -> hai duong ra ket qua nhat quan.
             out["grasp"] = {"graspgroup": np.zeros((0, 17), np.float64),
-                            "reason": "%s: %s" % (type(e).__name__, e)}
-        finally:
-            grasper.release()
-            _vram(" sau khi GraspNess nha")
-        gg = out["grasp"]["graspgroup"]
-        n_ok = int((gg[:, 1] <= GRIP_HW_OPEN_M).sum()) if len(gg) else 0
-        _log("  GraspNess: %d tu the | %d vua khe kep THAT %.0f mm"
-             % (len(gg), n_ok, GRIP_HW_OPEN_M * 1000))
+                            "reason": "mask co pixel nhung khong pixel nao co "
+                                      "depth hop le nen cloud rong"}
+            _log("  BO QUA: mask co %d px nhung cloud rong (0 px depth hop le)"
+                 % int(mask.sum()))
+        else:
+            _log("  cloud tu mask: %d diem | bbox %.0f x %.0f x %.0f mm"
+                 % (len(cloud), *((cloud.max(0) - cloud.min(0)) * 1000)))
+            grasper = grasper or GraspnessModel()
+            try:
+                grasper.prepare(cloud)
+                out["grasp"] = grasper.inference()
+            except Exception as e:
+                out["grasp"] = {"graspgroup": np.zeros((0, 17), np.float64),
+                                "reason": "%s: %s" % (type(e).__name__, e)}
+            finally:
+                try:
+                    grasper.release()
+                except Exception as e:
+                    rel_errs["grasp"] = "%s: %s" % (type(e).__name__, e)
+                _vram(" sau khi GraspNess nha")
+            gg = out["grasp"]["graspgroup"]
+            n_ok = int((gg[:, 1] <= GRIP_HW_OPEN_M).sum()) if len(gg) else 0
+            _log("  GraspNess: %d tu the | %d vua khe kep THAT %.0f mm"
+                 % (len(gg), n_ok, GRIP_HW_OPEN_M * 1000))
+
+    # VRAM chua duoc nha o BAT KY phase nao => dung NGAY, dung tra ket qua nhu
+    # khong co gi. Ket qua co the van dung, nhung model truoc van chiem VRAM va
+    # lan chay sau (hoac phase sau) se OOM voi thong bao khong lien quan.
+    if rel_errs:
+        raise RuntimeError(
+            "khong nha duoc model (VRAM chua duoc giai phong): %s"
+            % "; ".join("%s -> %s" % kv for kv in sorted(rel_errs.items())))
 
     out["K"] = K
     return out
