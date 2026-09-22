@@ -9,7 +9,6 @@ import time
 
 import numpy as np
 
-from .adapters import GroundingDinoDetector, SamSegmenter, MogeDepth, GraspnessModel
 from .config import GRIP_HW_OPEN_M
 from .geometry import depth_range_str, depth_to_cloud
 from .runtime import _log, _vram
@@ -18,10 +17,8 @@ from .runtime import _log, _vram
 class GraspPipeline:
     """Coordinate detector/depth/segmenter/grasp modules through the 3 VRAM phases."""
 
-    def __init__(self, detector_factory=GroundingDinoDetector,
-                 segmenter_factory=SamSegmenter,
-                 depth_factory=MogeDepth,
-                 grasper_factory=GraspnessModel):
+    def __init__(self, detector_factory, segmenter_factory,
+                 depth_factory, grasper_factory):
         self.detector_factory = detector_factory
         self.segmenter_factory = segmenter_factory
         self.depth_factory = depth_factory
@@ -211,17 +208,3 @@ class GraspPipeline:
     
         out["K"] = K
         return out
-    
-    
-    
-
-
-DEFAULT_PIPELINE = GraspPipeline()
-
-
-def run_phases(image, prompt, fov_x=None, detector=None, segmenter=None,
-               depther=None, grasper=None):
-    """Compatibility function delegating to the default orchestrator."""
-    return DEFAULT_PIPELINE.run(image, prompt, fov_x=fov_x,
-                                detector=detector, segmenter=segmenter,
-                                depther=depther, grasper=grasper)
