@@ -28,7 +28,15 @@ from grasppose.adapters import (GroundingDinoDetector, SamSegmenter, MogeDepth,
                                 _phrase_match)
 from grasppose.rendering import (draw_box, draw_mask, draw_depth, draw_grasp,
                                  grasp_empty_msg, hw_open_note, _put)
-from grasppose.orchestrator import GraspPipeline, DEFAULT_PIPELINE
+from grasppose.orchestrator import GraspPipeline
+
+
+DEFAULT_PIPELINE = GraspPipeline(
+    detector_factory=GroundingDinoDetector,
+    segmenter_factory=SamSegmenter,
+    depth_factory=MogeDepth,
+    grasper_factory=GraspnessModel,
+)
 
 
 def run_phases(image, prompt, fov_x=None, detector=None, segmenter=None,
