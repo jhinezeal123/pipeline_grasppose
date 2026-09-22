@@ -39,15 +39,30 @@ DEST = model/sam-vit-base
 REVISION = 70c1a07f894ebb5b307fd9eaaee97b9dfc16068f
 ---
 # -----------------------------------------------------------------------------
-# 3) MoGe v3 (ViT-L): anh -> depth map + point cloud + intrinsics.
-#    Luu y: day chi la WEIGHTS. Code MoGe duoc ghim commit
-#    va duoc cai tu requirements.txt vao .venv.
+# 3) MoGe-2 ViT-S Normal: metric depth + point cloud + intrinsics.
+#    Ban ViT-S (35M params, ~141 MB weights) nhe hon rat nhieu so voi MoGe-3
+#    ViT-L va phu hop hon voi Xavier 8 SM. MoGe-2 van co metric scale.
 # -----------------------------------------------------------------------------
-NAME = moge
+NAME = moge2
 KIND = hf
-REPO = Ruicheng/moge-3-vitl
-DEST = model/moge-3-vitl
-REVISION = 184008f877d7ad1ad4c2cd2182a9bd1f63d0e5be
+REPO = Ruicheng/moge-2-vits-normal
+DEST = model/moge-2-vits-normal
+REVISION = 679230677b4d282c6f304189a93e98e14f085902
+---
+# MoGe-2 source. Khong pip-install de tranh metadata requires-python >=3.9;
+# inference path duoc pin tai commit phat hanh MoGe-2 va chay truc tiep tu source.
+NAME = moge2-repo
+KIND = git
+URL = https://github.com/microsoft/MoGe.git
+DEST = model/moge_repo
+REVISION = 87ff6bbd4ee06588a5609ca7e913ca157509fe9d
+---
+# utils3d dependency cua MoGe-2. Import lazy, inference chi dung utils3d.torch.
+NAME = utils3d-repo
+KIND = git
+URL = https://github.com/EasternJournalist/utils3d.git
+DEST = model/utils3d_repo
+REVISION = c5daf6f6c244d251f252102d09e9b7bcef791a38
 ---
 # -----------------------------------------------------------------------------
 # 5) GraspNetAPI source code (graspnet/graspnetAPI) - bat buoc dung ban git clone.
