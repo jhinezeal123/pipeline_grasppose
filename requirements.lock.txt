@@ -1,3 +1,5 @@
+# HISTORICAL SNAPSHOT ONLY — not an installable, complete lock.
+# Use run.sh and read env/README.md; CUDA indexes and transitive deps are omitted.
 # =============================================================================
 # requirements.lock.txt - BAN GHIM CHINH XAC moi truong da CHAY DUOC.
 #
@@ -16,7 +18,7 @@
 # duoc ("undefined symbol"). Gim lai de biet chinh xac to hop nao da chay.
 #
 # CACH DUNG:
-#   pip install -r requirements.lock.txt
+#   Khong cai truc tiep file nay; dung bash run.sh
 #   (tren Kaggle: khong can, moi thu da co san — xem env/check_env.py)
 # =============================================================================
 

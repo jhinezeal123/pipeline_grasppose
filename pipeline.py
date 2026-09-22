@@ -93,7 +93,6 @@ def _load_graspnetapi():
 
 def _add_sys_path():
     for p in (HERE,
-              os.path.join(MODEL_DIR, "moge_repo"),
               os.path.join(MODEL_DIR, "graspnetAPI_repo")):
         if os.path.isdir(p) and p not in sys.path:
             sys.path.insert(0, p)

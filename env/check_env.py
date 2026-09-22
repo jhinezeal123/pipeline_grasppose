@@ -45,12 +45,12 @@ def head(t):
 
 
 def main():
+    problems.clear()
     head("1. Python")
     print("  phien ban: %d.%d.%d" % sys.version_info[:3])
-    if sys.version_info[:2] != (3, 12):
+    if sys.version_info[:2] < (3, 10):
         problems.append(
-            "Python %d.%d — da kiem chung tren 3.12; ban khac co the van chay "
-            "nhung _ext phai bien dich lai" % sys.version_info[:2])
+            "Python %d.%d — can >=3.10" % sys.version_info[:2])
 
     head("2. Thu vien Python")
     for name, want, must in WANT:
@@ -61,12 +61,18 @@ def main():
             mark = OK if same else WARN
             note = "" if same else "  (da kiem chung voi %s)" % want
             print("  [%s] %-16s %s%s" % (mark, name, got, note))
-            if not same:
-                problems.append("%s la %s, da kiem chung voi %s" % (name, got, want))
-        except ImportError:
-            print("  [%s] %-16s" % (BAD, name))
+            # Snapshot differences are informational, not compatibility failures.
+        except Exception as exc:
+            print("  [%s] %-16s: %s" % (BAD, name, exc))
             if must:
                 problems.append("thieu %s (bat buoc)" % name)
+
+    for name in ("torchvision", "MinkowskiEngine", "moge.model.v3"):
+        try:
+            importlib.import_module(name)
+            print("  [%s] %s" % (OK, name))
+        except Exception as exc:
+            problems.append("%s: %s" % (name, exc))
 
     head("3. GPU + CUDA")
     try:
@@ -90,19 +96,18 @@ def main():
             has_nv = os.path.isdir(nv)
             ld = os.environ.get("LD_LIBRARY_PATH", "")
             if has_nv and nv not in ld:
-                print("  GPU              : KHONG THAY — nhung CO %s" % nv)
+                print("  GPU              : KHONG THAY — thu kiem tra driver/path %s" % nv)
                 print("       -> thieu LD_LIBRARY_PATH. Chay lai bang:")
                 print("          LD_LIBRARY_PATH=%s:$LD_LIBRARY_PATH \\" % nv)
                 print("              python env/check_env.py")
                 print("       (run.sh tu export bien nay, nen chay qua run.sh thi khong gap)")
                 problems.append(
-                    "torch khong thay GPU vi thieu LD_LIBRARY_PATH=%s "
-                    "(khong phai may khong co GPU)" % nv)
+                    "torch khong thay GPU; kiem tra driver va LD_LIBRARY_PATH=%s" % nv)
             else:
                 print("  GPU              : KHONG THAY")
                 problems.append("torch khong thay GPU (can T4 tro len)")
-    except ImportError:
-        print("  (bo qua: chua co torch)")
+    except Exception as exc:
+        problems.append("torch/CUDA: %s" % exc)
 
     head("4. Cong cu bien dich _ext (pointnet2)")
     nvcc = shutil.which("nvcc") or "/usr/local/cuda/bin/nvcc"
@@ -124,7 +129,8 @@ def main():
     head("5. Extension da build chua")
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     hits = []
-    for base in ("model/graspness_unofficial_build", "model/graspness_unofficial"):
+    for base in (os.environ.get("GRASPNESS_HOME", "model/graspness_unofficial"),
+                 ".venv/native/graspness_unofficial", "model/graspness_unofficial_build"):
         d = os.path.join(root, base, "pointnet2")
         if os.path.isdir(d):
             for f in os.listdir(d):
