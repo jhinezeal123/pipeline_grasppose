@@ -79,7 +79,7 @@ def build_wheel():
             raise RuntimeError('Source build needs a C++ compiler and OpenBLAS headers/library '
                                '(Ubuntu: build-essential python3-dev libopenblas-dev), '
                                'or provide MINKOWSKI_ENGINE_WHEEL.') from exc
-        pip_install('setuptools>=77', 'wheel', 'ninja')
+        # Python 3.8 on JetPack 5 cannot use current setuptools releases.\n        pip_install('setuptools==68.2.2', 'wheel<0.46', 'ninja')
         source = temp / 'source'
         subprocess.run(['git', 'init', str(source)], check=True)
         subprocess.run(['git', '-C', str(source), 'fetch', '--depth', '1', SOURCE, REVISION], check=True)
@@ -87,7 +87,7 @@ def build_wheel():
         prepare_setup(source / 'setup.py')
         build_env = os.environ.copy()
         build_env['CUDA_HOME'] = str(Path(nvcc).resolve().parents[1])
-        build_env.setdefault('MAX_JOBS', '2')
+        build_env.setdefault('MAX_JOBS', '2')\n        build_env.setdefault('TORCH_CUDA_ARCH_LIST', '7.2')
         log = ENV / 'minkowski-build.log'
         print(f'Building MinkowskiEngine {REVISION}; log: {log}', flush=True)
         with log.open('w') as output:
