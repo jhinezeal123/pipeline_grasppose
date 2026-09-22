@@ -4,7 +4,7 @@
 Hai giai doan, tach roi co chu y:
 
     python env/setup_env.py            # giai doan 1: tao .venv + constraints
-    python env/setup_env.py --install  # giai doan 2: cai requirements.txt
+    python env/setup_env.py --install       # giai doan 2: cai core runtime\n    python env/setup_env.py --install --ui  # core + Gradio web UI
 
 Giai doan 1 tao venv; chi can mang neu thieu huggingface_hub.
 Giai doan 2 moi cai runtime day du.
@@ -78,7 +78,7 @@ def main():
             print('huggingface_hub thieu trong host -> cai vao .venv truoc khi tai model')
             subprocess.run([sys.executable, '-m', 'pip', '--python',
                             str(ENV / 'bin/python'), 'install', '-c', str(constraints),
-                            'huggingface_hub'], check=True)
+                            'huggingface_hub==0.24.7'], check=True)
         print(f'.venv ready ({ENV}); run with --install to resolve requirements')
         return
 
