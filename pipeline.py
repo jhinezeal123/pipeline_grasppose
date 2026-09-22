@@ -93,6 +93,8 @@ def _load_graspnetapi():
 
 def _add_sys_path():
     for p in (HERE,
+              os.path.join(MODEL_DIR, "moge_repo"),
+              os.path.join(MODEL_DIR, "utils3d_repo"),
               os.path.join(MODEL_DIR, "graspnetAPI_repo")):
         if os.path.isdir(p) and p not in sys.path:
             sys.path.insert(0, p)
@@ -356,14 +358,14 @@ class SamSegmenter(Segmentation):
 
 
 class MogeDepth(Depth_Estimate):
-    """MoGe-3 — anh RGB -> do sau + point cloud.
+    """MoGe-2 ViT-S — anh RGB -> metric depth + point cloud.
 
     KHONG nap them dinov2_vitl14_pretrain.pth: from_pretrained() da nap encoder
     da fine-tune, nap chong len se GHI DE va lam sai ty le do sau.
     """
 
     def __init__(self, model_path=None, device=None):
-        self.model_path = model_path or os.path.join(MODEL_DIR, "moge-3-vitl")
+        self.model_path = model_path or os.path.join(MODEL_DIR, "moge-2-vits-normal")
         self.device = device or ("cuda" if _cuda() else "cpu")
         self.model = None
         self._fov_x = None
@@ -393,7 +395,8 @@ class MogeDepth(Depth_Estimate):
 
     def prepare(self, image, fov_x=None):
         import torch
-        from moge.model.v3 import MoGeModel          # v3 — PyPI `moge` la v2
+        _add_sys_path()
+        from moge.model.v2 import MoGeModel
         self._fov_x = None if fov_x is None else float(fov_x)
         rgb = np.asarray(image)
         self._h, self._w = rgb.shape[:2]
@@ -403,8 +406,15 @@ class MogeDepth(Depth_Estimate):
             _log("MoGe nap xong trong %.1fs (%s)" % (time.time() - t0, self.device))
         t = _to_tensor_chw(rgb, self.device)
         kw = {} if self._fov_x is None else {"fov_x": self._fov_x}
+        # Xavier defaults to level 4 via run.sh. MoGe-2 level 9 is materially
+        # heavier and not a good default for an 8-SM Volta GPU.
+        level = int(os.environ.get("MOGE_RESOLUTION_LEVEL", "9"))
+        level = max(0, min(9, level))
         with torch.no_grad():
-            self._out = self.model.infer(t, **kw)
+            self._out = self.model.infer(
+                t, resolution_level=level,
+                use_fp16=str(self.device).startswith("cuda"), **kw)
+        _log("MoGe-2 resolution_level=%d" % level)
         return self
 
     def inference(self):
@@ -704,38 +714,63 @@ def hw_open_note(width, hw_open=GRIP_HW_OPEN_M):
     return ""
 
 
+def _box_wireframe(size_xyz, offset_xyz):
+    """8 vertices + 12 canh cua mot hop; khong can Open3D."""
+    sx, sy, sz = [float(v) for v in size_xyz]
+    ox, oy, oz = [float(v) for v in offset_xyz]
+    v = np.array([[0, 0, 0], [sx, 0, 0], [0, 0, sz], [sx, 0, sz],
+                  [0, sy, 0], [sx, sy, 0], [0, sy, sz], [sx, sy, sz]],
+                 dtype=np.float64)
+    v += np.array([ox, oy, oz], dtype=np.float64)
+    e = np.array([[0, 1], [0, 2], [0, 4], [1, 3], [1, 5], [2, 3],
+                  [2, 6], [3, 7], [4, 5], [4, 6], [5, 7], [6, 7]],
+                 dtype=np.int32)
+    return v, e
+
+
+def _gripper_wireframe(g):
+    """Hinh hoc tuong duong plot_gripper_pro_max cua graspnetAPI, bang NumPy."""
+    g = np.asarray(g, np.float64).reshape(17)
+    score, width, depth = float(g[0]), float(g[1]), float(g[3])
+    R = g[4:13].reshape(3, 3)
+    center = g[13:16]
+    height = 0.004
+    finger = 0.004
+    tail = 0.04
+    base = 0.02
+    specs = [
+        ((depth + base + finger, finger, height), (-base - finger, -width / 2 - finger, -height / 2)),
+        ((depth + base + finger, finger, height), (-base - finger,  width / 2,          -height / 2)),
+        ((finger, width, height),                 (-finger - base, -width / 2,          -height / 2)),
+        ((tail, finger, height),                  (-tail - finger - base, -finger / 2,  -height / 2)),
+    ]
+    vertices, edges = [], []
+    off = 0
+    for size, pos in specs:
+        v, e = _box_wireframe(size, pos)
+        vertices.append(v)
+        edges.append(e + off)
+        off += len(v)
+    V = np.concatenate(vertices, axis=0)
+    E = np.concatenate(edges, axis=0)
+    V = np.dot(R, V.T).T + center
+    color = np.array([np.clip(score, 0, 1), 0.0, 1.0 - np.clip(score, 0, 1)])
+    C = np.repeat(color[None, :], len(V), axis=0)
+    return V, E, C
+
+
 def draw_grasp(image, gg, K, max_width=GRIP_MAX_OPEN_M, top=1, min_sep=0.080,
                reason=None):
-    """Anh 4/4: anh goc + tu the gap, ve bang CHINH mesh cua upstream.
-
-    Dung graspnetAPI: GraspGroup.to_open3d_geometry_list() -> plot_gripper_pro_max_wo_side
-    (4 hop RONG: ngon trai, ngon phai, thanh noi truoc, duoi -> nhin thang ra chu U;
-    mau R=score, G=0, B=1-score).
-
-    Tra ve LineSet chu KHONG phai TriangleMesh, nen phai ve tung CANH bang
-    cv2.line. (Ban truoc doc nham geom.triangles cua LineSet -> numpy tra mang
-    rong -> chi con lai may vach roi rac trong nhu "cai que".)
-
-    OffscreenRenderer cua Open3D KHONG chay duoc o day (thieu Vulkan/X11), nen
-    hinh duoc chieu bang tay. Hinh hoc va mau la cua upstream.
-    """
+    """Anh 4/4: chieu wireframe gripper truc tiep, khong phu thuoc Open3D."""
     import cv2
 
     im = np.ascontiguousarray(np.asarray(image)[:, :, ::-1].copy())
     raw = np.asarray(gg, np.float64).reshape(-1, 17)
     sel = raw[raw[:, 1] <= float(max_width)] if len(raw) else raw
     if len(sel) == 0:
-        # Duong THOAT SOM: chi can cv2 de ve chu. KHONG import open3d va KHONG
-        # _load_graspnetapi() o day — hai thu do chi can khi that su ve gripper.
-        # Truoc day chung chay TRUOC phep kiem tra nay, nen khi GraspNess da fail
-        # (khong co tu the nao) ma graspnetAPI/open3d cung thieu thi ham raise
-        # them mot lan nua — mat luon anh 4/4, trong khi dang le chi can ve chu.
         _put(im, grasp_empty_msg(len(raw), reason, max_width))
         return im[:, :, ::-1]
 
-    import open3d as o3d                                        # noqa: F401
-    _add_sys_path()
-    GraspGroup = _load_graspnetapi().GraspGroup
     pick = []
     for i in np.argsort(-sel[:, 0]):
         c = sel[i, 13:16]
@@ -743,7 +778,7 @@ def draw_grasp(image, gg, K, max_width=GRIP_MAX_OPEN_M, top=1, min_sep=0.080,
             pick.append(int(i))
         if len(pick) == top:
             break
-    gl = GraspGroup(np.ascontiguousarray(sel)).to_open3d_geometry_list()
+
     fx, fy, cx, cy = K[0, 0], K[1, 1], K[0, 2], K[1, 2]
 
     def proj(Pw):
@@ -752,38 +787,14 @@ def draw_grasp(image, gg, K, max_width=GRIP_MAX_OPEN_M, top=1, min_sep=0.080,
 
     lines = []
     for rank, gi in enumerate(pick):
-        geom = gl[gi]
-        V = np.asarray(geom.vertices)
-        C = np.asarray(geom.vertex_colors)
+        g = sel[gi]
+        V, E, C = _gripper_wireframe(g)
         uv = proj(V)
-        fin = np.isfinite(uv).all(1)
-        # Mesh gripper cua upstream gom 4 hop: ngon trai, ngon phai, thanh noi
-        # phia truoc, va duoi -> nhin thang ra CHU U.
-        #
-        # to_open3d_geometry_list() tra ve LineSet (ban 'wo_side': 4 hop RONG,
-        # moi hop 8 dinh / 12 canh), KHONG phai TriangleMesh. Vi vay phai doc
-        # geom.lines. Tung ban sua truoc day to np.asarray(geom.triangles) —
-        # LineSet khong co truong do, numpy tra ve mang RONG, nen vong lap ve
-        # canh khong chay dong nao; thu duy nhat hien len la cac vach do fillPoly
-        # sinh ra, va ket qua trong nhu may cai que.
-        #
-        # Ve DU 12 canh moi hop, dung nhu upstream. Da thu loc bot cho do roi
-        # (chi giu duong cheo mat) nhung bo di: o goc nhin nay khong phan biet
-        # duoc "canh song song truc" voi "duong cheo mat", nen cach loc do lam
-        # mat net that cua hinh. Trung thanh voi upstream quan trong hon.
-        if hasattr(geom, "lines") and len(np.asarray(geom.lines)):
-            E = np.asarray(geom.lines).reshape(-1, 2)
-        else:                                   # phong khi la TriangleMesh
-            T = np.asarray(geom.triangles).reshape(-1, 3)
-            E = np.concatenate([T[:, [0, 1]], T[:, [1, 2]], T[:, [2, 0]]])
-        ok = fin[E[:, 0]] & fin[E[:, 1]]
-        E = E[ok]
+        fin = np.isfinite(uv).all(1) & (V[:, 2] > 1e-6)
+        E = E[fin[E[:, 0]] & fin[E[:, 1]]]
         if len(E):
-            # Ve canh XA truoc, GAN sau — de canh gan de len canh xa.
             order = np.argsort(-V[E].mean(1)[:, 2])
             E = E[order]
-            # Mau theo score giong upstream (R=score, B=1-score), lam sang hon
-            # vi nen anh that khong toi nhu khung mau cua o3d.
             c = np.clip(C[E].mean(1), 0, 1)
             for (a, b), cc in zip(E, c):
                 col = (int(min(cc[2] * 1.35, 1) * 255),
@@ -791,19 +802,13 @@ def draw_grasp(image, gg, K, max_width=GRIP_MAX_OPEN_M, top=1, min_sep=0.080,
                        int(min(cc[0] * 1.35, 1) * 255))
                 cv2.line(im, tuple(uv[a].astype(int)), tuple(uv[b].astype(int)),
                          col, 2, cv2.LINE_AA)
-        g = sel[gi]
-        # Kich thuoc chieu ra pixel — de DOI CHIEU bang so, khong doan bang mat.
         span = (uv[fin].max(0) - uv[fin].min(0)) if fin.any() else np.zeros(2)
         zc = float(g[15])
         lines.append("#%d score %.4f  width %.1f mm  z=%.2fm  %dx%d px%s"
                      % (rank + 1, g[0], g[1] * 1000, zc,
-                        span[0], span[1],
-                        hw_open_note(g[1])))
-    # Ghi nhan SAU khi ve xong: _put() xoa dai tren-trai, goi trong vong lap thi
-    # nhan sau de nhan truoc, cuoi cung chi con dong cuoi.
+                        span[0], span[1], hw_open_note(g[1])))
     _put(im, lines)
     return im[:, :, ::-1]
-
 
 def _put(im, text, bg=(255, 255, 255), fg=(0, 0, 0)):
     """Ghi chu o goc tren trai, co nen trang de doc duoc.
@@ -840,8 +845,9 @@ def run_phases(image, prompt, fov_x=None, detector=None, segmenter=None,
     h, w = image.shape[:2]
     out = {}
 
-    # ---------------- PHASE 1: MoGe + DINO song song ----------------
-    _log("PHASE 1: nap MoGe + Grounding-DINO cung luc, chay song song")
+    # ---------------- PHASE 1: MoGe + DINO ----------------
+    serial_gpu = os.environ.get("PIPELINE_SERIAL_GPU", "0").lower() not in ("", "0", "false", "no")
+    _log("PHASE 1: MoGe + Grounding-DINO (%s)" % ("tuan tu" if serial_gpu else "song song"))
     depther = depther or MogeDepth()
     detector = detector or GroundingDinoDetector()
     errs = {}
@@ -881,12 +887,18 @@ def run_phases(image, prompt, fov_x=None, detector=None, segmenter=None,
             _vram(" sau khi DINO nha")
 
     t0 = time.time()
-    ths = [threading.Thread(target=_depth_job, name="moge"),
-           threading.Thread(target=_det_job, name="dino")]
-    for t in ths:
-        t.start()
-    for t in ths:
-        t.join()
+    if serial_gpu:
+        # Jetson Xavier: both jobs target the same 8-SM GPU and unified memory.
+        # Serial execution avoids contention and lowers peak memory pressure.
+        _depth_job()
+        _det_job()
+    else:
+        ths = [threading.Thread(target=_depth_job, name="moge"),
+               threading.Thread(target=_det_job, name="dino")]
+        for t in ths:
+            t.start()
+        for t in ths:
+            t.join()
     _log("PHASE 1 xong trong %.1fs" % (time.time() - t0))
 
     # VRAM chua duoc nha => dung NGAY, dung di tiep sang SAM/GraspNess. Chay tiep
