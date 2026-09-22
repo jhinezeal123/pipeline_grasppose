@@ -16,8 +16,17 @@ class MinkowskiTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.env = Path(self.temp.name)
-        (self.env / 'host-constraints.txt').write_text('torch==2.10.0+cu128\n')
-        patcher = patch.object(installer, 'ENV', self.env)
+        # ROOT phai la thu muc RIENG trong temp, khong dung chung thu muc cha:
+        # tempfile dat moi thu muc tam canh nhau, nen self.env.parent chinh la
+        # /tmp — va mot test de lai /tmp/model/*.whl se lam test sau nhin thay
+        # no. Da gap dung the: wheel con sot lai tu lan chay truoc.
+        self.root = self.env / 'repo'
+        (self.root / '.venv').mkdir(parents=True)
+        (self.root / '.venv' / 'host-constraints.txt').write_text('torch==2.10.0+cu128\n')
+        patcher = patch.object(installer, 'ENV', self.root / '.venv')
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        patcher = patch.object(installer, 'ROOT', self.root)
         patcher.start()
         self.addCleanup(patcher.stop)
         patcher = patch.dict(installer.os.environ, {}, clear=True)
@@ -91,8 +100,39 @@ class MinkowskiTests(unittest.TestCase):
         with patch.object(installer.subprocess, 'run') as run:
             installer.pip_install('--no-deps', 'package.whl')
             cmd = run.call_args.args[0]
-            self.assertEqual(cmd[cmd.index('--python') + 1], str(self.env / 'bin/python'))
-            self.assertEqual(cmd[cmd.index('-c') + 1], str(self.env / 'host-constraints.txt'))
+            self.assertEqual(cmd[cmd.index('--python') + 1], str(self.root / '.venv' / 'bin/python'))
+            self.assertEqual(cmd[cmd.index('-c') + 1], str(self.root / '.venv' / 'host-constraints.txt'))
+
+    def test_bundled_wheel_preferred_over_source_build(self):
+        """Wheel di kem repo phai duoc dung thay vi build source.
+
+        MinkowskiEngine khong build duoc voi Torch 2.10/CUDA 12.8 (da do tren
+        Kaggle: cung box, pointnet2._ext build duoc con no thi khong), nen khi
+        repo co wheel san thi KHONG duoc thu build source nua.
+        """
+        model = self.root / 'model'
+        model.mkdir(exist_ok=True)
+        wheel = model / 'minkowskiengine-0.5.4-cp312-cp312-linux_x86_64.whl'
+        wheel.touch()
+        with patch.object(installer, 'pip_install') as pip, \
+                patch.object(installer, 'probe', return_value=Mock(returncode=0, stdout='OK')), \
+                patch.object(installer, 'build_wheel') as build:
+            installer.main()
+            pip.assert_called_once_with('--no-deps', '--force-reinstall', str(wheel))
+            build.assert_not_called()
+
+    def test_env_var_wheel_overrides_bundled(self):
+        """MINKOWSKI_ENGINE_WHEEL phai thang wheel di kem repo."""
+        model = self.root / 'model'
+        model.mkdir(exist_ok=True)
+        (model / 'minkowskiengine-0.5.4-cp312-cp312-linux_x86_64.whl').touch()
+        chosen = self.env / 'chosen.whl'
+        chosen.touch()
+        with patch.dict(installer.os.environ, {'MINKOWSKI_ENGINE_WHEEL': str(chosen)}), \
+                patch.object(installer, 'pip_install') as pip, \
+                patch.object(installer, 'probe', return_value=Mock(returncode=0, stdout='OK')):
+            installer.main()
+            pip.assert_called_once_with('--no-deps', '--force-reinstall', str(chosen))
 
     def test_host_interpreter_remains_absolute_after_path_change(self):
         # Exercise the shell assignment used by run.sh, including an executable

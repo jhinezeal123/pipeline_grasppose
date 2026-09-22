@@ -102,10 +102,33 @@ def build_wheel():
         pip_install('--no-deps', '--force-reinstall', str(wheels[0]))
 
 
+def bundled_wheel():
+    """Wheel di kem repo, tai model/minkowskiengine-*.whl.
+
+    MinkowskiEngine khong build duoc tu source voi Torch 2.10/CUDA 12.8. Da do
+    tren Kaggle: trong CUNG mot box, pointnet2._ext build duoc con MinkowskiEngine
+    thi khong — nen loi khong phai do thieu compiler/CUDA headers, ma do ban
+    upstream qua cu. Vi vay repo mang san wheel da build, de box trang chay duoc
+    hoan toan ma khong can dataset ngoai.
+
+    Tra ve None neu chua co — khi do van con duong build source nhu cu.
+    """
+    hits = sorted((ROOT / 'model').glob('minkowskiengine-*.whl'))
+    return hits[0] if hits else None
+
+
 def main():
     if not (ENV / 'host-constraints.txt').is_file():
         raise RuntimeError('Run env/setup_env.py first.')
     wheel = os.environ.get('MINKOWSKI_ENGINE_WHEEL')
+    if not wheel:
+        # Thu tu uu tien: bien moi truong -> wheel di kem repo -> build source.
+        # Xet wheel trong repo TRUOC probe(): neu .venv da co ban loi ABI thi
+        # probe() that bai, va ta muon wheel di kem thay the no.
+        local = bundled_wheel()
+        if local:
+            print(f'Dung wheel di kem repo: {local.name}', flush=True)
+            wheel = str(local)
     if wheel:
         path = Path(wheel).expanduser().resolve()
         if path.suffix != '.whl' or not path.is_file():

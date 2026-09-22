@@ -2,6 +2,13 @@
 model/*
 !model/.gitkeep
 
+# NGOAI LE: wheel MinkowskiEngine (7.7 MB). Commit vi khong the tai lai:
+#   - PyPI chi co source, `pip download` -> "Failed to build";
+#   - build tu source that bai voi Torch 2.10/CUDA 12.8 (da do tren Kaggle:
+#     cung mot box, pointnet2._ext build duoc con no thi khong).
+# Khong commit thi box trang khong bao gio chay het duoc.
+!model/minkowskiengine-*.whl
+
 # Thu vien run.sh cai rieng cho repo (buoc 5b). Nang va phu thuoc may —
 # nguoi khac chay run.sh se tu cai lai. Xem env/README.md.
 env/lib/

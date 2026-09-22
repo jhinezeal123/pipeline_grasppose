@@ -30,16 +30,24 @@ Không xem nó là bằng chứng rằng máy mới đã được kiểm thử.
 `run.sh` gọi `env/install_minkowski.py` sau `setup_env.py --install`:
 
 1. Nếu đặt `MINKOWSKI_ENGINE_WHEEL`, cài đúng file đó vào `.venv` với `--no-deps`.
-2. Nếu không đặt, thử bản đã cài bằng **CUDA sparse convolution thật**, không chỉ import.
-3. Nếu chưa có package, build source NVIDIA ghim commit
+2. Nếu không đặt, dùng **wheel đi kèm repo** `model/minkowskiengine-*.whl`.
+   Repo mang sẵn wheel này vì không thể tái tạo nó:
+   `pip download MinkowskiEngine` chỉ ra source và **build thất bại** với
+   Torch 2.10/CUDA 12.8. Đã đo trên Kaggle trong **cùng một box**:
+   `pointnet2._ext` build được, `MinkowskiEngine` thì không — nên nguyên nhân
+   không phải thiếu compiler hay CUDA headers, mà do bản upstream quá cũ.
+   Có wheel sẵn thì box trắng chạy được hoàn toàn, không cần dataset ngoài.
+3. Nếu vẫn chưa có (repo bị xoá wheel), thử bản đã cài bằng **CUDA sparse
+   convolution thật**, không chỉ import.
+4. Nếu chưa có package, build source NVIDIA ghim commit
    `02fc608bea4c0549b0a7b00ca1bf15dee4a0b228`, rồi cài wheel vào `.venv`.
-4. Nếu package có nhưng lỗi ABI/CUDA, giữ traceback và yêu cầu wheel tương thích;
+5. Nếu package có nhưng lỗi ABI/CUDA, giữ traceback và yêu cầu wheel tương thích;
    không tự ghi đè bản lỗi bằng một source build khác.
 
-Ví dụ dùng wheel đã kiểm chứng trên Kaggle (thay đường dẫn bằng file thật):
+Ví dụ ghi đè bằng wheel khác (thay đường dẫn bằng file thật):
 
 ```bash
-MINKOWSKI_ENGINE_WHEEL=/kaggle/input/your-dataset/MinkowskiEngine-0.5.4-cp312-cp312-linux_x86_64.whl bash run.sh --serve
+MINKOWSKI_ENGINE_WHEEL=/kaggle/input/your-dataset/minkowskiengine-0.5.4-cp312-cp312-linux_x86_64.whl bash run.sh --serve
 ```
 
 Tên wheel chỉ mô tả Python/platform, **không chứng minh khớp Torch/CUDA**.
