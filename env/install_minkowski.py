@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Install and exercise MinkowskiEngine inside the repo overlay, never the host."""
 import os
+import json
 from pathlib import Path
 import re
 import shlex
@@ -102,20 +103,71 @@ def build_wheel():
         pip_install('--no-deps', '--force-reinstall', str(wheels[0]))
 
 
+# Evaluate tags inside the target interpreter: host Python can differ from .venv.
+WHEEL_SELECTION = """
+import json, sys
+try:
+    from packaging.tags import sys_tags
+    from packaging.utils import parse_wheel_filename, InvalidWheelFilename
+except ImportError:
+    from pip._vendor.packaging.tags import sys_tags
+    from pip._vendor.packaging.utils import parse_wheel_filename, InvalidWheelFilename
+supported = set(sys_tags())
+compatible = []
+for path in json.loads(sys.argv[1]):
+    from pathlib import Path
+    try:
+        _, _, _, tags = parse_wheel_filename(Path(path).name)
+    except InvalidWheelFilename:
+        continue
+    if supported.intersection(tags):
+        compatible.append(path)
+print(json.dumps(compatible))
+"""
+
+
+def bundled_wheel():
+    """Select one wheel matching target Python/ABI/platform, not Torch/CUDA ABI."""
+    hits = sorted((ROOT / 'model').glob('minkowskiengine-*.whl'))
+    if not hits:
+        return None
+    try:
+        output = subprocess.check_output(
+            [str(ENV / 'bin/python'), '-c', WHEEL_SELECTION,
+             json.dumps([str(path) for path in hits])], text=True)
+        compatible = [Path(path) for path in json.loads(output)]
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError('Cannot determine target wheel tags; install packaging in .venv.') from exc
+    if len(compatible) > 1:
+        raise RuntimeError('Multiple compatible bundled wheels; set MINKOWSKI_ENGINE_WHEEL '
+                           'explicitly because wheel tags do not identify Torch/CUDA ABI.')
+    if not compatible:
+        print('No bundled wheel matches target Python/ABI/platform; skipping bundled wheels.', flush=True)
+        return None
+    return compatible[0]
+
+
 def main():
     if not (ENV / 'host-constraints.txt').is_file():
         raise RuntimeError('Run env/setup_env.py first.')
     wheel = os.environ.get('MINKOWSKI_ENGINE_WHEEL')
+    initial = None
+    if not wheel:
+        initial = probe()
+        if initial.returncode == 0:
+            print(initial.stdout.strip())
+            return  # Preserve a working extension, even when a wheel is bundled.
+        local = bundled_wheel()
+        if local:
+            print(f'Dung wheel di kem repo: {local.name}', flush=True)
+            wheel = str(local)
     if wheel:
         path = Path(wheel).expanduser().resolve()
         if path.suffix != '.whl' or not path.is_file():
             raise RuntimeError(f'MINKOWSKI_ENGINE_WHEEL must name an existing .whl file: {path}')
         pip_install('--no-deps', '--force-reinstall', str(path))
     else:
-        result = probe()
-        if result.returncode == 0:
-            print(result.stdout.strip())
-            return
+        result = initial
         # A broken installed extension is not a missing package. Keep its traceback
         # and require an explicit replacement instead of hiding the ABI error.
         present = subprocess.run([str(ENV / 'bin/python'), '-c',
@@ -136,3 +188,4 @@ if __name__ == '__main__':
         main()
     except (RuntimeError, OSError, subprocess.CalledProcessError) as exc:
         sys.exit(f'MinkowskiEngine setup failed: {exc}')
+
