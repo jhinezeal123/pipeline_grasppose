@@ -41,8 +41,12 @@ Không xem nó là bằng chứng rằng máy mới đã được kiểm thử.
    không che lỗi ABI bằng một source build khác.
 
 Wheel tags chỉ kiểm tra Python/ABI/platform, **không xác nhận Torch/CUDA ABI**.
-Sau mỗi lần cài vẫn bắt buộc chạy CUDA smoke test. Wheel bundled chưa được xác nhận
-trên Kaggle Torch 2.10/CUDA 12.8; cần kiểm chứng trước khi khẳng định box trắng chạy hết.
+Sau mỗi lần cài vẫn bắt buộc chạy CUDA smoke test.
+
+Wheel bundled **đã kiểm chứng trên Kaggle Torch 2.10/CUDA 12.8, box trắng không
+mount gì** (commit `30fd5e9`): Gradio lên sau 270s, `depth_m = 0.482` — khớp giá
+trị đo được ở lần chạy có mount (`0.4824655055999756`). Interpreter `.venv` import
+được `MinkowskiEngine` và qua CUDA smoke test thật trên Tesla T4.
 
 Ví dụ ghi đè bằng wheel khác (thay đường dẫn bằng file thật):
 
