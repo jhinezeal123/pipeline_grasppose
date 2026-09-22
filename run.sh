@@ -72,9 +72,10 @@ echo "  Python     : $(command -v python3 || echo 'KHONG THAY python3')"
 echo "  Che do     : $( [ "$SERVE" = "1" ] && echo "SERVE - web UI o cong $PORT" || echo "BATCH - chay 1 anh")"
 echo "=============================================================="
 
-# Bootstrap using the selected interpreter, then use that exact environment
-# for every download, build and inference subprocess.
-HOST_PYTHON="${PYTHON:-python3}"
+# Bootstrap GIAI DOAN 1: kiem tra host (torch/torchvision/numpy/CUDA) va tao .venv.
+# Chi tai huggingface_hub neu thieu. Phat hien loi host truoc khi tai model.
+# Giai doan 2 (cai requirements.txt) nam SAU buoc tai model — xem 'BUOC 5b'.
+HOST_PYTHON="$(command -v "${PYTHON:-python3}")"
 "$HOST_PYTHON" "$SCRIPT_DIR/env/setup_env.py"
 PYTHON="$SCRIPT_DIR/.venv/bin/python"
 export PATH="$SCRIPT_DIR/.venv/bin:/usr/local/cuda/bin:$PATH"
@@ -168,7 +169,8 @@ while IFS=$'\t' read -r KIND NAME SRC DEST MD5 REVISION; do
         echo "     DA CO $NAME -> bo qua"
       else
         echo "     [hf]  $NAME: snapshot_download $SRC -> $DEST"
-        # huggingface_hub da duoc cai vao .venv truoc khi tai.
+        # huggingface_hub co san tu host (qua system_site_packages) hoac da duoc
+        # cai rieng o giai doan 1 — xem env/setup_env.py.
         # Token truyen sang python qua argv (khong nhung vao chuoi lenh).
         "$PYTHON" -c '
 import sys
@@ -283,8 +285,22 @@ echo "     TAT CA MODEL DA SAN SANG."
 echo "[5/8] Cai dat thu vien python ..."
 echo "--------------------------------------------------------------"
 
-# All Python dependencies (including MoGe transitive dependencies) were resolved
-# into .venv before model downloads. Never install into the notebook interpreter.
+# 5b) Bootstrap GIAI DOAN 2: giai phu thuoc requirements.txt vao .venv.
+#
+# Dat O DAY (sau buoc 4 tai model) chu khong phai luc khoi dong, vi day la buoc
+# duy nhat tai hang tram MB tu PyPI. Neu mang/PyPI loi thi `set -e` dung script
+# — nhung model da tai xong o buoc 4 van con nguyen, lan chay sau chi viec cai
+# tiep. Cai runtime that bai khong xoa cac model da tai.
+#
+# pip tu bo qua nhung gi da dung -> chay lai la re.
+echo "     [5b] pip install -r requirements.txt -> .venv (co host-constraints)"
+"$HOST_PYTHON" "$SCRIPT_DIR/env/setup_env.py" --install
+
+# MinkowskiEngine belongs to the repo setup, not the host prerequisites.
+"$HOST_PYTHON" "$SCRIPT_DIR/env/install_minkowski.py"
+
+# Kiem chung THAT sau khi cai: hai goi kho nhat phai import duoc. Loi o day thi
+# bao ngay, khong de den luc chay inference moi vo.
 export PYTHONPATH="$SCRIPT_DIR/model/graspnetAPI_repo:${PYTHONPATH:-}"
 "$PYTHON" -c 'from moge.model.v3 import MoGeModel; import MinkowskiEngine; print("MoGe / MinkowskiEngine OK")'
 

@@ -14,3 +14,6 @@ trimesh>=4.11,<6
 einops>=0.8,<1
 gradio>=6,<7
 moge @ git+https://github.com/microsoft/MoGe.git@74fbce054ebed49800de42d0ad0e83495065719a
+
+# MinkowskiEngine: native wheel/source installer in env/install_minkowski.py,
+# invoked by run.sh after runtime installation (not a host prerequisite).
