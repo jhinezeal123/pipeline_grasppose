@@ -82,11 +82,11 @@ def main():
         print(f'.venv ready ({ENV}); run with --install to resolve requirements')
         return
 
-    # --- Giai doan 2: cai requirements.txt vao overlay. ---
-    # The host pip drives installation into the overlay; it does not install into
-    # the host interpreter. Requires pip >=22.3 (--python).
+    # --- Giai doan 2: cai core runtime; Gradio chi khi --ui. ---
+    # Host pip drives installation into the overlay, never the host interpreter.
+    req = ROOT / ('requirements-ui.txt' if '--ui' in sys.argv else 'requirements.txt')
     subprocess.run([sys.executable, '-m', 'pip', '--python', str(ENV / 'bin/python'),
-                    'install', '-c', str(constraints), '-r', str(ROOT / 'requirements.txt')],
+                    'install', '-c', str(constraints), '-r', str(req)],
                    check=True)
 
 
