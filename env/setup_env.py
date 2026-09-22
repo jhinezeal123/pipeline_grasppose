@@ -4,7 +4,8 @@
 Hai giai doan, tach roi co chu y:
 
     python env/setup_env.py            # giai doan 1: tao .venv + constraints
-    python env/setup_env.py --install       # giai doan 2: cai core runtime\n    python env/setup_env.py --install --ui  # core + Gradio web UI
+    python env/setup_env.py --install       # giai doan 2: cai core runtime
+    python env/setup_env.py --install --ui  # core + Gradio web UI
 
 Giai doan 1 tao venv; chi can mang neu thieu huggingface_hub.
 Giai doan 2 moi cai runtime day du.
