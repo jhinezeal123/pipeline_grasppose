@@ -266,9 +266,17 @@ class ReleaseFailureTests(unittest.TestCase):
         def release(self):
             raise RuntimeError("release DINO hong")
 
-    def _run(self, det, dep):
+    class _SegReleaseBoom(_FakeSegmenter):
+        def release(self):
+            raise RuntimeError('release SAM hong')
+
+    def _run(self, det, dep, seg=None):
+        # Truyen DU segmenter/grasper gia: khong thi run_phases di tiep toi SAM
+        # THAT, ma SamSegmenter can torch + model tren dia -> CI khong co.
         return P.run_phases(np.zeros((H, W, 3), np.uint8), 'a little bag',
-                            fov_x=62.0, detector=det, depther=dep)
+                            fov_x=62.0, detector=det, depther=dep,
+                            segmenter=seg or _FakeSegmenter(),
+                            grasper=_FakeGrasper())
 
     def test_release_failure_is_surfaced(self):
         """inference OK + release nem -> run_phases() phai raise RO rang."""
@@ -285,6 +293,17 @@ class ReleaseFailureTests(unittest.TestCase):
         with self.assertRaises(RuntimeError) as cm:
             self._run(self._DetReleaseBoom(), _FakeDepth())
         self.assertIn('khong nha duoc', str(cm.exception))
+
+    def test_sam_release_failure_is_surfaced(self):
+        """SAM release nem trong finally -> phai surfaced, khong duoc nuot.
+
+        O day release() nam trong finally cua PHASE 2, nen neu no thoat ra thi no
+        de luon ca out['seg'] vua tinh xong: mask tot bi vut di va run_phases chet.
+        """
+        with self.assertRaises(RuntimeError) as cm:
+            self._run(_FakeDetector(), _FakeDepth(), seg=self._SegReleaseBoom())
+        self.assertIn('khong nha duoc', str(cm.exception))
+        self.assertIn('seg', str(cm.exception))
 
     def test_release_ok_still_runs_normally(self):
         """Chot chan: guard moi KHONG duoc chan nham duong binh thuong."""

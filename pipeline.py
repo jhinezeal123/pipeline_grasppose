@@ -891,7 +891,13 @@ def run_phases(image, prompt, fov_x=None, detector=None, segmenter=None,
                       "best": -1, "n_pred": 0,
                       "reason": "%s: %s" % (type(e).__name__, e)}
     finally:
-        segmenter.release()
+        # release() co the nem (vi du thieu torch). O day no nam trong finally
+        # nen neu de no thoat ra thi no DE LUON ca out["seg"] vua tinh xong —
+        # mask tot van bi vut di va run_phases chet. Bat lai, ghi vao rel_errs.
+        try:
+            segmenter.release()
+        except Exception as e:
+            rel_errs["seg"] = "%s: %s" % (type(e).__name__, e)
         _vram(" sau khi SAM nha")
     _log("  SAM: mask %d px (%.1f%%) | %s"
          % (out["seg"]["mask"].sum(), 100.0 * out["seg"]["mask"].mean(),
@@ -943,12 +949,23 @@ def run_phases(image, prompt, fov_x=None, detector=None, segmenter=None,
                 out["grasp"] = {"graspgroup": np.zeros((0, 17), np.float64),
                                 "reason": "%s: %s" % (type(e).__name__, e)}
             finally:
-                grasper.release()
+                try:
+                    grasper.release()
+                except Exception as e:
+                    rel_errs["grasp"] = "%s: %s" % (type(e).__name__, e)
                 _vram(" sau khi GraspNess nha")
             gg = out["grasp"]["graspgroup"]
             n_ok = int((gg[:, 1] <= GRIP_HW_OPEN_M).sum()) if len(gg) else 0
             _log("  GraspNess: %d tu the | %d vua khe kep THAT %.0f mm"
                  % (len(gg), n_ok, GRIP_HW_OPEN_M * 1000))
+
+    # VRAM chua duoc nha o BAT KY phase nao => dung NGAY, dung tra ket qua nhu
+    # khong co gi. Ket qua co the van dung, nhung model truoc van chiem VRAM va
+    # lan chay sau (hoac phase sau) se OOM voi thong bao khong lien quan.
+    if rel_errs:
+        raise RuntimeError(
+            "khong nha duoc model (VRAM chua duoc giai phong): %s"
+            % "; ".join("%s -> %s" % kv for kv in sorted(rel_errs.items())))
 
     out["K"] = K
     return out
