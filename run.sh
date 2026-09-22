@@ -164,78 +164,31 @@ while IFS=$'\t' read -r KIND NAME SRC DEST MD5 REVISION; do
   case "$KIND" in
     # ------------------------- KIND = hf -------------------------
     hf)
-      # KHONG dung "thu muc co it nhat 1 file" lam dau hieu tai xong: lan tai bi
-      # ngat giua duong (mat mang, Ctrl-C) de lai vai file doi, va cach do se bo
-      # qua -> model thieu file -> loi xay ra rat muon va kho hieu.
+      # LUON goi snapshot_download, KHONG tu kiem tra "da tai xong chua" roi bo qua.
       #
-      # Dau hieu that: snapshot_download ghi 1 file <DEST>/.cache/huggingface/
-      # download/<ten-file>.metadata SAU KHI file do da tai xong va duoc chuyen
-      # vao cho (file_download.py: ghi metadata sau _download_to_tmp_and_move;
-      # ban tai do nam o '*.incomplete' va KHONG bao gio co metadata). Metadata
-      # gom 3 dong: <commit_hash> <etag> <timestamp>.
+      # Y do ban dau la tranh tai lai cho nhanh, nhung moi cach tu kiem tra deu
+      # khong the biet repo CAN bao nhieu file — no chi nhin thay file dang co tren
+      # dia. Vi du repo can 10 file, tai xong config.json roi mat mang: config.json
+      # co .metadata hop le, thu muc khong rong, nen phep kiem tra tra "xong" va
+      # lan sau BO QUA -> model thieu 9 file weights, loi chi lo ra rat muon.
       #
-      # Day la ham "tai xong that su" cua chinh thu vien, khong phai suy dien.
-      # Kiem tra chay bang python (da co san) chu khong liet ke bang shell cho
-      # chac chan, va khong can mang — nhanh, offline.
-      hf_complete() {
-        "$PYTHON" - "$1" "$2" <<'PY_HF'
-import os
-import sys
-
-dest, want = sys.argv[1], sys.argv[2]
-root = os.path.join(dest, '.cache', 'huggingface', 'download')
-if not os.path.isdir(root):
-    sys.exit(1)
-
-# Moi file trong repo phai co 1 .metadata tuong ung (bo qua .cache cua chinh no).
-missing = stale = 0
-for dirpath, _dirnames, filenames in os.walk(dest):
-    if os.path.abspath(dirpath).startswith(os.path.abspath(os.path.join(dest, '.cache'))):
-        continue
-    for name in filenames:
-        rel = os.path.relpath(os.path.join(dirpath, name), dest)
-        meta = os.path.join(root, *rel.split(os.sep)) + '.metadata'
-        if not os.path.isfile(meta):
-            missing += 1
-            continue
-        # Dong dau la commit_hash da tai. Khac ban ghim -> ban cu, phai tai lai.
-        if want:
-            try:
-                with open(meta, encoding='utf-8') as fh:
-                    if fh.readline().strip() != want:
-                        stale += 1
-            except OSError:
-                stale += 1
-if missing or stale:
-    sys.exit(1)
-# Khong co file nao (khong ke .cache) => chua tai gi.
-# Phai dem rieng: .cache do CHINH snapshot_download tao ra, nen neu tai ngat ngay
-# tu dau thi DEST chi co .cache va khong co file model nao. Dem ca no thi lan chay
-# sau tuong da xong -> bo qua -> model thieu hoan toan.
-real = 0
-for dirpath, dirnames, filenames in os.walk(dest):
-    if os.path.abspath(dirpath).startswith(os.path.abspath(os.path.join(dest, '.cache'))):
-        dirnames[:] = []
-        continue
-    real += len(filenames)
-sys.exit(0 if real else 1)
-PY_HF
-      }
-
+      # Goi lai moi lan lai la DUNG va RE: snapshot_download liet ke file cua repo
+      # roi goi hf_hub_download cho TUNG file (_snapshot_download.py dong 296), ma
+      # hf_hub_download tu kiem "file da co + metadata khop commit_hash => return
+      # luon" (file_download.py dong 1057-1063). Nen no chi tai file con thieu, va
+      # ban tai do nam o '*.incomplete' nen lan sau tu resume tiep.
+      #
+      # Doi lai: bo han mot ham kiem tra tu viet (~50 dong) va cai bug cua no.
       HF_REV="${REVISION:-}"
       [ "$HF_REV" = "-" ] && HF_REV=""
 
-      if hf_complete "$DEST" "$HF_REV"; then
-        echo "     DA CO $NAME -> bo qua (da tai xong${HF_REV:+ @ $HF_REV})"
-      else
-        echo "     [hf]  $NAME: snapshot_download $SRC -> $DEST${HF_REV:+ @ $HF_REV}"
-        # huggingface_hub co san tu host (qua system_site_packages) hoac da duoc
-        # cai rieng o giai doan 1 — xem env/setup_env.py.
-        # Token truyen sang python qua argv (khong nhung vao chuoi lenh).
-        # REVISION cung truyen qua argv: ghim commit de moi lan chay ra dung 1 ban
-        # (khong ghim thi HF tra ve ban moi nhat, noi dung doi bat cu luc nao).
-        # Chay lai khi thieu file la RE: HF chi tai file con thieu (idempotent).
-        "$PYTHON" -c '
+      echo "     [hf]  $NAME: snapshot_download $SRC -> $DEST${HF_REV:+ @ $HF_REV}"
+      # huggingface_hub co san tu host (qua system_site_packages) hoac da duoc
+      # cai rieng o giai doan 1 — xem env/setup_env.py.
+      # Token truyen sang python qua argv (khong nhung vao chuoi lenh).
+      # REVISION cung truyen qua argv: ghim commit de moi lan chay ra dung 1 ban
+      # (khong ghim thi HF tra ve ban moi nhat, noi dung doi bat cu luc nao).
+      "$PYTHON" -c '
 import sys
 from huggingface_hub import snapshot_download
 snapshot_download(
@@ -245,14 +198,7 @@ snapshot_download(
     revision=(sys.argv[4] or None),
 )
 ' "$SRC" "$DEST" "${HF_TOKEN:-}" "$HF_REV"
-        # Khang dinh lai bang chinh phep kiem tra tren: neu van thieu thi dung
-        # ngay, thay vi de pipeline chet mo ho o buoc sau.
-        if ! hf_complete "$DEST" "$HF_REV"; then
-          echo "LOI: $NAME tai xong nhung thieu file / sai revision." >&2
-          exit 1
-        fi
-        echo "     XONG $NAME"
-      fi
+      echo "     XONG $NAME"
       ;;
     # ------------------------- KIND = git ------------------------
     git)

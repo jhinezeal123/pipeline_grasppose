@@ -269,5 +269,75 @@ class HwOpenNoteTests(unittest.TestCase):
         self.assertEqual(P.GRIP_HW_OPEN_M, 0.0694)
 
 
+class _FakeGeom(object):
+    """Mesh gia: du truong ma draw_grasp doc (vertices/triangles/vertex_colors)."""
+
+    def __init__(self, *a, **k):
+        self.vertices = np.zeros((8, 3))
+        self.triangles = np.zeros((12, 3), np.int32)
+        self.vertex_colors = np.zeros((8, 3))
+
+
+class _FakeGraspGroup(object):
+    def __init__(self, arr):
+        self._a = np.asarray(arr, np.float64)
+
+    def __len__(self):
+        return len(self._a)
+
+    def to_open3d_geometry_list(self):
+        return [_FakeGeom() for _ in range(len(self._a))]
+
+
+class _FakeGraspnetAPI(object):
+    GraspGroup = _FakeGraspGroup
+
+
+class DrawGraspNonEmptyTests(unittest.TestCase):
+    """Duong VE THAT (co grasp hop le) — nhanh ma 4 test early-exit KHONG cham toi.
+
+    Day la lo hong da de lot mot P0: draw_grasp() dinh nghia hw_open_note() nhung
+    lai goi _hw_open_note(), nen MOI lan chay co grasp hop le deu NameError. CI
+    khong bat duoc vi test render non-empty bi SKIP khi thieu open3d (xem
+    test_pipeline_mock.py). Mock ca open3d lan _load_graspnetapi de di toi tan
+    nhanh render that.
+    """
+
+    def _run(self, gg):
+        import sys
+        import types
+        o3d = types.ModuleType('open3d')
+        o3d.geometry = types.SimpleNamespace(TriangleMesh=_FakeGeom,
+                                             LineSet=_FakeGeom)
+        o3d.utility = types.SimpleNamespace(Vector3dVector=lambda v: np.asarray(v))
+        o3d.io = types.SimpleNamespace()
+        im = np.full((H, W, 3), 255, np.uint8)
+        with patch.dict(sys.modules, {'open3d': o3d}), \
+                patch.object(P, '_add_sys_path', lambda: None), \
+                patch.object(P, '_load_graspnetapi', lambda: _FakeGraspnetAPI):
+            return P.draw_grasp(im, gg, _K(), top=1), im
+
+    def test_non_empty_grasp_renders_without_nameerror(self):
+        """1 grasp hop le (55 mm) -> phai ve duoc, khong NameError."""
+        gg = np.zeros((1, 17), np.float64)
+        gg[0, 0] = 0.44
+        gg[0, 1] = 0.055                    # 55 mm: lot ca 80 mm lan 69.4 mm
+        gg[0, 13:16] = (0.0, 0.0, 0.5)
+        out, im = self._run(gg)
+        self.assertEqual(out.shape, im.shape)
+        self.assertTrue((out != 255).any(), 'phai ve gripper len anh')
+
+    def test_hw_open_note_is_reachable_on_widest_drawable_grasp(self):
+        """75 mm: ve duoc (< 80 mm) nhung VUOT khe mo that -> phai di qua
+        hw_open_note() va khong no. Chot chan rang ten ham dung."""
+        gg = np.zeros((1, 17), np.float64)
+        gg[0, 0] = 0.44
+        gg[0, 1] = 0.075                    # 75 mm
+        gg[0, 13:16] = (0.0, 0.0, 0.5)
+        out, im = self._run(gg)             # NameError o day neu ten sai
+        self.assertEqual(out.shape, im.shape)
+        self.assertTrue((out != 255).any())
+
+
 if __name__ == '__main__':
     unittest.main()

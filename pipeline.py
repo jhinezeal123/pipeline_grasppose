@@ -777,7 +777,7 @@ def draw_grasp(image, gg, K, max_width=GRIP_MAX_OPEN_M, top=1, min_sep=0.080,
         lines.append("#%d score %.4f  width %.1f mm  z=%.2fm  %dx%d px%s"
                      % (rank + 1, g[0], g[1] * 1000, zc,
                         span[0], span[1],
-                        _hw_open_note(g[1])))
+                        hw_open_note(g[1])))
     # Ghi nhan SAU khi ve xong: _put() xoa dai tren-trai, goi trong vong lap thi
     # nhan sau de nhan truoc, cuoi cung chi con dong cuoi.
     _put(im, lines)
@@ -824,7 +824,14 @@ def run_phases(image, prompt, fov_x=None, detector=None, segmenter=None,
         except Exception as e:
             errs["dep"] = "%s: %s" % (type(e).__name__, e)
         finally:
-            depther.release()                    # xong la nha ngay
+            # release() cung co the nem (vi du thieu torch tren may khong GPU).
+            # Exception trong luong phu KHONG lam job that bai — no chi in
+            # traceback ra stderr roi bien mat. Nghia la worker hong ma CI van
+            # bao xanh, va loi that bi che. Bat tai day va ghi vao errs.
+            try:
+                depther.release()                # xong la nha ngay
+            except Exception as e:
+                errs.setdefault("dep", "release: %s: %s" % (type(e).__name__, e))
             _vram(" sau khi MoGe nha")
 
     def _det_job():
@@ -834,7 +841,10 @@ def run_phases(image, prompt, fov_x=None, detector=None, segmenter=None,
         except Exception as e:
             errs["det"] = "%s: %s" % (type(e).__name__, e)
         finally:
-            detector.release()
+            try:
+                detector.release()
+            except Exception as e:
+                errs.setdefault("det", "release: %s: %s" % (type(e).__name__, e))
             _vram(" sau khi DINO nha")
 
     t0 = time.time()

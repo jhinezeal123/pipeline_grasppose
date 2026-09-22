@@ -31,23 +31,24 @@ chế fallback mà nó sinh ra để bảo vệ.
 bootstrap: thiếu dependencies gián tiếp/MoGe và không xác định đầy đủ index CUDA.
 Không xem nó là bằng chứng rằng máy mới đã được kiểm thử.
 
-## Tải model: ghim revision + kiểm tra tải xong thật
+## Tải model: ghim revision
 
 `run.sh` đọc `dependencies`. Mỗi block `KIND = hf` có `REVISION` là commit SHA
 trên HuggingFace, truyền vào `snapshot_download(revision=...)`. Không ghim thì HF
 trả bản mới nhất và nội dung có thể đổi bất cứ lúc nào — kết quả không tái lập được.
 Các block `git` cũng ghim `REVISION`.
 
-Trước khi bỏ qua một model đã tải, `run.sh` kiểm tra `<DEST>/.cache/huggingface/download/<file>.metadata`
-do chính `huggingface_hub` ghi sau khi một file tải xong
-(`_local_folder.py: write_download_metadata` → `f"{commit_hash}\n{etag}\n{time}"`;
-bản đang tải nằm ở `*.incomplete` và không có metadata). Đủ hai điều kiện mới bỏ qua:
+`run.sh` **luôn** gọi `snapshot_download`, không tự kiểm tra "đã tải xong chưa" rồi
+bỏ qua. Đó không phải là bỏ sót tối ưu: mọi cách tự kiểm tra đều không thể biết repo
+**cần** bao nhiêu file, vì nó chỉ nhìn thấy file đang có trên đĩa. Repo cần 10 file,
+tải xong `config.json` rồi mất mạng → thư mục không rỗng, file đó có metadata hợp lệ
+→ lần sau bỏ qua → model thiếu 9 file weights, lỗi chỉ lộ ra rất muộn.
 
-1. Mọi file trong `DEST` (không kể `.cache`) đều có `.metadata` tương ứng
-2. Dòng đầu của metadata khớp `REVISION` đang ghim
-
-Cách cũ — coi "thư mục có ít nhất 1 file" là xong — bỏ qua cả khi lần tải trước bị
-ngắt giữa đường, để lại model thiếu file và lỗi xảy ra rất muộn, khó truy.
+Gọi lại mỗi lần là **đúng và rẻ**: `snapshot_download` liệt kê file của repo rồi gọi
+`hf_hub_download` cho **từng** file (`_snapshot_download.py`), mà `hf_hub_download`
+tự kiểm *"file đã có + metadata khớp commit_hash ⇒ trả luôn"* (`file_download.py`).
+Nên nó chỉ tải file còn thiếu, và bản tải dở nằm ở `*.incomplete` nên lần sau tự
+resume tiếp. Đổi lại, bỏ được một hàm kiểm tra tự viết và cái bug của nó.
 
 ## MinkowskiEngine: cài sau khi tải model
 
