@@ -15,6 +15,12 @@ import shutil
 import subprocess
 import sys
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _p in (os.path.join(ROOT, "model", "moge_repo"),
+           os.path.join(ROOT, "model", "utils3d_repo")):
+    if os.path.isdir(_p) and _p not in sys.path:
+        sys.path.insert(0, _p)
+
 # (ten module, phien ban da do duoc, bat buoc?)
 # Phien ban lay tu requirements.lock.txt — do tren mot lan chay That.
 WANT = [
@@ -126,7 +132,7 @@ def main():
     print("  gcc: %s" % (shutil.which("gcc") or "khong co"))
 
     head("5. Extension da build chua")
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    root = ROOT
     hits = []
     for base in (os.environ.get("GRASPNESS_HOME", "model/graspness_unofficial"),
                  ".venv/native/graspness_unofficial", "model/graspness_unofficial_build"):
