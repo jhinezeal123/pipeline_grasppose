@@ -19,6 +19,9 @@ sys.path.insert(0, HERE)
 import pipeline as P                                          # noqa: E402
 
 FAIL = []
+# Muc bi bo qua vi thieu phu thuoc ngoai repo (khong phai loi code). In ra o
+# cuoi de nguoi chay biet minh CHUA kiem tra het, chu khong tuong la da pass het.
+SKIPPED = []
 
 
 def check(name, cond, detail=""):
@@ -188,6 +191,11 @@ def main():
           P._phrase_match(["blackrmos"], "a black thermos") == 0)
 
     # ---- 5. Chay pipeline() voi model gia ----
+    # Phan nay ve tu the gap bang CHINH graspnetAPI cua upstream, ma thu vien do
+    # do run.sh clone ve model/graspnetAPI_repo. Tren mot ban clone sach thi chua
+    # co -> draw_grasp() raise dung nhu thiet ke. Do la THIEU PHU THUOC, khong
+    # phai loi code, nen bao SKIP chu khong phai FAIL (bao FAIL o day tung lam
+    # tuong nham la repo hong).
     print("\n5. pipeline() voi model gia")
     img = np.zeros((240, 320, 3), np.uint8)
     img[100:210, 90:230] = (180, 160, 140)
@@ -200,6 +208,17 @@ def main():
     P.run_phases = patched
     try:
         res = P.pipeline(img, prompt="a little bag")
+    except RuntimeError as e:
+        if "graspnetAPI" in str(e) or "graspnetAPI_repo" in str(e):
+            SKIPPED.append("muc 5-9: chua co model/graspnetAPI_repo "
+                           "(chay run.sh mot lan de clone ve)")
+            print("  [SKIP] chua co graspnetAPI -> bo qua muc 5-9")
+            P.run_phases = orig
+            return report()
+        traceback.print_exc()
+        check("pipeline() khong raise", False, "xem traceback")
+        P.run_phases = orig
+        return report()
     except Exception:
         traceback.print_exc()
         check("pipeline() khong raise", False, "xem traceback")
@@ -400,6 +419,10 @@ def report():
             print("   - %s" % f)
     else:
         print(" TAT CA MUC DEU PASS")
+    if SKIPPED:
+        print(" %d MUC BI BO QUA:" % len(SKIPPED))
+        for s in SKIPPED:
+            print("   - %s" % s)
     print("=" * 66)
     return 1 if FAIL else 0
 
