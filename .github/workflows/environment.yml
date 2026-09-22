@@ -12,6 +12,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: bash -n run.sh
+      - run: python -m py_compile pipeline.py app.py env/*.py
       # numpy + opencv-python-headless phai cai TRUOC buoc unittest:
       # tests/test_pipeline_guards.py import pipeline.py, ma pipeline.py can numpy
       # va draw_grasp() can cv2. Cac test con lai chi test shell va chuoi nen khong
