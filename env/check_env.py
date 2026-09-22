@@ -18,18 +18,17 @@ import sys
 # (ten module, phien ban da do duoc, bat buoc?)
 # Phien ban lay tu requirements.lock.txt — do tren mot lan chay That.
 WANT = [
-    ("numpy",        "2.0.2",   True),
-    ("scipy",        "1.16.3",  True),
-    ("torch",        "2.10.0",  True),
-    ("transformers", "5.0.0",   True),
-    ("PIL",          "11.3.0",  True),
-    ("cv2",          "4.13.0",  True),
-    ("open3d",       "0.20.0",  True),
-    ("huggingface_hub", "1.32.0", True),
-    ("transforms3d", "0.4.2",   True),
-    ("timm",         "1.0.26",  False),
-    ("einops",       "0.8.2",   False),
-    ("gradio",       "6.28.0",  False),   # chi can khi chay web UI
+    ("numpy",        "1.23.5",   True),
+    ("scipy",        "1.10.1",   True),
+    ("torch",        "2.1.0",    True),
+    ("transformers", "4.44.2",   True),
+    ("PIL",          "10.4.0",   True),
+    ("cv2",          "4.5.4",    True),
+    ("huggingface_hub", "0.24.7", True),
+    ("transforms3d", "0.4.2",    True),
+    ("timm",         "1.0.9",    False),
+    ("einops",       "0.8.1",    False),
+    ("gradio",       "4.44.1",   False),   # chi can khi chay web UI
 ]
 
 OK = "\033[32mOK\033[0m"
@@ -48,9 +47,9 @@ def main():
     problems.clear()
     head("1. Python")
     print("  phien ban: %d.%d.%d" % sys.version_info[:3])
-    if sys.version_info[:2] < (3, 10):
+    if sys.version_info[:2] < (3, 8):
         problems.append(
-            "Python %d.%d — can >=3.10" % sys.version_info[:2])
+            "Python %d.%d — can >=3.8" % sys.version_info[:2])
 
     head("2. Thu vien Python")
     for name, want, must in WANT:
@@ -67,7 +66,7 @@ def main():
             if must:
                 problems.append("thieu %s (bat buoc)" % name)
 
-    for name in ("torchvision", "MinkowskiEngine", "moge.model.v3"):
+    for name in ("torchvision", "MinkowskiEngine", "moge.model.v2"):
         try:
             importlib.import_module(name)
             print("  [%s] %s" % (OK, name))
@@ -105,7 +104,7 @@ def main():
                     "torch khong thay GPU; kiem tra driver va LD_LIBRARY_PATH=%s" % nv)
             else:
                 print("  GPU              : KHONG THAY")
-                problems.append("torch khong thay GPU (can T4 tro len)")
+                problems.append("torch khong thay CUDA GPU")
     except Exception as exc:
         problems.append("torch/CUDA: %s" % exc)
 
@@ -122,7 +121,7 @@ def main():
     else:
         print("  [%s] nvcc khong co tren PATH" % BAD)
         print("       -> run.sh se KHONG build duoc pointnet2._ext")
-        print("       -> tren Kaggle: export PATH=/usr/local/cuda/bin:$PATH")
+        print("       -> Jetson: export PATH=/usr/local/cuda/bin:$PATH")
         problems.append("khong co nvcc -> khong bien dich duoc _ext")
     print("  gcc: %s" % (shutil.which("gcc") or "khong co"))
 
