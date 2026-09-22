@@ -26,6 +26,19 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Jetson AGX Xavier / JetPack 5.x profile. Keep NVIDIA's host Torch/CUDA ABI
+# and tune native builds + inference for Volta sm_72 / 8 SM.
+JETSON_XAVIER=0
+if [ "$(uname -m)" = "aarch64" ] && [ -r /proc/device-tree/compatible ] && \
+   grep -aq "tegra194" /proc/device-tree/compatible; then
+  JETSON_XAVIER=1
+  export CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}"
+  export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-7.2}"
+  export MAX_JOBS="${MAX_JOBS:-2}"
+  export PIPELINE_SERIAL_GPU="${PIPELINE_SERIAL_GPU:-1}"
+  export MOGE_RESOLUTION_LEVEL="${MOGE_RESOLUTION_LEVEL:-4}"
+fi
+
 # Tren Kaggle, driver NVIDIA nam o /usr/local/nvidia/lib64 va KHONG co trong
 # ld.so.conf -> thieu bien nay thi torch.cuda.is_available() tra ve False.
 if [ -d /usr/local/nvidia/lib64 ]; then
@@ -70,6 +83,9 @@ echo "  Model      : $SCRIPT_DIR/model"
 echo "  Ket qua    : $SCRIPT_DIR/output"
 echo "  Python     : $(command -v python3 || echo 'KHONG THAY python3')"
 echo "  Che do     : $( [ "$SERVE" = "1" ] && echo "SERVE - web UI o cong $PORT" || echo "BATCH - chay 1 anh")"
+if [ "$JETSON_XAVIER" = "1" ]; then
+  echo "  Profile    : Jetson AGX Xavier (tegra194, sm_72, serial GPU)"
+fi
 echo "=============================================================="
 
 # Bootstrap GIAI DOAN 1: kiem tra host (torch/torchvision/numpy/CUDA) va tao .venv.
@@ -309,16 +325,21 @@ echo "--------------------------------------------------------------"
 # tiep. Cai runtime that bai khong xoa cac model da tai.
 #
 # pip tu bo qua nhung gi da dung -> chay lai la re.
-echo "     [5b] pip install -r requirements.txt -> .venv (co host-constraints)"
-"$HOST_PYTHON" "$SCRIPT_DIR/env/setup_env.py" --install
+if [ "$SERVE" = "1" ]; then
+  echo "     [5b] pip install -r requirements-ui.txt -> .venv (co host-constraints)"
+  "$HOST_PYTHON" "$SCRIPT_DIR/env/setup_env.py" --install --ui
+else
+  echo "     [5b] pip install -r requirements.txt -> .venv (co host-constraints)"
+  "$HOST_PYTHON" "$SCRIPT_DIR/env/setup_env.py" --install
+fi
 
 # MinkowskiEngine belongs to the repo setup, not the host prerequisites.
 "$HOST_PYTHON" "$SCRIPT_DIR/env/install_minkowski.py"
 
 # Kiem chung THAT sau khi cai: hai goi kho nhat phai import duoc. Loi o day thi
 # bao ngay, khong de den luc chay inference moi vo.
-export PYTHONPATH="$SCRIPT_DIR/model/graspnetAPI_repo:${PYTHONPATH:-}"
-"$PYTHON" -c 'from moge.model.v3 import MoGeModel; import MinkowskiEngine; print("MoGe / MinkowskiEngine OK")'
+export PYTHONPATH="$SCRIPT_DIR/model/moge_repo:$SCRIPT_DIR/model/utils3d_repo:$SCRIPT_DIR/model/graspnetAPI_repo:${PYTHONPATH:-}"
+"$PYTHON" -c 'from moge.model.v2 import MoGeModel; import MinkowskiEngine; print("MoGe-2 / MinkowskiEngine OK")'
 
 # -----------------------------------------------------------------------------
 # BUOC 5d: pointnet2._ext — extension CUDA BAT BUOC phai duoc bien dich.
@@ -382,9 +403,9 @@ else
     DETECTED_ARCH="$("$PYTHON" -c "
 import torch
 print('%d.%d' % torch.cuda.get_device_capability(0)
-      if torch.cuda.is_available() else '7.5')
+      if torch.cuda.is_available() else '7.2')
 " 2>/dev/null || true)"
-    export TORCH_CUDA_ARCH_LIST="${DETECTED_ARCH:-7.5}"
+    export TORCH_CUDA_ARCH_LIST="${DETECTED_ARCH:-7.2}"
   fi
   echo "     [5d] TORCH_CUDA_ARCH_LIST=$TORCH_CUDA_ARCH_LIST"
   ( cd "$BUILD_DIR/pointnet2" && "$PYTHON" setup.py build_ext --inplace ) \
