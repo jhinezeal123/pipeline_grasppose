@@ -248,6 +248,51 @@ class DrawGraspEarlyExitTests(unittest.TestCase):
         self.assertEqual(out.shape, im.shape)
 
 
+class ReleaseFailureTests(unittest.TestCase):
+    """release() nem khi inference DA THANH CONG -> phai surfaced, khong duoc che.
+
+    Truoc day loi release duoc ghi vao errs, nhung errs chi duoc doc khi
+    `"dep" not in out`. Inference thanh cong => out["dep"] ton tai => loi khong
+    bao gio duoc doc. Ma release that bai nghia la VRAM chua duoc nha: invariant
+    "DINO/MoGe da nha truoc SAM" khong con dung, phase sau co the OOM voi thong
+    bao khong lien quan gi toi nguyen nhan that.
+    """
+
+    class _DepthReleaseBoom(_FakeDepth):
+        def release(self):
+            raise ModuleNotFoundError("No module named 'torch'")
+
+    class _DetReleaseBoom(_FakeDetector):
+        def release(self):
+            raise RuntimeError("release DINO hong")
+
+    def _run(self, det, dep):
+        return P.run_phases(np.zeros((H, W, 3), np.uint8), 'a little bag',
+                            fov_x=62.0, detector=det, depther=dep)
+
+    def test_release_failure_is_surfaced(self):
+        """inference OK + release nem -> run_phases() phai raise RO rang."""
+        with self.assertRaises(RuntimeError) as cm:
+            self._run(self._DetReleaseBoom(), self._DepthReleaseBoom())
+        msg = str(cm.exception)
+        self.assertIn('khong nha duoc', msg)
+        # Phai neu CA HAI worker, khong chi worker dau tien gap.
+        self.assertIn('dep', msg)
+        self.assertIn('det', msg)
+
+    def test_single_side_release_failure_also_surfaced(self):
+        """Chi mot ben nem cung phai raise — khong duoc im lang."""
+        with self.assertRaises(RuntimeError) as cm:
+            self._run(self._DetReleaseBoom(), _FakeDepth())
+        self.assertIn('khong nha duoc', str(cm.exception))
+
+    def test_release_ok_still_runs_normally(self):
+        """Chot chan: guard moi KHONG duoc chan nham duong binh thuong."""
+        out = self._run(_FakeDetector(), _FakeDepth())
+        self.assertIn('dep', out)
+        self.assertIn('det', out)
+
+
 class HwOpenNoteTests(unittest.TestCase):
     """P1-d: nhanh 'VUOT' cu la code chet (g da loc <= max_width)."""
 

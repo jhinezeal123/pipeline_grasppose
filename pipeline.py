@@ -816,6 +816,12 @@ def run_phases(image, prompt, fov_x=None, detector=None, segmenter=None,
     depther = depther or MogeDepth()
     detector = detector or GroundingDinoDetector()
     errs = {}
+    # Loi release() phai de RIENG, khong gop vao errs: errs chi duoc doc khi
+    # thieu ket qua ("dep" not in out). Neu inference THANH CONG roi release moi
+    # nem, out["dep"] van ton tai nen loi trong errs se khong bao gio duoc doc.
+    # Ma release that bai nghia la VRAM chua duoc nha — invariant "DINO/MoGe da
+    # nha truoc SAM" khong con dung, phase sau co the OOM.
+    rel_errs = {}
 
     def _depth_job():
         try:
@@ -824,14 +830,12 @@ def run_phases(image, prompt, fov_x=None, detector=None, segmenter=None,
         except Exception as e:
             errs["dep"] = "%s: %s" % (type(e).__name__, e)
         finally:
-            # release() cung co the nem (vi du thieu torch tren may khong GPU).
             # Exception trong luong phu KHONG lam job that bai — no chi in
-            # traceback ra stderr roi bien mat. Nghia la worker hong ma CI van
-            # bao xanh, va loi that bi che. Bat tai day va ghi vao errs.
+            # traceback ra stderr roi bien mat. Bat tai day de khong bi che.
             try:
                 depther.release()                # xong la nha ngay
             except Exception as e:
-                errs.setdefault("dep", "release: %s: %s" % (type(e).__name__, e))
+                rel_errs["dep"] = "%s: %s" % (type(e).__name__, e)
             _vram(" sau khi MoGe nha")
 
     def _det_job():
@@ -844,7 +848,7 @@ def run_phases(image, prompt, fov_x=None, detector=None, segmenter=None,
             try:
                 detector.release()
             except Exception as e:
-                errs.setdefault("det", "release: %s: %s" % (type(e).__name__, e))
+                rel_errs["det"] = "%s: %s" % (type(e).__name__, e)
             _vram(" sau khi DINO nha")
 
     t0 = time.time()
@@ -855,6 +859,14 @@ def run_phases(image, prompt, fov_x=None, detector=None, segmenter=None,
     for t in ths:
         t.join()
     _log("PHASE 1 xong trong %.1fs" % (time.time() - t0))
+
+    # VRAM chua duoc nha => dung NGAY, dung di tiep sang SAM/GraspNess. Chay tiep
+    # thi model truoc van chiem VRAM, va loi OOM o phase sau se mang thong bao
+    # khong lien quan gi toi nguyen nhan that.
+    if rel_errs:
+        raise RuntimeError(
+            "khong nha duoc model phase 1 (VRAM chua duoc giai phong): %s"
+            % "; ".join("%s -> %s" % kv for kv in sorted(rel_errs.items())))
 
     if "dep" not in out:
         raise RuntimeError("MoGe that bai: %s" % errs.get("dep", "?"))
