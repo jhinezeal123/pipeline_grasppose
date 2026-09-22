@@ -206,7 +206,7 @@ class DrawGraspEarlyExitTests(unittest.TestCase):
             raise RuntimeError('khong thay graspnetAPI tai ...')
 
         im = np.zeros((H, W, 3), np.uint8)
-        with patch.object(P, '_load_graspnetapi', _boom):
+        with patch.object(R, '_load_graspnetapi', _boom):
             out = P.draw_grasp(im, np.zeros((0, 17), np.float64), _K())
         self.assertFalse(called['api'],
                          '_load_graspnetapi() phai KHONG duoc goi khi khong co tu the')
@@ -224,7 +224,7 @@ class DrawGraspEarlyExitTests(unittest.TestCase):
         gg[:, 0] = [0.4, 0.3]
         gg[:, 1] = [0.200, 0.150]           # 200 mm / 150 mm > 80 mm
         im = np.zeros((H, W, 3), np.uint8)
-        with patch.object(P, '_load_graspnetapi', _boom):
+        with patch.object(R, '_load_graspnetapi', _boom):
             out = P.draw_grasp(im, gg, _K())
         self.assertFalse(called['api'])
         self.assertEqual(out.shape, im.shape)
@@ -232,7 +232,7 @@ class DrawGraspEarlyExitTests(unittest.TestCase):
     def test_reason_is_drawn_onto_image(self):
         """Anh 4/4 phai co CHU bao loi, khong duoc tra ve anh trong tron."""
         im = np.zeros((H, W, 3), np.uint8)
-        with patch.object(P, '_load_graspnetapi',
+        with patch.object(R, '_load_graspnetapi',
                           side_effect=RuntimeError('nope')):
             out = P.draw_grasp(im, np.zeros((0, 17), np.float64), _K(),
                                reason='thieu MinkowskiEngine')
@@ -394,8 +394,8 @@ class DrawGraspNonEmptyTests(unittest.TestCase):
         o3d.io = types.SimpleNamespace()
         im = np.full((H, W, 3), 255, np.uint8)
         with patch.dict(sys.modules, {'open3d': o3d}), \
-                patch.object(P, '_add_sys_path', lambda: None), \
-                patch.object(P, '_load_graspnetapi', lambda: _FakeGraspnetAPI):
+                patch.object(R, '_add_sys_path', lambda: None), \
+                patch.object(R, '_load_graspnetapi', lambda: _FakeGraspnetAPI):
             return P.draw_grasp(im, gg, _K(), top=1), im
 
     def test_non_empty_grasp_renders_without_nameerror(self):
