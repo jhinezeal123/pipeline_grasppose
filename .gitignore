@@ -2,6 +2,11 @@
 model/*
 !model/.gitkeep
 
+# Thu vien run.sh cai rieng cho repo (buoc 5b). Nang va phu thuoc may —
+# nguoi khac chay run.sh se tu cai lai. Xem env/README.md.
+env/lib/
+env/bin/
+
 # Ket qua sinh ra
 output/*
 !output/.gitkeep

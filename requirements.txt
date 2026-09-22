@@ -17,8 +17,11 @@
 #      - run.sh clone vao model/graspnetAPI_repo va export PYTHONPATH.
 #
 #   2) Checkpoint GraspNess (graspness_realsense.pth)
-#      - KHONG PHAI CONG KHAI, khong co link chinh thuc. Xem file 'dependencies'
-#        (block so 6): nguoi dung phai tu dan URL cua minh vao.
+#      - run.sh TU TAI tu mot dataset Kaggle cong khai (xem block NAME=graspness
+#        trong file 'dependencies'). Khong can lam gi thu cong.
+#      - Nguon goc: link chinh thuc nam trong README cua
+#        graspnet/graspness_unofficial (Google Drive, file minkuresunet_realsense.tar),
+#        nhung link do khong dung truc tiep duoc — xem README.md muc 2.
 #
 # Vi vay: KAGGLE LA DUONG CHAY CHINH THUC (xem README.md muc "Chay tren Kaggle").
 # File nay chi de repo hop chuan HF Spaces va de cai nhanh phan UI.

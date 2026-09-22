@@ -21,6 +21,7 @@ grasp_pipeline_repo/
   run.sh              # chay tat ca: tai model -> cai thu vien -> chay pipeline
   dependencies        # danh sach model can tai (nguon duy nhat, run.sh parse file nay)
   requirements.txt    # thu vien Python, dung dinh dang HF Spaces (xem muc 7)
+  requirements.lock.txt # BAN GHIM phien ban da kiem chung that (xem muc 8)
   hf_token            # token HuggingFace, de TRONG cung duoc
   pipeline.py         # CHAY CHINH: dinh nghia 4 lop cu the + noi pipeline + pipeline(img)
   app.py              # WEB UI (gradio): anh -> 4 anh + do sau (muc 7)
@@ -30,10 +31,15 @@ grasp_pipeline_repo/
   GraspNess.py        # /  Doi model = thay lop cu the trong pipeline.py.
   test_pipeline_mock.py # kiem thu khong can GPU (model gia)
   test_app.py           # kiem thu web UI khong can gradio (muc 6)
+  env/                # phu thuoc moi truong: check_env.py + ghi chu (muc 8)
+  env/lib/            # thu vien run.sh cai rieng cho repo (sinh ra, KHONG commit)
+  example/            # anh mau de thu ngay
   img/                # anh dau vao (.png/.jpg/.jpeg)
   output/             # anh ket qua
   model/              # trong so model duoc tai ve day
 ```
+
+`env/lib/` va `model/` la **sinh ra**, khong nam trong git — `run.sh` tu tao lai.
 
 ### Thao/lap model khac
 
@@ -314,3 +320,68 @@ HF Space that**: hai thu bat buoc khong the cai bang pip —
 
 Vi vay **Kaggle la duong chay chinh thuc**. `requirements.txt` chi de repo hop
 chuan va de cai nhanh phan UI.
+
+## 8. Phu thuoc moi truong (CUDA, GPU, va cach ly)
+
+### `run.sh` KHONG dung vao moi truong he thong
+
+Buoc 5b cai thu vien bang `pip install --target env/lib` roi dua `env/lib` len
+**dau** `PYTHONPATH`. Ly do la ban cu dung `pip install` tran da **pha moi truong
+cua chinh notebook chua no** — bang chung do duoc tu log:
+
+```
+ERROR: pip's dependency resolver ...
+google-adk 1.29.0 requires starlette<1.0.0,>=0.49.1,
+but you have starlette 1.6.0 which is incompatible
+```
+
+Nghia la bat ky setup thi nghiem nao khac trong cung session deu bi anh huong.
+
+Hai chi tiet bat buoc, ca hai deu do bang thuc nghiem chu khong phai suy doan:
+
+1. **Chi cai goi he thong CHUA CO** (kiem tra bang `import` that, khong tin danh
+   sach pip). Nho vay `torch` / CUDA / `MinkowskiEngine` — nang va phai khop ABI —
+   khong bi dung toi.
+2. **Luon dung `--no-deps`**. Da do: cai `transforms3d` kieu `--target` **van keo
+   theo `numpy 2.5.3`** de len `numpy 2.0.2` da kiem chung, gay xung dot
+   `numba 0.60.0 requires numpy<2.1, but you have numpy 2.5.3`.
+
+Da kiem chung ca hai nhanh tren Kaggle that:
+
+| Nhanh | Cach thu | Ket qua |
+|---|---|---|
+| Da co -> bo qua | chay binh thuong | `env/lib` rong 4 KB, he thong khong doi |
+| **Chua co -> tai** | ep `markdownify` (da xac nhan khong co) vao `NEED` | tai 136 KB vao `env/lib`, nap tu trong repo |
+| Khong che ban he thong | so `numpy`/`torch` sau khi bat `PYTHONPATH` | van o `/usr/local/lib/...` |
+| Xoa `env/lib` | `rm -rf` roi import lai | numpy/torch/transformers nguyen ven |
+
+### Kiem tra truoc khi chay
+
+```bash
+python env/check_env.py
+```
+
+Tra ve 0 neu du dieu kien. Kiem tra Python, thu vien (doi chieu phien ban da kiem
+chung), GPU + compute capability so voi arch torch ho tro, `nvcc`, va `_ext` da
+build chua.
+
+**Luu y**: chay tay co the bao "khong thay GPU" du may CO GPU — do thieu
+`LD_LIBRARY_PATH=/usr/local/nvidia/lib64`. `run.sh` tu export bien nay. Script
+phan biet ro hai truong hop nay thay vi bao nham.
+
+### Vi sao khong copy thu vien vao repo
+
+`torch` + CUDA ~2.5 GB, va `MinkowskiEngine` voi `pointnet2._ext` la **C++/CUDA
+extension** bien dich cho dung ABI cua mot ban torch + CUDA + Python cu the. Copy
+sang may khac **khong chay duoc** — no khong mang lai tinh dong goi, chi mang lai
+dung luong. Repo chua **cong thuc** (`requirements.lock.txt`), khong chua ket qua.
+
+`venv` cung khong dung duoc: da thu that va that bai —
+`ModuleNotFoundError: No module named 'ensurepip'`, va venv tao ra con **mat luon
+`torch`** cua he thong.
+
+### Doi sang mot setup thi nghiem khac
+
+Vi `run.sh` khong dung he thong, ban co the chay setup khac trong **cung session**
+ma khong so xung dot. Neu van muon sach tuyet doi: `rm -rf env/lib` de tra ve
+trang thai ban dau — da kiem chung viec nay khong lam hong gi.
