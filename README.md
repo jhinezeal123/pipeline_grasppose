@@ -49,13 +49,44 @@ Mo file `hf_token`, dan token HuggingFace vao (1 dong, khong xuong dong thua).
 De trong cung chay duoc, chi la tai cham hon. Token chi duoc export thanh bien moi
 truong `HF_TOKEN`, khong bao gio bi in ra.
 
-## 2. Dien URL checkpoint graspness
+## 2. Checkpoint graspness — `run.sh` tu tai, khong can lam gi
 
-Checkpoint `graspness_realsense.pth` (epoch=10) cua GraspNet **khong phai cong khai**.
-Mo file `dependencies`, tim block `NAME = graspness`, thay dong `URL = PASTE_URL_HERE`
-bang link tai cua ban (Kaggle dataset / Google Drive direct link).
-De nguyen placeholder thi `run.sh` dung lai va bao loi ro rang.
-Cach khac: tu copy file vao `model/graspness_reckpt.pth` truoc khi chay.
+Block `NAME = graspness` trong `dependencies` da tro san vao mot dataset Kaggle
+cong khai:
+
+```
+URL = https://www.kaggle.com/api/v1/datasets/download/bbucxi/graspness-realsense-ckpt
+MD5 = f2c14a02cf024de789f324ba2da76277
+```
+
+`run.sh` tai ve, tu giai nen (Kaggle tra ve **zip** chua `.pth`), roi doi chieu
+md5. Lech md5 thi xoa file va dung ngay — tai hong (nhan phai trang HTML, file
+bi cat ngan) bi bat o day thay vi chet mo ho o buoc GraspNess sau nay.
+
+Da do thuc te: tai xong trong **4.1 giay**, md5 khop, `epoch=10`, 216 tham so.
+
+### Nguon goc
+
+Checkpoint `graspness_realsense.pth` (epoch=10) cua GraspNet. Link chinh thuc
+nam o muc "Model Weights" trong README cua
+[graspnet/graspness_unofficial](https://github.com/graspnet/graspness_unofficial),
+duoi dang Google Drive, file goc ten `minkuresunet_realsense.tar`.
+
+**Khong dung duoc link Google Drive lam URL mac dinh**: `.../file/d/<id>/view`
+chi la trang xem chu khong phai link tai, file >100 MB bi chan them buoc
+"Virus scan warning", va rat hay gap "Quota exceeded". Dataset Kaggle o tren la
+ban sao cua dung file do — da doi chieu noi dung, khong phai suy doan:
+
+| | |
+|---|---|
+| `epoch` | 10 — khop `--checkpoint_path logs/log_kn/minkresunet_epoch10.tar` trong `command_test.sh` cua upstream |
+| So tham so | 216, gom 4 nhanh `graspable` / `rotation` / `crop` / `swad` |
+| Bon ten nhanh do | **chi** xuat hien trong `models/graspnet.py` cua `graspness_unofficial` |
+| md5 | `f2c14a02cf024de789f324ba2da76277`, 184429769 byte |
+
+Muon doi sang nguon khac: sua `URL` (va `MD5` neu co) trong `dependencies`.
+De `URL` trong thi `run.sh` dung lai va in huong dan. Cung co the copy tay file
+vao `model/graspness_reckpt.pth` truoc khi chay.
 
 ## 2b. `pointnet2._ext` — `run.sh` tu bien dich, khong can lam tay
 
@@ -161,16 +192,27 @@ nam trong mask SAM**, don vi met. `None` khi mask rong hoac khong co pixel hop l
   nhung trong mask chi 0.444..0.811 m.
 - CLI in ra dong `DO SAU VAT: ... m` o cuoi.
 
-### Vi sao gripper trong anh trong nhu mot thanh mong
+### Cach ve gripper trong anh
 
-Khong phai loi ve. `plot_gripper_pro_max` cua upstream (graspnetAPI) dung ngon
-day `height = 0.004` (4 mm) va `finger_width = 0.004`. Khi truc tiep can nam gan
-mat phang anh, ta nhin nghieng tam 4 mm -> no ra mot vet mong.
+Mesh gripper cua upstream gom **4 hop** — ngon trai, ngon phai, thanh noi phia
+truoc, va duoi — nhin thang ra **hinh chu U**.
+
+`GraspGroup.to_open3d_geometry_list()` tra ve **`LineSet`**, khong phai
+`TriangleMesh`. Ban dau code doc `np.asarray(mesh.triangles)`; `LineSet` khong co
+thuoc tinh do nen numpy tra ve **mang rong**, vong lap ve canh khong chay dong
+nao, va thu duy nhat hien len la cac vach do `fillPoly` sinh ra — anh trong nhu
+"may cai que". Nay doc `geom.lines` va ve bang `cv2.line`, du **12 canh moi hop**
+dung nhu upstream.
 
 `o3d.visualization.draw_geometries` (duong ve goc cua upstream) khong chay duoc
 o day: `OffscreenRenderer` bao `Failed to load vulkan library`. Nen mesh duoc
-chieu va to tam giac bang tay, co them do bong Lambert cho ra khoi 3D.
-**Hinh hoc va mau (R=score, G=0, B=1-score) van lay nguyen tu upstream.**
+chieu xuong anh roi ve tung doan thang.
+
+Da thu loc bot canh cho do roi (chi giu duong cheo mat) nhung bo di: o goc nhin
+thay doi, khong phan biet duoc "canh song song truc" voi "duong cheo mat", nen
+cach loc do lam mat net that cua hinh. Trung thanh voi upstream quan trong hon.
+
+Hinh hoc va mau (R=score, G=0, B=1-score) lay nguyen tu upstream.
 
 ## 5. Chien luoc VRAM 3 pha
 
@@ -266,7 +308,9 @@ HF Space that**: hai thu bat buoc khong the cai bang pip —
 1. **graspnetAPI** — goi tren PyPI bi hong (con import `setuptools.extern.six` da
    bi Python moi xoa). Phai `git clone` roi them vao `PYTHONPATH`; `pipeline.py`
    lam viec do qua `_load_graspnetapi()`. `run.sh` clone vao `model/graspnetAPI_repo`.
-2. **Checkpoint graspness** — khong phai cong khai, khong co link chinh thuc (muc 2).
+2. **pointnet2 `_ext`** — extension CUDA, upstream chi co ma nguon, phai bien dich
+   bang `setup.py` (muc 2b). Tren Kaggle `run.sh` lo viec nay; tren HF Spaces thi
+   khong co GPU san va khong chay duoc `nvcc` theo cach tuong tu.
 
 Vi vay **Kaggle la duong chay chinh thuc**. `requirements.txt` chi de repo hop
 chuan va de cai nhanh phan UI.
