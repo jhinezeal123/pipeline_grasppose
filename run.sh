@@ -281,16 +281,46 @@ export PATH="/usr/local/cuda/bin:${PATH}"
 
 # 5a) MoGe: cai tu source (khong phai ban PyPI) roi kiem tra import that.
 #
-# --no-deps la BAT BUOC, khong phai toi uu. pyproject.toml cua MoGe khai bao:
-#     "torch>=2.4", "torchvision>=0.19", "starlette", "gradio>=6.0"
-# va trong [tool.uv.sources] tro torch vao index "pytorch-cu130" (CUDA 13.0).
-# De pip tu giai phu thuoc thi no:
-#   - thay torch 2.10.0+cu128 cua Kaggle bang ban khac (driver khong khop);
-#   - nang starlette len 1.6.0, pha google-adk cua chinh notebook (da thay trong log);
-#   - de lai trang thai nua voi, khien 'import open3d' that bai o buoc 5b.
-# Nhung gi MoGe THAT SU can thi da co san tren Kaggle, hoac duoc cai o 5b.
+# KHONG dung --no-deps tran: da thu va no lam VO MoGe. Bang chung tu log:
+#     moge/model/v3.py line 8:  import utils3d_moge as utils3d
+#     ModuleNotFoundError: No module named 'utils3d_moge'
+#     ... line 10:              import utils3d
+#     ModuleNotFoundError: No module named 'utils3d'
+# Ba goi duoi day den tu git, KHONG co tren PyPI, nen --no-deps chan luon chung.
+#
+# Nhung cung KHONG the de pip tu giai phu thuoc: pyproject.toml cua MoGe khai
+# bao torch>=2.4 / torchvision>=0.19 / starlette / gradio>=6.0, va trong
+# [tool.uv.sources] tro torch vao index "pytorch-cu130" (CUDA 13.0). De pip tu do
+# thi no thay torch cu128 cua Kaggle bang ban khac -> driver khong khop.
+#
+# Cach dung: cai moge voi --no-deps (chi lay chinh no), roi cai TAY dung ba goi
+# git ma no can, cung bang --no-deps de khong keo torch moi.
 echo "     [5a] pip install -e model/moge_repo --no-deps"
-pip install -e model/moge_repo --no-deps 2>&1 | grep -vE "^\s*$" | tail -12 || true
+pip install -e model/moge_repo --no-deps 2>&1 | tail -4
+
+# Ba goi git ma moge can, da DOC NGUON de xac nhan chu khong doan:
+#   moge/model/v3.py            : import utils3d_moge as utils3d
+#   moge/model/modules/sparse_unet.py : from flex_gemm.ops import NeighborCache
+#   (goi 'pipeline' khong duoc import truc tiep, nhung nam trong danh sach
+#    dependencies cua pyproject.toml — de lai cho day du, cai thieu con hon.)
+# Ghim dung commit trong pyproject.toml cua MoGe de ket qua lap lai duoc.
+MOGE_GIT_DEPS=(
+  "utils3d_moge|utils3d_moge @ git+https://github.com/EasternJournalist/utils3d-moge.git@62f09d58509485564e24d5d9f6aac9ee9ebc0c37"
+  "flex_gemm|flex-gemm @ git+https://github.com/JeffreyXiang/FlexGEMM.git@b2fadb29d41846c7981ade6801ffc689fae119cf"
+  "pipeline|pipeline @ git+https://github.com/EasternJournalist/pipeline.git@1c511390d90226c00c101f34b84df26a0f8789b4"
+)
+echo "     [5a] cai 3 goi git ma MoGe can (utils3d_moge / flex_gemm / pipeline)"
+for entry in "${MOGE_GIT_DEPS[@]}"; do
+  mod="${entry%%|*}"
+  dep="${entry#*|}"
+  # Da co roi thi bo qua — moi goi nay mat 30-60s de build tu source.
+  if python3 -c "import $mod" 2>/dev/null; then
+    echo "     [5a]   co san: $mod"
+  else
+    echo "     [5a]   cai   : $mod"
+    pip install --no-deps "$dep" 2>&1 | tail -3
+  fi
+done
 
 # Cho python tim thay source cua MoGe va GraspNetAPI truoc khi verify / chay pipeline.
 export PYTHONPATH="$SCRIPT_DIR/model/moge_repo:$SCRIPT_DIR/model/graspnetAPI_repo:${PYTHONPATH:-}"
