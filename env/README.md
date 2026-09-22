@@ -1,5 +1,9 @@
 # Môi trường chạy
 
+> Nhanh Jetson AGX Xavier: xem them `JETSON_XAVIER.md`. Stack muc tieu la
+> Python 3.8 + Torch NVIDIA 2.1 + CUDA 11.4 + sm_72; khong nang cap cac goi host
+> ABI-sensitive bang pip.
+
 `bash run.sh img/anh.png` tạo `.venv` riêng với `--system-site-packages`,
 để dùng lại Torch/CUDA của máy. Mọi gói bổ sung được cài vào
 `.venv`, không vào Python của notebook. Không cần `ensurepip`: pip của Python
@@ -7,7 +11,7 @@ chủ quản cài qua `--python .venv/bin/python` (cần pip >=22.3).
 
 ## Điều kiện trước khi chạy
 
-- Linux, Python >=3.10; môi trường cũ ghi nhận trong snapshot dùng Python 3.12.
+- Linux, Python >=3.8; profile Jetson muc tieu dung Python 3.8.10.
 - Torch, torchvision và NumPy phải được cài sẵn và import được.
 - MinkowskiEngine **không** bắt buộc có sẵn; repo cài ở giai đoạn 2.
 - GPU CUDA dùng được với Torch; CUDA toolkit (`nvcc`) và compiler để build pointnet2.
@@ -15,8 +19,7 @@ chủ quản cài qua `--python .venv/bin/python` (cần pip >=22.3).
   OpenBLAS headers/library; `nvcc` phải cùng phiên bản major.minor với Torch CUDA.
 - Internet để tải dependencies và model lần đầu.
 
-`requirements.txt` là danh sách runtime có giới hạn phiên bản, **không phải lock
-đầy đủ**. MoGe được ghim commit; pip giải cả dependencies gián tiếp của MoGe.
+`requirements.txt` la runtime core Python-3.8-compatible, **khong phai lock day du**.\nMoGe-2 va utils3d duoc clone tu revision da ghim trong `dependencies` thay vi pip-install;\n`requirements-ui.txt` chi duoc dung khi chay `--serve`.
 Các phiên bản Torch, torchvision, torchaudio, NumPy, SciPy, Triton và NVIDIA
 đang có trên máy được ghi vào `.venv/host-constraints.txt`. Nếu yêu cầu mới xung đột,
 pip dừng thay vì tự đổi bộ CUDA. `.venv/host.json` phát hiện thay đổi môi trường chủ.
@@ -68,7 +71,7 @@ resume tiếp. Đổi lại, bỏ được một hàm kiểm tra tự viết và
 Wheel tags chỉ kiểm tra Python/ABI/platform, **không xác nhận Torch/CUDA ABI**.
 Sau mỗi lần cài vẫn bắt buộc chạy CUDA smoke test.
 
-Wheel bundled **đã kiểm chứng trên Kaggle Torch 2.10/CUDA 12.8, box trắng không
+### Ghi chu lich su ve wheel Kaggle\n\nWheel bundled **đã kiểm chứng trên Kaggle Torch 2.10/CUDA 12.8, box trắng không
 mount gì** (commit `30fd5e9`): Gradio lên sau 270s, `depth_m = 0.482` — khớp giá
 trị đo được ở lần chạy có mount (`0.4824655055999756`). Interpreter `.venv` import
 được `MinkowskiEngine` và qua CUDA smoke test thật trên Tesla T4.
