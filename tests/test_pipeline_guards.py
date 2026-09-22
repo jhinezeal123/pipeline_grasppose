@@ -450,27 +450,75 @@ class FreeOrderTests(unittest.TestCase):
                     # Doc trang thai attribute ngay luc empty_cache duoc goi.
                     seen['model'] = obj.model
                     seen['net'] = obj.net
+                    seen['_inp'] = obj._inp
 
         class _Holder(object):
             def __init__(self):
                 self.model = object()       # gia lap model nang
                 self.net = object()
+                # _inp: DINO prepare() luu input da .to(self.device), nen tren
+                # CUDA day la tensor GPU that — cung phai duoc cat truoc.
+                self._inp = object()
 
         obj = _Holder()
         with patch.dict(sys.modules, {'torch': _TorchStub('torch')}):
-            P._free(obj, 'model', 'net')
+            P._free(obj, 'model', 'net', '_inp')
 
         self.assertIn('model', seen, 'empty_cache() da khong duoc goi')
         self.assertIsNone(seen['model'],
                           'model van con tham chieu luc empty_cache() chay')
         self.assertIsNone(seen['net'])
+        self.assertIsNone(seen['_inp'],
+                          '_inp (input tren GPU) van con tham chieu luc '
+                          'empty_cache() chay')
         self.assertIsNone(obj.model, 'attribute phai la None sau _free()')
 
-    def test_missing_attribute_does_not_raise(self):
-        """Attribute khong ton tai -> bo qua, khong no."""
+    def test_clears_attribute_that_did_not_exist_before(self):
+        """_free() dat duoc attribute moi ma khong loi.
+
+        Luu y: day KHONG phai test nhanh except AttributeError — setattr tren
+        object thuong se TAO attribute moi chu khong raise. Nhanh except da duoc
+        bo vi khong call site nao can; test nay chi khoa lai hanh vi do.
+        """
         class _Holder(object):
             pass
-        P._free(_Holder(), 'khong_co_that')     # khong duoc raise
+        obj = _Holder()
+        P._free(obj, 'khong_co_that')
+        self.assertIsNone(obj.khong_co_that)
+
+    def test_dino_release_clears_inp_too(self):
+        """GroundingDinoDetector.release() phai cat ca '_inp'.
+
+        prepare() luu `inp = self.proc(...).to(self.device)`. Tren CUDA day la
+        tensor GPU, nen neu release() chi cat model/proc/_out thi empty_cache()
+        van chay khi con tham chieu GPU — dung cai loi ordering ma _free() sinh ra
+        de tranh.
+        """
+        import sys
+        import types
+        seen = {}
+
+        class _TorchStub(types.ModuleType):
+            class cuda(object):
+                @staticmethod
+                def is_available():
+                    return True
+
+                @staticmethod
+                def synchronize():
+                    pass
+
+                @staticmethod
+                def empty_cache():
+                    seen['_inp'] = d._inp
+
+        d = P.GroundingDinoDetector()
+        d.model = d.proc = d._out = object()
+        d._inp = object()
+        with patch.dict(sys.modules, {'torch': _TorchStub('torch')}):
+            d.release()
+        self.assertIsNone(seen.get('_inp'),
+                          "_inp van con tham chieu luc empty_cache() chay")
 
 
 if __name__ == '__main__':

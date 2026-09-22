@@ -133,10 +133,7 @@ def _free(obj, *attrs):
     attribute (tham chieu THAT toi model) da bi cat.
     """
     for name in attrs:
-        try:
-            setattr(obj, name, None)
-        except AttributeError:
-            pass
+        setattr(obj, name, None)
     gc.collect()
     try:
         import torch
@@ -287,9 +284,10 @@ class GroundingDinoDetector(Object_Detection):
 
     def release(self):
         # _free() dat attribute ve None roi moi gc + empty_cache — xem docstring.
-        # Dong `self._inp = None` sau day lo not thuoc tinh khong phai model nang.
-        _free(self, 'model', 'proc', '_out')
-        self._inp = None
+        # PHAI gom ca '_inp': prepare() luu input da .to(self.device), nen tren
+        # CUDA day la tensor GPU that. De no lai thi empty_cache() van chay khi
+        # con tham chieu GPU — dung cai loi ordering ma _free() sinh ra de tranh.
+        _free(self, 'model', 'proc', '_out', '_inp')
 
 
 class SamSegmenter(Segmentation):
@@ -548,10 +546,11 @@ class GraspnessModel(GraspNess):
         return {"graspgroup": nms_grasps(gg), "reason": None}
 
     def release(self):
-        # pred_decode la tensor trung gian, khong phai model, nhung van giu VRAM
-        # nen dat ve None TRUOC _free() de no duoc thu hoi luon trong lan gc nay.
-        self.pred_decode = None
-        _free(self, 'net', 'ME')
+        # pred_decode la FUNCTION (import tu models.graspnet, goi o
+        # `self.pred_decode(self.net(batch))`), khong phai tensor. Dat ve None
+        # ngay trong _free() cho nhat quan: moi tham chieu tới model/function cua
+        # upstream deu duoc cat TRUOC khi gc + empty_cache chay.
+        _free(self, 'net', 'ME', 'pred_decode')
 
 
 # ===========================================================================
