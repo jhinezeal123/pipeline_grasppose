@@ -196,6 +196,11 @@ def main():
     # co -> draw_grasp() raise dung nhu thiet ke. Do la THIEU PHU THUOC, khong
     # phai loi code, nen bao SKIP chu khong phai FAIL (bao FAIL o day tung lam
     # tuong nham la repo hong).
+    #
+    # open3d cung vay: draw_grasp() can no de dung mesh gripper cua upstream.
+    # CI co tinh KHONG cai open3d (no keo theo torch/CUDA, rat nang, va khong can
+    # cho test logic thuan) — xem .github/workflows/environment.yml. Nen khi thieu
+    # open3d cung phai SKIP, khong duoc FAIL.
     print("\n5. pipeline() voi model gia")
     img = np.zeros((240, 320, 3), np.uint8)
     img[100:210, 90:230] = (180, 160, 140)
@@ -206,23 +211,31 @@ def main():
         return orig(image, prompt, fov_x=fov_x, detector=det, segmenter=seg,
                     depther=dep, grasper=gr)
     P.run_phases = patched
+
+    def _thieu_phu_thuoc(msg):
+        """True neu loi la THIEU PHU THUOC ve hinh, khong phai loi code.
+
+        draw_grasp() can open3d + graspnetAPI. CI co tinh khong cai ca hai (open3d
+        keo theo torch/CUDA, rat nang, khong can cho test logic thuan) — xem
+        .github/workflows/environment.yml. Thieu chung la chuyen binh thuong tren
+        ban clone sach, phai SKIP chu khong FAIL.
+        """
+        return "graspnetAPI" in msg or "graspnetAPI_repo" in msg or "open3d" in msg
+
     try:
         res = P.pipeline(img, prompt="a little bag")
-    except RuntimeError as e:
-        if "graspnetAPI" in str(e) or "graspnetAPI_repo" in str(e):
-            SKIPPED.append("muc 5-9: chua co model/graspnetAPI_repo "
-                           "(chay run.sh mot lan de clone ve)")
-            print("  [SKIP] chua co graspnetAPI -> bo qua muc 5-9")
-            P.run_phases = orig
+    except Exception as e:
+        # Bat MOI exception, khong chi RuntimeError: thieu module la
+        # ModuleNotFoundError, va nhanh `except Exception` cu bao FAIL oan.
+        msg = "%s: %s" % (type(e).__name__, e)
+        if _thieu_phu_thuoc(msg):
+            SKIPPED.append("muc 5-9: thieu phu thuoc ve hinh (%s) "
+                           "(chay run.sh mot lan de clone/cai ve)"
+                           % ("open3d" if "open3d" in msg else "graspnetAPI"))
+            print("  [SKIP] thieu phu thuoc ve hinh -> bo qua muc 5-9")
             return report()
         traceback.print_exc()
         check("pipeline() khong raise", False, "xem traceback")
-        P.run_phases = orig
-        return report()
-    except Exception:
-        traceback.print_exc()
-        check("pipeline() khong raise", False, "xem traceback")
-        P.run_phases = orig
         return report()
     finally:
         P.run_phases = orig
@@ -401,9 +414,15 @@ def main():
         # 4 hop x 12 canh = 48 doan, dung nhu upstream (khong loc bot).
         check("ve du 12 canh moi hop, dung nhu upstream (48 doan)",
               n_seg[0] == 48, "%d doan" % n_seg[0])
-    except Exception:
-        traceback.print_exc()
-        check("draw_grasp voi LineSet khong raise", False)
+    except Exception as e:
+        # Thieu open3d la THIEU PHU THUOC, khong phai loi code — cung ly do voi
+        # muc 5 o tren. CI co tinh khong cai open3d (keo theo torch/CUDA).
+        if "open3d" in str(e):
+            SKIPPED.append("muc 9: thieu open3d (chay run.sh mot lan de cai ve)")
+            print("  [SKIP] thieu open3d -> bo qua muc 9")
+        else:
+            traceback.print_exc()
+            check("draw_grasp voi LineSet khong raise", False)
     finally:
         _cv2.line = _orig_line
         P._load_graspnetapi = orig_api
