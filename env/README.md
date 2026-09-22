@@ -17,13 +17,37 @@ chủ quản cài qua `--python .venv/bin/python` (cần pip >=22.3).
 
 `requirements.txt` là danh sách runtime có giới hạn phiên bản, **không phải lock
 đầy đủ**. MoGe được ghim commit; pip giải cả dependencies gián tiếp của MoGe.
-Các phiên bản Torch, torchvision, NumPy, SciPy, MinkowskiEngine, Triton và NVIDIA
+Các phiên bản Torch, torchvision, torchaudio, NumPy, SciPy, Triton và NVIDIA
 đang có trên máy được ghi vào `.venv/host-constraints.txt`. Nếu yêu cầu mới xung đột,
 pip dừng thay vì tự đổi bộ CUDA. `.venv/host.json` phát hiện thay đổi môi trường chủ.
+
+MinkowskiEngine **không** nằm trong constraints: installer riêng của nó
+(`env/install_minkowski.py`) cũng truyền `-c host-constraints.txt`, nên nếu host
+đang có 0.5.3 thì constraints sẽ ghim `minkowskiengine==0.5.3` và pip từ chối
+bundled wheel 0.5.4 bằng `ResolutionImpossible` — tức là chính constraints phá cơ
+chế fallback mà nó sinh ra để bảo vệ.
 
 `requirements.lock.txt` là snapshot lịch sử do repo cung cấp, không dùng để
 bootstrap: thiếu dependencies gián tiếp/MoGe và không xác định đầy đủ index CUDA.
 Không xem nó là bằng chứng rằng máy mới đã được kiểm thử.
+
+## Tải model: ghim revision + kiểm tra tải xong thật
+
+`run.sh` đọc `dependencies`. Mỗi block `KIND = hf` có `REVISION` là commit SHA
+trên HuggingFace, truyền vào `snapshot_download(revision=...)`. Không ghim thì HF
+trả bản mới nhất và nội dung có thể đổi bất cứ lúc nào — kết quả không tái lập được.
+Các block `git` cũng ghim `REVISION`.
+
+Trước khi bỏ qua một model đã tải, `run.sh` kiểm tra `<DEST>/.cache/huggingface/download/<file>.metadata`
+do chính `huggingface_hub` ghi sau khi một file tải xong
+(`_local_folder.py: write_download_metadata` → `f"{commit_hash}\n{etag}\n{time}"`;
+bản đang tải nằm ở `*.incomplete` và không có metadata). Đủ hai điều kiện mới bỏ qua:
+
+1. Mọi file trong `DEST` (không kể `.cache`) đều có `.metadata` tương ứng
+2. Dòng đầu của metadata khớp `REVISION` đang ghim
+
+Cách cũ — coi "thư mục có ít nhất 1 file" là xong — bỏ qua cả khi lần tải trước bị
+ngắt giữa đường, để lại model thiếu file và lỗi xảy ra rất muộn, khó truy.
 
 ## MinkowskiEngine: cài sau khi tải model
 

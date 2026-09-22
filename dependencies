@@ -11,6 +11,12 @@
 #   git = git clone --depth 1                             -> can URL
 #   url = tai 1 file don bang wget/curl                    -> can URL
 #
+# REVISION (tuy chon): ghim dung 1 commit de ket qua TAI LAP DUOC.
+#   - KIND = hf : commit sha tren HuggingFace, truyen vao snapshot_download(revision=...).
+#                 KHONG ghim thi moi lan chay tai ban moi nhat -> noi dung doi theo.
+#   - KIND = git: commit sha, git fetch --depth 1 roi checkout --detach.
+#   Bo trong = dung mac dinh (hf: nhanh main; git: HEAD cua lan clone).
+#
 # DEST luon la duong dan TINH DOI voi thu muc goc cua repo (khong dung / tuyet doi).
 # =============================================================================
 
@@ -21,6 +27,7 @@ NAME = grounding-dino
 KIND = hf
 REPO = IDEA-Research/grounding-dino-tiny
 DEST = model/grounding-dino-tiny
+REVISION = a2bb814dd30d776dcf7e30523b00659f4f141c71
 ---
 # -----------------------------------------------------------------------------
 # 2) SAM (Segment Anything, vit-base): bounding box -> mask chinh xac.
@@ -29,6 +36,7 @@ NAME = sam
 KIND = hf
 REPO = facebook/sam-vit-base
 DEST = model/sam-vit-base
+REVISION = 70c1a07f894ebb5b307fd9eaaee97b9dfc16068f
 ---
 # -----------------------------------------------------------------------------
 # 3) MoGe v3 (ViT-L): anh -> depth map + point cloud + intrinsics.
@@ -39,6 +47,7 @@ NAME = moge
 KIND = hf
 REPO = Ruicheng/moge-3-vitl
 DEST = model/moge-3-vitl
+REVISION = 184008f877d7ad1ad4c2cd2182a9bd1f63d0e5be
 ---
 # -----------------------------------------------------------------------------
 # 5) GraspNetAPI source code (graspnet/graspnetAPI) - bat buoc dung ban git clone.

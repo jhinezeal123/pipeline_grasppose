@@ -146,6 +146,22 @@ def fov_x_from_fovy(fovy_deg, w, h):
         np.tan(np.radians(fovy_deg) / 2.0) * float(w) / float(h))))
 
 
+def depth_range_str(depth, zmin=0.05):
+    """Mo ta khoang do sau de IN LOG, chiu duoc mang KHONG co pixel hop le.
+
+    MoGe khong do duoc gi thi tra ve toan so 0 (hoac toan inf/nan). Loc roi moi
+    lay min/max la sai: mang rong thi `.min()` nem
+    "zero-size array to reduction operation minimum which has no identity",
+    va ca pipeline chet ngay o dong log chan doan — dung luc can log nhat.
+    O day tra ve CHUOI noi ro la khong do duoc, khong tra so bia.
+    """
+    d = np.asarray(depth, np.float64)
+    fin = d[np.isfinite(d) & (d > zmin)]
+    if fin.size == 0:
+        return "khong do duoc (0 px hop le)"
+    return "%.3f..%.3f m (%d px hop le)" % (fin.min(), fin.max(), fin.size)
+
+
 def depth_to_cloud(depth, K, mask=None):
     """(H,W) met + K -> point cloud (N,3) he camera OpenCV (x phai, y xuong, z toi).
 
@@ -652,6 +668,21 @@ def grasp_empty_msg(n_raw, reason, max_width):
             % (n_raw, max_width * 1000))
 
 
+def hw_open_note(width, hw_open=GRIP_HW_OPEN_M):
+    """Chu thich them cho mot tu the: no co lot vao KHE MO THAT cua kep khong.
+
+    Nhanh cu trong draw_grasp hoi `g[1] > max_width`, nhung `g` lay tu `sel` da
+    loc `<= max_width` — dieu kien do KHONG BAO GIO dung, nen chu "VUOT" la code
+    chet. Doi sang so sanh voi GRIP_HW_OPEN_M moi co nghia: `max_width` (mac dinh
+    80 mm) la nguong LOC de VE, con GRIP_HW_OPEN_M (69.4 mm) la khe mo THAT cua
+    myArm M750. Tu the rong hon 69.4 mm van duoc ve ra cho nguoi dung nhin thay
+    (dung y do o comment dau file), nhung can noi ro la kep that khong mo toi.
+    """
+    if width > hw_open:
+        return "  VUOT khe mo that %.0f mm" % (hw_open * 1000)
+    return ""
+
+
 def draw_grasp(image, gg, K, max_width=GRIP_MAX_OPEN_M, top=1, min_sep=0.080,
                reason=None):
     """Anh 4/4: anh goc + tu the gap, ve bang CHINH mesh cua upstream.
@@ -668,16 +699,22 @@ def draw_grasp(image, gg, K, max_width=GRIP_MAX_OPEN_M, top=1, min_sep=0.080,
     hinh duoc chieu bang tay. Hinh hoc va mau la cua upstream.
     """
     import cv2
-    import open3d as o3d                                        # noqa: F401
-    _add_sys_path()
-    GraspGroup = _load_graspnetapi().GraspGroup
 
     im = np.ascontiguousarray(np.asarray(image)[:, :, ::-1].copy())
     raw = np.asarray(gg, np.float64).reshape(-1, 17)
     sel = raw[raw[:, 1] <= float(max_width)] if len(raw) else raw
     if len(sel) == 0:
+        # Duong THOAT SOM: chi can cv2 de ve chu. KHONG import open3d va KHONG
+        # _load_graspnetapi() o day — hai thu do chi can khi that su ve gripper.
+        # Truoc day chung chay TRUOC phep kiem tra nay, nen khi GraspNess da fail
+        # (khong co tu the nao) ma graspnetAPI/open3d cung thieu thi ham raise
+        # them mot lan nua — mat luon anh 4/4, trong khi dang le chi can ve chu.
         _put(im, grasp_empty_msg(len(raw), reason, max_width))
         return im[:, :, ::-1]
+
+    import open3d as o3d                                        # noqa: F401
+    _add_sys_path()
+    GraspGroup = _load_graspnetapi().GraspGroup
     pick = []
     for i in np.argsort(-sel[:, 0]):
         c = sel[i, 13:16]
@@ -740,8 +777,7 @@ def draw_grasp(image, gg, K, max_width=GRIP_MAX_OPEN_M, top=1, min_sep=0.080,
         lines.append("#%d score %.4f  width %.1f mm  z=%.2fm  %dx%d px%s"
                      % (rank + 1, g[0], g[1] * 1000, zc,
                         span[0], span[1],
-                        "  VUOT %.0f mm" % (max_width * 1000)
-                        if g[1] > max_width else ""))
+                        _hw_open_note(g[1])))
     # Ghi nhan SAU khi ve xong: _put() xoa dai tren-trai, goi trong vong lap thi
     # nhan sau de nhan truoc, cuoi cung chi con dong cuoi.
     _put(im, lines)
@@ -817,9 +853,8 @@ def run_phases(image, prompt, fov_x=None, detector=None, segmenter=None,
                            "reason": errs.get("det", "?")})
     dep = out["dep"]
     K = np.asarray(dep["intrinsics"], np.float64)
-    _log("  MoGe: fov_x=%.2f do | depth toan anh %.3f..%.3f m"
-         % (dep["fov_x_deg"], dep["depth"][dep["depth"] > 0].min(),
-            dep["depth"].max()))
+    _log("  MoGe: fov_x=%.2f do | depth toan anh %s"
+         % (dep["fov_x_deg"], depth_range_str(dep["depth"])))
     _log("  DINO: %d hop | %s" % (len(out["det"]["boxes"]),
                                   out["det"].get("reason") or "OK"))
 
@@ -863,22 +898,35 @@ def run_phases(image, prompt, fov_x=None, detector=None, segmenter=None,
         # CLOUD = MASK THUAN (khong phai bbox mo rong)
         cloud = depth_to_cloud(dep["depth"], K, mask=mask)
         out["cloud"] = cloud
-        _log("  cloud tu mask: %d diem | bbox %.0f x %.0f x %.0f mm"
-             % (len(cloud), *((cloud.max(0) - cloud.min(0)) * 1000)))
-        grasper = grasper or GraspnessModel()
-        try:
-            grasper.prepare(cloud)
-            out["grasp"] = grasper.inference()
-        except Exception as e:
+        if len(cloud) == 0:
+            # mask.any() la True nhung KHONG pixel nao co depth hop le (MoGe
+            # tra 0 trong vung mask) -> cloud rong. Neu cu di tiep thi
+            # cloud.max(0) nem "zero-size array to reduction operation maximum",
+            # va goi GraspNess voi cloud rong cung vo nghia.
+            # Xu ly Y HET nhanh mask rong ngay tren: cung cloud rong, cung ly do
+            # noi ro, cung BO QUA GraspNess -> hai duong ra ket qua nhat quan.
             out["grasp"] = {"graspgroup": np.zeros((0, 17), np.float64),
-                            "reason": "%s: %s" % (type(e).__name__, e)}
-        finally:
-            grasper.release()
-            _vram(" sau khi GraspNess nha")
-        gg = out["grasp"]["graspgroup"]
-        n_ok = int((gg[:, 1] <= GRIP_HW_OPEN_M).sum()) if len(gg) else 0
-        _log("  GraspNess: %d tu the | %d vua khe kep THAT %.0f mm"
-             % (len(gg), n_ok, GRIP_HW_OPEN_M * 1000))
+                            "reason": "mask co pixel nhung khong pixel nao co "
+                                      "depth hop le nen cloud rong"}
+            _log("  BO QUA: mask co %d px nhung cloud rong (0 px depth hop le)"
+                 % int(mask.sum()))
+        else:
+            _log("  cloud tu mask: %d diem | bbox %.0f x %.0f x %.0f mm"
+                 % (len(cloud), *((cloud.max(0) - cloud.min(0)) * 1000)))
+            grasper = grasper or GraspnessModel()
+            try:
+                grasper.prepare(cloud)
+                out["grasp"] = grasper.inference()
+            except Exception as e:
+                out["grasp"] = {"graspgroup": np.zeros((0, 17), np.float64),
+                                "reason": "%s: %s" % (type(e).__name__, e)}
+            finally:
+                grasper.release()
+                _vram(" sau khi GraspNess nha")
+            gg = out["grasp"]["graspgroup"]
+            n_ok = int((gg[:, 1] <= GRIP_HW_OPEN_M).sum()) if len(gg) else 0
+            _log("  GraspNess: %d tu the | %d vua khe kep THAT %.0f mm"
+                 % (len(gg), n_ok, GRIP_HW_OPEN_M * 1000))
 
     out["K"] = K
     return out

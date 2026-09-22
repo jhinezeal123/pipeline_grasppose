@@ -13,3 +13,9 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: bash -n run.sh
       - run: python -m unittest discover -s tests -v
+      # test_pipeline_mock.py va test_app.py nam o thu muc goc repo (khong phai
+      # tests/) va KHONG dung unittest — 'discover -s tests' khong bao gio chay
+      # chung. Chung la script tu chay, in 'TAT CA MUC DEU PASS' va exit 0; chay
+      # truc tiep de exit code khac 0 lam CI fail.
+      - run: python test_pipeline_mock.py
+      - run: python test_app.py
