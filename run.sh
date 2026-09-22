@@ -263,9 +263,34 @@ echo "     TAT CA MODEL DA SAN SANG."
 echo "[5/8] Cai dat thu vien python ..."
 echo "--------------------------------------------------------------"
 
+# 5.0) LD_LIBRARY_PATH — BAT BUOC, va phai dat TRUOC moi lenh `import` kiem tra.
+#
+# Tren Kaggle driver nam o /usr/local/nvidia/lib64 nhung thu muc do KHONG nam
+# trong ldconfig mac dinh. Thieu bien nay thi:
+#   - `torch.cuda.is_available()` -> False du may CO T4;
+#   - `import open3d` THAT BAI (no can libcuda), va vi ta kiem tra bang
+#     `2>/dev/null` nen no im lang -> bi hieu nham thanh "chua cai open3d",
+#     roi tai ve 400 MB vo ich va van khong import duoc.
+# Da gap dung the nay: log bao 'THIEU : open3d' trong khi Kaggle co san open3d.
+if [ -d /usr/local/nvidia/lib64 ]; then
+  export LD_LIBRARY_PATH="/usr/local/nvidia/lib64:${LD_LIBRARY_PATH:-}"
+  echo "     [5.0] LD_LIBRARY_PATH=/usr/local/nvidia/lib64 (bat buoc cho open3d/torch)"
+fi
+# CUDA toolkit tren Kaggle nam ngoai PATH mac dinh; can cho buoc 5d (build _ext).
+export PATH="/usr/local/cuda/bin:${PATH}"
+
 # 5a) MoGe: cai tu source (khong phai ban PyPI) roi kiem tra import that.
-echo "     [5a] pip install -e model/moge_repo"
-pip install -q -e model/moge_repo
+#
+# --no-deps la BAT BUOC, khong phai toi uu. pyproject.toml cua MoGe khai bao:
+#     "torch>=2.4", "torchvision>=0.19", "starlette", "gradio>=6.0"
+# va trong [tool.uv.sources] tro torch vao index "pytorch-cu130" (CUDA 13.0).
+# De pip tu giai phu thuoc thi no:
+#   - thay torch 2.10.0+cu128 cua Kaggle bang ban khac (driver khong khop);
+#   - nang starlette len 1.6.0, pha google-adk cua chinh notebook (da thay trong log);
+#   - de lai trang thai nua voi, khien 'import open3d' that bai o buoc 5b.
+# Nhung gi MoGe THAT SU can thi da co san tren Kaggle, hoac duoc cai o 5b.
+echo "     [5a] pip install -e model/moge_repo --no-deps"
+pip install -e model/moge_repo --no-deps 2>&1 | grep -vE "^\s*$" | tail -12 || true
 
 # Cho python tim thay source cua MoGe va GraspNetAPI truoc khi verify / chay pipeline.
 export PYTHONPATH="$SCRIPT_DIR/model/moge_repo:$SCRIPT_DIR/model/graspnetAPI_repo:${PYTHONPATH:-}"
@@ -322,10 +347,13 @@ gradio|gradio|6.28.0"
 fi
 
 # Loc ra nhung goi con thieu (import that, khong tin danh sach pip).
+# KHONG dung 2>/dev/null: nuốt loi that se khien "import loi" bi hieu nham thanh
+# "chua cai", roi tai ve 400 MB vo ich. Giu lai thong bao loi de con chan doan.
 MISSING=""
 while IFS='|' read -r IMP Pkg Ver; do
   [ -z "$IMP" ] && continue
-  if python3 -c "import $IMP" 2>/dev/null; then
+  ERR="$(python3 -c "import $IMP" 2>&1)"
+  if [ -z "$ERR" ]; then
     echo "     [5b]   co san: $Pkg"
   else
     if [ -n "$Ver" ]; then
@@ -334,6 +362,9 @@ while IFS='|' read -r IMP Pkg Ver; do
       MISSING="$MISSING $Pkg"
     fi
     echo "     [5b]   THIEU : $Pkg"
+    # In dong loi dau tien — neu la loi CUDA/thu vien chu khong phai thieu goi
+    # thi nhin la biet ngay, khong phai doan.
+    echo "$ERR" | tail -3 | sed 's/^/     [5b]     | /'
   fi
 done <<< "$NEED"
 
