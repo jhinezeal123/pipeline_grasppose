@@ -102,8 +102,8 @@ def grasp_empty_msg(total_count, reason,
 
 def hw_open_note(width, hw_open=GRIP_HW_OPEN_M):
     if width > hw_open:
-        return " > hardware %.1f mm" % (
-            hw_open * 1000)
+        return "%.1f mm > HW %.1f mm" % (
+            width * 1000, hw_open * 1000)
     return ""
 
 
@@ -171,13 +171,26 @@ def draw_grasp(image, grasp_result, K,
         center = _project(
             translation[None], K)
         if center is not None:
+            center_xy = tuple(map(int, center[0]))
             cv2.circle(
                 output,
-                tuple(map(int, center[0])),
+                center_xy,
                 3,
                 (255, 255, 0),
                 -1,
             )
+            note = hw_open_note(width)
+            if note:
+                cv2.putText(
+                    output,
+                    note,
+                    (center_xy[0] + 6, center_xy[1] - 6),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.45,
+                    (255, 80, 80),
+                    1,
+                    cv2.LINE_AA,
+                )
 
     return output.astype(np.uint8)
 
