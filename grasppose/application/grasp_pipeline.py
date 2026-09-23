@@ -16,7 +16,7 @@ from ..ports.depth import DepthPort
 from ..ports.grasp import GraspPort
 from ..ports.tsdf import TSDFPort
 from ..ports.vision import VisionPort
-from ..runtime import log, log_vram
+from ..runtime import log, log_exception, log_vram
 
 
 class GraspPipeline:
@@ -58,13 +58,31 @@ class GraspPipeline:
             time.time() - started))
 
     def close(self):
-        """Release heavyweight resources at process shutdown."""
+        """Release every resource, even if one adapter fails to close."""
         with self._lock:
-            self._vision.close()
-            self._depth.close()
-            self._grasper.close()
+            failures = []
+            for name, resource in (
+                ("vision", self._vision),
+                ("depth", self._depth),
+                ("grasp", self._grasper),
+            ):
+                try:
+                    resource.close()
+                except Exception as exc:
+                    failures.append((name, exc))
+                    log("ERROR closing %s: %s: %s" % (
+                        name, type(exc).__name__, exc))
             self._loaded = False
             log_vram(" after pipeline close")
+            if failures:
+                details = "; ".join(
+                    "%s=%s: %s" % (
+                        name, type(exc).__name__, exc)
+                    for name, exc in failures
+                )
+                raise RuntimeError(
+                    "pipeline close failed: %s" % details
+                ) from failures[0][1]
 
     def run(self, image, prompt, camera_K=None, fov_x=None,
             T_cam_volume=None):
@@ -185,10 +203,12 @@ class GraspPipeline:
         started = time.time()
         try:
             grasp = self._grasper.predict(tsdf)
-        except Exception as exc:
-            grasp = GraspResult.empty(
-                "%s: %s" % (type(exc).__name__, exc)
+        except Exception:
+            log_exception(
+                "VGN TensorRT inference failed; "
+                "propagating runtime error"
             )
+            raise
 
         graspgroup = grasp.graspgroup
         fit_count = int(
