@@ -31,7 +31,7 @@ onnx==1.14.1; python_version < "3.9"
 onnx>=1.14,<2; python_version >= "3.9"
 
 # Ultralytics dependency with a CPython 3.8 aarch64 wheel.
-polars==1.8.0; python_version < "3.9"
+polars==0.20.31; python_version < "3.9"
 
 # Keep a wheel-backed matplotlib on Python 3.8/aarch64 instead of allowing a
 # future release to force a source build on Ubuntu 20.04.
