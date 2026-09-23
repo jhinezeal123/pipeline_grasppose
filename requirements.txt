@@ -1,10 +1,38 @@
-# Jetson-oriented runtime. Torch/torchvision/TensorRT come from JetPack and are
-# intentionally not installed by pip here.
-ultralytics>=8.4.140,<8.5
-numpy>=1.24,<3
-scipy>=1.10,<2
-opencv-python-headless>=4.8,<5
-pillow>=10,<13
-timm>=0.9,<2
-gradio>=4.44,<5
-gdown>=5.2,<6
+# Jetson AGX Xavier / JetPack 5.1.4 target runtime.
+# Torch/torchvision/TensorRT come from JetPack and MUST NOT be replaced by pip.
+#
+# Python 3.8 pins below are selected for aarch64 manylinux wheels and the
+# Xavier host stack (NumPy 1.23.5 / SciPy 1.10.1).
+ultralytics==8.4.140
+
+numpy==1.23.5; python_version < "3.9"
+numpy>=1.24,<3; python_version >= "3.9"
+
+scipy==1.10.1; python_version < "3.9"
+scipy>=1.10,<2; python_version >= "3.9"
+
+# Ultralytics depends on the opencv-python distribution. Do not install
+# opencv-python-headless alongside it because both provide the cv2 module.
+opencv-python==4.8.1.78; python_version < "3.9"
+opencv-python>=4.8,<5; python_version >= "3.9"
+
+pillow==10.4.0; python_version < "3.9"
+pillow>=10,<13; python_version >= "3.9"
+
+# Lite-Mono imports timm.models.layers; pin a known-compatible release.
+timm==0.9.16
+
+# Stable Python-3.8-compatible UI/download stack.
+gradio==4.44.1
+gdown==5.2.0
+
+# torch.onnx.export() in the JetPack Torch 2.1 build needs ONNX installed.
+onnx==1.14.1; python_version < "3.9"
+onnx>=1.14,<2; python_version >= "3.9"
+
+# Ultralytics dependency with a CPython 3.8 aarch64 wheel.
+polars==1.8.0; python_version < "3.9"
+
+# Keep a wheel-backed matplotlib on Python 3.8/aarch64 instead of allowing a
+# future release to force a source build on Ubuntu 20.04.
+matplotlib==3.7.5; python_version < "3.9"
