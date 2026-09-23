@@ -65,15 +65,23 @@ class EnvironmentTests(unittest.TestCase):
             expected_python = setup.ENV / "bin" / "python"
             expected_constraints = setup.ENV / "host-constraints.txt"
             setup.main()
-            cmd = run.call_args_list[-1].args[0]
+            pip_bootstrap = run.call_args_list[-2].args[0]
+            install_cmd = run.call_args_list[-1].args[0]
 
             self.assertEqual(
-                cmd[:3],
+                pip_bootstrap,
+                [
+                    str(expected_python), "-m", "pip",
+                    "install", "--upgrade", "pip==25.0.1",
+                ],
+            )
+            self.assertEqual(
+                install_cmd[:3],
                 [str(expected_python), "-m", "pip"],
             )
-            self.assertIn(str(expected_constraints), cmd)
+            self.assertIn(str(expected_constraints), install_cmd)
             self.assertIn(
-                str(setup.ROOT / "requirements.txt"), cmd)
+                str(setup.ROOT / "requirements.txt"), install_cmd)
 
     def test_python38_requirements_match_xavier_host(self):
         lines = [
@@ -100,6 +108,10 @@ class EnvironmentTests(unittest.TestCase):
         )
         self.assertFalse(any(
             line.startswith("opencv-python-headless")
+            for line in lines
+        ))
+        self.assertFalse(any(
+            line.startswith("pip")
             for line in lines
         ))
 
