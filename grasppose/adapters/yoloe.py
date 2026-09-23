@@ -39,6 +39,10 @@ class Yoloe26sVision(VisionPort):
         self.load()
         rgb = np.asarray(image)[:, :, :3]
         height, width = rgb.shape[:2]
+        # Ultralytics treats NumPy HWC inputs as OpenCV-style BGR and flips
+        # them to RGB in predictor.preprocess(). The pipeline contract is RGB,
+        # so convert here exactly once before handing the array to Ultralytics.
+        bgr = np.ascontiguousarray(rgb[:, :, ::-1])
         prompt = str(prompt).strip() or "object"
 
         if self._classes_prompt != prompt:
@@ -46,7 +50,7 @@ class Yoloe26sVision(VisionPort):
             self._classes_prompt = prompt
 
         result = self._model.predict(
-            source=rgb,
+            source=bgr,
             conf=self.conf,
             imgsz=self.imgsz,
             device=self.device,
