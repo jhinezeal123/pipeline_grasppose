@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run one image through the prepared pipeline and write exactly one 4-image result set to /output.
+# Run one image through the prepared pipeline and write one 4-image result set.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -28,7 +28,14 @@ if [ ! -f "$IMG" ]; then
   exit 1
 fi
 
-OUT=/output
+# A normal Jetson user cannot create /output at filesystem root. prepare.sh
+# already creates the repo-local output directory, so use it by default.
+# Containers/pre-provisioned systems can override with OUTPUT_DIR=/output.
+OUT="${OUTPUT_DIR:-$ROOT/output}"
 mkdir -p "$OUT"
+if [ ! -w "$OUT" ]; then
+  echo "Output directory is not writable: $OUT" >&2
+  exit 1
+fi
 
 exec "$PYTHON" pipeline.py   --img "$IMG"   --out "$OUT"   "$@"
