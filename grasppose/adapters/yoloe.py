@@ -4,7 +4,12 @@ import time
 
 import numpy as np
 
-from ..config import YOLOE_CONF, YOLOE_IMGSZ, YOLOE_MODEL
+from ..config import (
+    YOLOE_CONF,
+    YOLOE_HALF,
+    YOLOE_IMGSZ,
+    YOLOE_MODEL,
+)
 from ..domain.types import (
     DetectionResult,
     SegmentationResult,
@@ -14,15 +19,30 @@ from ..ports.vision import VisionPort
 from ..runtime import cuda_available, log, release_attributes
 
 
+def _is_cuda_device(device):
+    """Return whether an Ultralytics device selector targets CUDA."""
+    if not cuda_available():
+        return False
+    if isinstance(device, int):
+        return device >= 0
+    text = str(device).strip().lower()
+    return (
+        text.startswith("cuda")
+        or text.isdigit()
+    )
+
+
 class Yoloe26sVision(VisionPort):
     """Open-vocabulary detection + segmentation in a single model."""
 
-    def __init__(self, model_path=None, device=None, conf=None, imgsz=None):
+    def __init__(self, model_path=None, device=None, conf=None, imgsz=None,
+                 half=None):
         self.model_path = model_path or YOLOE_MODEL
         self.device = device if device is not None else (
             0 if cuda_available() else "cpu")
         self.conf = YOLOE_CONF if conf is None else float(conf)
         self.imgsz = YOLOE_IMGSZ if imgsz is None else int(imgsz)
+        self.half = YOLOE_HALF if half is None else bool(half)
         self._model = None
         self._classes_prompt = None
 
@@ -49,12 +69,13 @@ class Yoloe26sVision(VisionPort):
             self._model.set_classes([prompt])
             self._classes_prompt = prompt
 
+        use_half = self.half and _is_cuda_device(self.device)
         result = self._model.predict(
             source=bgr,
             conf=self.conf,
             imgsz=self.imgsz,
             device=self.device,
-            half=bool(cuda_available()),
+            half=use_half,
             retina_masks=True,
             verbose=False,
         )[0]
