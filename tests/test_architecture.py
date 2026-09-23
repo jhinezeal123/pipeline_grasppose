@@ -1,147 +1,193 @@
 import unittest
+
 import numpy as np
-from grasppose.orchestrator import GraspPipeline
+
+from grasppose.application.grasp_pipeline import GraspPipeline
+from grasppose.domain.types import (
+    DepthResult,
+    DetectionResult,
+    GraspResult,
+    SegmentationResult,
+    TSDFResult,
+    VisionResult,
+)
 
 
 class Vision:
     def __init__(self, calls):
         self.calls = calls
+
     def load(self):
-        self.calls.append("vision.load"); return self
-    def prepare(self, image, prompt):
-        self.calls.append("vision.prepare"); self.shape = image.shape[:2]; return self
-    def inference(self):
-        self.calls.append("vision.inference")
-        h, w = self.shape
-        m = np.zeros((h, w), bool); m[1:-1, 1:-1] = True
-        return {
-            "det": {"boxes": np.array([[1, 1, w-1, h-1]], np.float32),
-                    "scores": np.array([.9], np.float32),
-                    "labels": ["object"], "reason": None},
-            "seg": {"mask": m, "iou": np.array([.9], np.float32),
-                    "best": 0, "n_pred": 1, "reason": None},
-        }
-    def release(self):
-        self.calls.append("vision.release")
+        self.calls.append("vision.load")
+        return self
+
+    def predict(self, image, prompt):
+        self.calls.append("vision.predict")
+        height, width = image.shape[:2]
+        mask = np.zeros((height, width), bool)
+        mask[1:-1, 1:-1] = True
+        return VisionResult(
+            detection=DetectionResult(
+                boxes=np.array(
+                    [[1, 1, width - 1, height - 1]],
+                    np.float32,
+                ),
+                scores=np.array([0.9], np.float32),
+                labels=["object"],
+            ),
+            segmentation=SegmentationResult(
+                mask=mask,
+                scores=np.array([0.9], np.float32),
+                best_index=0,
+                candidate_count=1,
+            ),
+        )
+
+    def close(self):
+        self.calls.append("vision.close")
 
 
 class Depth:
     def __init__(self, calls):
         self.calls = calls
+
     def load(self):
-        self.calls.append("depth.load"); return self
-    def prepare(self, image, camera_K=None, fov_x=None):
-        self.calls.append("depth.prepare"); self.shape = image.shape[:2]
-        self.K = camera_K; return self
-    def inference(self):
-        self.calls.append("depth.inference")
-        h, w = self.shape
-        return {"depth": np.full((h, w), .6, np.float32),
-                "intrinsics": np.asarray(self.K, np.float32),
-                "fov_x_deg": 60., "scale": 1., "reason": None}
-    def release(self):
-        self.calls.append("depth.release")
+        self.calls.append("depth.load")
+        return self
+
+    def predict(self, image, camera_K=None, fov_x=None):
+        self.calls.append("depth.predict")
+        height, width = image.shape[:2]
+        return DepthResult(
+            depth=np.full(
+                (height, width), 0.6, np.float32),
+            intrinsics=np.asarray(
+                camera_K, np.float32),
+            fov_x_deg=60.0,
+            scale=1.0,
+        )
+
+    def close(self):
+        self.calls.append("depth.close")
 
 
 class TSDF:
     def __init__(self, calls):
         self.calls = calls
+
     def build(self, *args, **kwargs):
         self.calls.append("tsdf.build")
-        return {"grid": np.full((1, 40, 40, 40), .5, np.float32),
-                "voxel_size": .0075,
-                "T_cam_volume": np.eye(4, dtype=np.float32),
-                "observed_voxels": 10}
+        return TSDFResult(
+            grid=np.full(
+                (1, 40, 40, 40), 0.5, np.float32),
+            voxel_size=0.0075,
+            T_cam_volume=np.eye(4, dtype=np.float32),
+            observed_voxels=10,
+        )
 
 
 class Grasper:
     def __init__(self, calls):
         self.calls = calls
+
     def load(self):
-        self.calls.append("grasp.load"); return self
-    def prepare(self, *args):
-        self.calls.append("grasp.prepare"); return self
-    def inference(self):
-        self.calls.append("grasp.inference")
-        return {"graspgroup": np.zeros((0, 17), np.float64), "reason": None}
-    def release(self):
-        self.calls.append("grasp.release")
+        self.calls.append("grasp.load")
+        return self
+
+    def predict(self, tsdf):
+        self.calls.append("grasp.predict")
+        return GraspResult(
+            graspgroup=np.zeros((0, 17), np.float64))
+
+    def close(self):
+        self.calls.append("grasp.close")
 
 
 class ArchitectureTests(unittest.TestCase):
-    def _pipeline(self, calls, made):
-        def factory(name, cls):
-            def make():
-                made[name] += 1
-                return cls(calls)
-            return make
+    def _pipeline(self, calls):
         return GraspPipeline(
-            factory("vision", Vision),
-            factory("depth", Depth),
-            factory("tsdf", TSDF),
-            factory("grasp", Grasper),
+            vision=Vision(calls),
+            depth=Depth(calls),
+            tsdf_builder=TSDF(calls),
+            grasper=Grasper(calls),
         )
 
     def test_models_load_once_and_stay_resident_across_frames(self):
         calls = []
-        made = {"vision": 0, "depth": 0, "tsdf": 0, "grasp": 0}
-        p = self._pipeline(calls, made)
-        K = np.array([[100., 0, 2], [0, 100., 2], [0, 0, 1.]])
+        pipeline = self._pipeline(calls)
+        K = np.array([
+            [100.0, 0, 2],
+            [0, 100.0, 2],
+            [0, 0, 1],
+        ])
         image = np.zeros((4, 4, 3), np.uint8)
 
-        p.run(image, "object", camera_K=K)
-        p.run(image, "object", camera_K=K)
+        pipeline.run(image, "object", camera_K=K)
+        pipeline.run(image, "object", camera_K=K)
 
-        self.assertEqual(made, {"vision": 1, "depth": 1, "tsdf": 1, "grasp": 1})
         self.assertEqual(calls.count("vision.load"), 1)
         self.assertEqual(calls.count("depth.load"), 1)
         self.assertEqual(calls.count("grasp.load"), 1)
-        self.assertEqual(calls.count("vision.prepare"), 2)
-        self.assertEqual(calls.count("depth.prepare"), 2)
-        self.assertEqual(calls.count("grasp.prepare"), 2)
-        self.assertNotIn("vision.release", calls)
-        self.assertNotIn("depth.release", calls)
-        self.assertNotIn("grasp.release", calls)
+        self.assertEqual(calls.count("vision.predict"), 2)
+        self.assertEqual(calls.count("depth.predict"), 2)
+        self.assertEqual(calls.count("grasp.predict"), 2)
+        self.assertNotIn("vision.close", calls)
+        self.assertNotIn("depth.close", calls)
+        self.assertNotIn("grasp.close", calls)
 
-        p.close()
-        self.assertEqual(calls.count("vision.release"), 1)
-        self.assertEqual(calls.count("depth.release"), 1)
-        self.assertEqual(calls.count("grasp.release"), 1)
+        pipeline.close()
+        self.assertEqual(calls.count("vision.close"), 1)
+        self.assertEqual(calls.count("depth.close"), 1)
+        self.assertEqual(calls.count("grasp.close"), 1)
 
     def test_explicit_load_is_idempotent(self):
         calls = []
-        made = {"vision": 0, "depth": 0, "tsdf": 0, "grasp": 0}
-        p = self._pipeline(calls, made)
-        p.load(); p.load()
-        self.assertEqual(made, {"vision": 1, "depth": 1, "tsdf": 1, "grasp": 1})
+        pipeline = self._pipeline(calls)
+        pipeline.load()
+        pipeline.load()
         self.assertEqual(calls.count("vision.load"), 1)
         self.assertEqual(calls.count("depth.load"), 1)
         self.assertEqual(calls.count("grasp.load"), 1)
 
-    def test_empty_mask_skips_per_frame_depth_and_vgn_inference(self):
+    def test_empty_mask_skips_frame_depth_and_grasp(self):
         calls = []
-        made = {"vision": 0, "depth": 0, "tsdf": 0, "grasp": 0}
 
         class EmptyVision(Vision):
-            def inference(self):
-                r = super().inference()
-                r["seg"]["mask"][:] = False
-                r["seg"]["reason"] = "none"
-                return r
+            def predict(self, image, prompt):
+                result = super().predict(image, prompt)
+                result.segmentation.mask[:] = False
+                result.segmentation.reason = "none"
+                return result
 
-        p = GraspPipeline(
-            lambda: EmptyVision(calls),
-            lambda: Depth(calls),
-            lambda: TSDF(calls),
-            lambda: Grasper(calls),
+        pipeline = GraspPipeline(
+            vision=EmptyVision(calls),
+            depth=Depth(calls),
+            tsdf_builder=TSDF(calls),
+            grasper=Grasper(calls),
         )
-        out = p.run(np.zeros((4, 4, 3), np.uint8), "x", camera_K=np.eye(3))
-        self.assertEqual(len(out["cloud"]), 0)
-        # Models are preloaded, but unnecessary per-frame inference is skipped.
+        result = pipeline.run(
+            np.zeros((4, 4, 3), np.uint8),
+            "x",
+            camera_K=np.eye(3),
+        )
+
+        self.assertEqual(len(result.cloud), 0)
+        # Resources are resident, but unnecessary per-frame work is skipped.
         self.assertIn("depth.load", calls)
         self.assertIn("grasp.load", calls)
-        self.assertNotIn("depth.prepare", calls)
-        self.assertNotIn("grasp.prepare", calls)
+        self.assertNotIn("depth.predict", calls)
+        self.assertNotIn("grasp.predict", calls)
+
+    def test_application_depends_on_ports_not_concrete_adapters(self):
+        import inspect
+        import grasppose.application.grasp_pipeline as module
+
+        source = inspect.getsource(module)
+        self.assertNotIn("ultralytics", source)
+        self.assertNotIn("tensorrt", source)
+        self.assertNotIn("LiteMonoDepth", source)
+        self.assertNotIn("Yoloe26sVision", source)
+        self.assertNotIn("VgnTensorRT", source)
 
 
 if __name__ == "__main__":
