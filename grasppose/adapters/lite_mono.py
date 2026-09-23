@@ -97,11 +97,11 @@ class LiteMonoDepth(DepthPort):
         decoder.load_state_dict(
             decoder_weights, strict=True)
 
+        # Keep Lite-Mono in FP32. Its upstream positional encoding creates
+        # explicit float32 tensors before Conv2d; blindly calling .half() on
+        # the module can cause input/weight dtype mismatches on CUDA.
         encoder.to(self.device).eval()
         decoder.to(self.device).eval()
-        if self.device.startswith("cuda"):
-            encoder.half()
-            decoder.half()
 
         self._encoder = encoder
         self._decoder = decoder
@@ -137,8 +137,6 @@ class LiteMonoDepth(DepthPort):
             .unsqueeze(0)
             .to(self.device)
         )
-        if self.device.startswith("cuda"):
-            tensor = tensor.half()
 
         with torch.inference_mode():
             disparity = self._decoder(
