@@ -1,10 +1,17 @@
 """Runtime helpers for logging and explicit CUDA resource cleanup."""
 
 import gc
+import traceback
 
 
 def log(message):
     print("[pipeline] %s" % message, flush=True)
+
+
+def log_exception(message):
+    """Log the active exception with traceback without swallowing it."""
+    log(message)
+    traceback.print_exc()
 
 
 def log_vram(tag=""):
