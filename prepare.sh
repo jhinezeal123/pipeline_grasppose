@@ -13,6 +13,9 @@ PYTHON="$ROOT/.venv/bin/python"
 export PATH="$ROOT/.venv/bin:/usr/src/tensorrt/bin:/usr/local/cuda/bin:$PATH"
 "$HOST_PYTHON" env/setup_env.py --install
 
+command -v git >/dev/null || { echo "git is required" >&2; exit 1; }
+command -v curl >/dev/null || { echo "curl is required" >&2; exit 1; }
+
 # YOLOE text prompting lazily installs CLIP and downloads MobileCLIP on first
 # set_classes(). Do both here under the JetPack constraints so inference never
 # mutates the environment at runtime.
@@ -24,9 +27,6 @@ if [ ! -s "$CLIP_STAMP" ] || [ "$(cat "$CLIP_STAMP")" != "$CLIP_REV" ]; then
     "git+https://github.com/ultralytics/CLIP.git@$CLIP_REV"
   printf '%s\n' "$CLIP_REV" > "$CLIP_STAMP"
 fi
-
-command -v git >/dev/null || { echo "git is required" >&2; exit 1; }
-command -v curl >/dev/null || { echo "curl is required" >&2; exit 1; }
 
 LITEMONO_REV="4874b35df8ed4da16159ce8be8c697028b72bf76"
 if [ ! -d model/Lite-Mono/.git ]; then
