@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -279,10 +280,14 @@ class ArchitectureTests(unittest.TestCase):
         )
         pipeline.load()
 
-        with self.assertRaisesRegex(
-                RuntimeError, "vision close failed"):
-            pipeline.close()
+        with patch(
+                "grasppose.application.grasp_pipeline.log_exception"
+        ) as log_exception:
+            with self.assertRaisesRegex(
+                    RuntimeError, "vision close failed"):
+                pipeline.close()
 
+        log_exception.assert_called_once()
         self.assertIn("vision.close", calls)
         self.assertIn("depth.close", calls)
         self.assertIn("grasp.close", calls)
