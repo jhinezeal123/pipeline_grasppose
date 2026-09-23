@@ -79,22 +79,31 @@ VGN_ENGINE_PATH="${VGN_ENGINE:-$ROOT/model/vgn.engine}"
 if [ ! -s "$VGN_ENGINE_PATH" ]; then
   VGN_CHECKPOINT_PATH="${VGN_CHECKPOINT:-$ROOT/model/vgn_conv.pth}"
   if [ ! -s "$VGN_CHECKPOINT_PATH" ]; then
-    cat >&2 <<EOF
-VGN TensorRT engine is missing: $VGN_ENGINE_PATH
+    TMP_VGN="$(mktemp -d)"
+    trap 'rm -rf "$TMP_VGN"' EXIT
+    echo "Downloading official ETH VGN data bundle ..."
+    "$PYTHON" -m gdown --fuzzy       'https://drive.google.com/file/d/1MysYHve3ooWiLq12b58Nm8FWiFBMH-bJ/view?usp=sharing'       -O "$TMP_VGN/data.zip"
+    "$PYTHON" - "$TMP_VGN/data.zip" "$VGN_CHECKPOINT_PATH" <<'PY'
+import pathlib
+import shutil
+import sys
+import zipfile
 
-TensorRT engines are Jetson/TensorRT-version specific, so prepare.sh builds the
-engine on this device instead of downloading a foreign engine.
-
-Place the official VGN checkpoint at:
-  $ROOT/model/vgn_conv.pth
-
-or set:
-  VGN_CHECKPOINT=/path/to/vgn_conv.pth
-
-Then rerun:
-  bash prepare.sh
-EOF
-    exit 1
+archive = pathlib.Path(sys.argv[1])
+dst = pathlib.Path(sys.argv[2])
+with zipfile.ZipFile(archive) as zf:
+    matches = [n for n in zf.namelist() if n.endswith("/models/vgn_conv.pth") or n == "data/models/vgn_conv.pth"]
+    if not matches:
+        matches = [n for n in zf.namelist() if pathlib.PurePosixPath(n).name == "vgn_conv.pth"]
+    if not matches:
+        raise SystemExit("Official VGN data bundle did not contain vgn_conv.pth")
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    with zf.open(matches[0]) as src, dst.open("wb") as out:
+        shutil.copyfileobj(src, out)
+print(dst)
+PY
+    rm -rf "$TMP_VGN"
+    trap - EXIT
   fi
 
   TRTEXEC="$(command -v trtexec || true)"
