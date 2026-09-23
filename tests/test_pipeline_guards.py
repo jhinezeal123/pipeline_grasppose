@@ -1,4 +1,7 @@
+import sys
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 
@@ -10,6 +13,8 @@ from grasppose.domain.geometry import (
 )
 from grasppose.domain.tsdf import ProjectiveTSDFBuilder
 from grasppose.domain.vgn import vgn_to_graspgroup
+from grasppose.presentation.rendering import hw_open_note
+import grasppose.runtime as runtime
 
 
 class GeometryTests(unittest.TestCase):
@@ -115,6 +120,50 @@ class VGNTests(unittest.TestCase):
         self.assertGreaterEqual(len(graspgroup), 1)
         self.assertAlmostEqual(
             graspgroup[0, 1], 0.0375, places=5)
+
+
+class RuntimeCleanupTests(unittest.TestCase):
+    def test_release_attributes_drops_references_before_cuda_cleanup(self):
+        events = []
+
+        class Target:
+            model = object()
+
+        target = Target()
+
+        class FakeCuda:
+            @staticmethod
+            def is_available():
+                return True
+
+            @staticmethod
+            def synchronize():
+                events.append("synchronize")
+
+            @staticmethod
+            def empty_cache():
+                events.append("empty_cache")
+
+        fake_torch = SimpleNamespace(cuda=FakeCuda())
+
+        def collect():
+            self.assertIsNone(target.model)
+            events.append("gc")
+
+        with patch.dict(sys.modules, {"torch": fake_torch}), \
+                patch.object(runtime.gc, "collect", side_effect=collect):
+            runtime.release_attributes(target, "model")
+
+        self.assertEqual(
+            events, ["gc", "synchronize", "empty_cache"])
+
+
+class RenderingGuardTests(unittest.TestCase):
+    def test_hardware_width_warning_is_live(self):
+        self.assertEqual(hw_open_note(0.050), "")
+        note = hw_open_note(0.075)
+        self.assertIn("75.0 mm", note)
+        self.assertIn("HW 69.4 mm", note)
 
 
 if __name__ == "__main__":
