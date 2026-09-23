@@ -1,3 +1,4 @@
+import subprocess
 import sys
 import unittest
 from types import SimpleNamespace
@@ -169,8 +170,8 @@ class YoloeInputTests(unittest.TestCase):
                 captured["classes"] = list(classes)
 
             def predict(self, **kwargs):
+                captured["kwargs"] = dict(kwargs)
                 captured["source"] = kwargs["source"].copy()
-                captured["half"] = kwargs["half"]
                 return [SimpleNamespace(boxes=[])]
 
         adapter = Yoloe26sVision(device="cpu")
@@ -190,10 +191,12 @@ class YoloeInputTests(unittest.TestCase):
             ),
         )
         self.assertEqual(captured["classes"], ["cube"])
-        self.assertFalse(captured["half"])
+        self.assertEqual(captured["kwargs"]["device"], "cpu")
+        self.assertNotIn("quantize", captured["kwargs"])
+        self.assertNotIn("half", captured["kwargs"])
         self.assertEqual(len(result.detection.boxes), 0)
 
-    def test_cpu_device_never_enables_half_even_when_cuda_exists(self):
+    def test_default_device_and_precision_are_left_to_ultralytics(self):
         captured = {}
 
         class FakeModel:
@@ -201,23 +204,43 @@ class YoloeInputTests(unittest.TestCase):
                 pass
 
             def predict(self, **kwargs):
-                captured["half"] = kwargs["half"]
+                captured.update(kwargs)
+                return [SimpleNamespace(boxes=[])]
+
+        adapter = Yoloe26sVision()
+        adapter._model = FakeModel()
+        adapter.predict(
+            np.zeros((2, 2, 3), np.uint8),
+            "cube",
+        )
+
+        self.assertIsNone(adapter.device)
+        self.assertNotIn("device", captured)
+        self.assertNotIn("quantize", captured)
+        self.assertNotIn("half", captured)
+
+    def test_cpu_device_never_enables_fp16(self):
+        captured = {}
+
+        class FakeModel:
+            def set_classes(self, classes):
+                pass
+
+            def predict(self, **kwargs):
+                captured.update(kwargs)
                 return [SimpleNamespace(boxes=[])]
 
         adapter = Yoloe26sVision(device="cpu", half=True)
         adapter._model = FakeModel()
+        adapter.predict(
+            np.zeros((2, 2, 3), np.uint8),
+            "cube",
+        )
 
-        with patch(
-                "grasppose.adapters.yoloe.cuda_available",
-                return_value=True):
-            adapter.predict(
-                np.zeros((2, 2, 3), np.uint8),
-                "cube",
-            )
+        self.assertEqual(captured["device"], "cpu")
+        self.assertNotIn("quantize", captured)
 
-        self.assertFalse(captured["half"])
-
-    def test_cuda_defaults_to_fp32(self):
+    def test_cuda_fp16_uses_official_quantize_flag(self):
         captured = {}
 
         class FakeModel:
@@ -225,45 +248,38 @@ class YoloeInputTests(unittest.TestCase):
                 pass
 
             def predict(self, **kwargs):
-                captured["half"] = kwargs["half"]
-                return [SimpleNamespace(boxes=[])]
-
-        adapter = Yoloe26sVision(device=0)
-        adapter._model = FakeModel()
-
-        with patch(
-                "grasppose.adapters.yoloe.cuda_available",
-                return_value=True):
-            adapter.predict(
-                np.zeros((2, 2, 3), np.uint8),
-                "cube",
-            )
-
-        self.assertFalse(captured["half"])
-
-    def test_cuda_half_is_opt_in(self):
-        captured = {}
-
-        class FakeModel:
-            def set_classes(self, classes):
-                pass
-
-            def predict(self, **kwargs):
-                captured["half"] = kwargs["half"]
+                captured.update(kwargs)
                 return [SimpleNamespace(boxes=[])]
 
         adapter = Yoloe26sVision(device=0, half=True)
         adapter._model = FakeModel()
+        adapter.predict(
+            np.zeros((2, 2, 3), np.uint8),
+            "cube",
+        )
 
-        with patch(
-                "grasppose.adapters.yoloe.cuda_available",
-                return_value=True):
-            adapter.predict(
-                np.zeros((2, 2, 3), np.uint8),
-                "cube",
-            )
+        self.assertEqual(captured["device"], 0)
+        self.assertEqual(captured["quantize"], 16)
+        self.assertNotIn("half", captured)
 
-        self.assertTrue(captured["half"])
+    def test_default_service_construction_does_not_import_torch(self):
+        code = (
+            "import sys; "
+            "import grasppose.facade; "
+            "assert 'torch' not in sys.modules, "
+            "f'torch imported during service construction: {sys.modules.get(\"torch\")}'"
+        )
+        completed = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=str(ROOT),
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(
+            completed.returncode,
+            0,
+            msg=completed.stdout + completed.stderr,
+        )
 
 
 class RenderingGuardTests(unittest.TestCase):
