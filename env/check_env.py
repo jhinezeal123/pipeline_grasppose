@@ -1,35 +1,244 @@
 #!/usr/bin/env python3
-"""Quick Jetson runtime check for the edge grasp pipeline."""
+"""Jetson AGX Xavier / JetPack 5.1.4 compatibility preflight."""
+
 import importlib
+import importlib.metadata as metadata
+import json
 import os
+from pathlib import Path
+import platform
 import shutil
 import sys
 
-REQUIRED=("numpy","scipy","torch","torchvision","cv2","PIL")
-OPTIONAL=("ultralytics","timm","tensorrt")
+import numpy as np
+
+ROOT = Path(__file__).resolve().parents[1]
+ENV = ROOT / ".venv"
+
+REQUIRED = (
+    "numpy", "scipy", "torch", "torchvision", "cv2", "PIL",
+    "ultralytics", "timm", "onnx", "gradio", "gdown", "tensorrt",
+)
+
+
+def _version_tuple(text):
+    values = []
+    for part in str(text).split("."):
+        digits = "".join(ch for ch in part if ch.isdigit())
+        if not digits:
+            break
+        values.append(int(digits))
+    return tuple(values)
+
+
+def _host_protected_versions():
+    stamp = ENV / "host.json"
+    if not stamp.is_file():
+        return {}
+    try:
+        return json.loads(stamp.read_text()).get("protected", {})
+    except Exception:
+        return {}
+
+
+def _mem_total_gib():
+    try:
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            if line.startswith("MemTotal:"):
+                kib = int(line.split()[1])
+                return kib / (1024.0 * 1024.0)
+    except Exception:
+        pass
+    return None
 
 
 def main():
-    problems=[]
+    problems = []
     print("Python %d.%d.%d" % sys.version_info[:3])
-    if sys.version_info[:2] < (3,8): problems.append("Python >=3.8 is required")
-    for name in REQUIRED+OPTIONAL:
-        try:
-            m=importlib.import_module(name); print("[OK] %-12s %s" % (name,getattr(m,"__version__","")))
-        except Exception as exc:
-            print("[--] %-12s %s" % (name,exc))
-            if name in REQUIRED: problems.append("missing %s" % name)
-    try:
-        import torch
-        print("CUDA available:",torch.cuda.is_available())
-        if not torch.cuda.is_available(): problems.append("PyTorch cannot see CUDA")
-        else: print("GPU:",torch.cuda.get_device_name(0),"| torch CUDA:",torch.version.cuda)
-    except Exception as exc: problems.append("torch/CUDA: %s" % exc)
-    print("trtexec:",shutil.which("trtexec") or shutil.which("/usr/src/tensorrt/bin/trtexec") or "not on PATH")
-    for path in ("model/yoloe-26s-seg.pt","model/lite-mono/encoder.pth","model/lite-mono/depth.pth","model/vgn.engine"):
-        print("[%s] %s" % ("OK" if os.path.isfile(path) else "--",path))
-    if problems:
-        print("Problems:"); [print(" -",p) for p in problems]; return 1
-    print("Environment looks ready."); return 0
+    print("Machine:", platform.machine())
 
-if __name__=="__main__": sys.exit(main())
+    if sys.version_info[:2] != (3, 8):
+        problems.append(
+            "JetPack 5.1.4 target expects Python 3.8; got %d.%d"
+            % sys.version_info[:2]
+        )
+    if platform.machine() != "aarch64":
+        problems.append(
+            "Jetson AGX Xavier target expects aarch64; got %s"
+            % platform.machine()
+        )
+
+    modules = {}
+    for name in REQUIRED:
+        try:
+            module = importlib.import_module(name)
+            modules[name] = module
+            print(
+                "[OK] %-12s %s"
+                % (name, getattr(module, "__version__", ""))
+            )
+        except Exception as exc:
+            print("[--] %-12s %s" % (name, exc))
+            problems.append("missing/broken %s: %s" % (name, exc))
+
+    expected = _host_protected_versions()
+    for dist_name in ("torch", "torchvision", "numpy", "scipy"):
+        expected_version = expected.get(dist_name)
+        if not expected_version:
+            continue
+        try:
+            actual = metadata.version(dist_name)
+        except metadata.PackageNotFoundError:
+            problems.append("missing protected package %s" % dist_name)
+            continue
+        if actual != expected_version:
+            problems.append(
+                "%s was replaced inside .venv: host=%s venv=%s"
+                % (dist_name, expected_version, actual)
+            )
+
+    torch = modules.get("torch")
+    torchvision = modules.get("torchvision")
+    if torch is not None:
+        cuda_ok = bool(torch.cuda.is_available())
+        print("CUDA available:", cuda_ok)
+        if not cuda_ok:
+            problems.append("PyTorch cannot see CUDA")
+        else:
+            device_name = torch.cuda.get_device_name(0)
+            capability = tuple(torch.cuda.get_device_capability(0))
+            arch_list = list(torch.cuda.get_arch_list())
+            print(
+                "GPU:", device_name,
+                "| capability:", capability,
+                "| torch CUDA:", torch.version.cuda,
+                "| arch list:", arch_list,
+            )
+            if capability != (7, 2):
+                problems.append(
+                    "expected Xavier sm_72 capability (7,2); got %r"
+                    % (capability,)
+                )
+            if "sm_72" not in arch_list:
+                problems.append(
+                    "JetPack Torch build does not include sm_72"
+                )
+            if str(torch.version.cuda) != "11.4":
+                problems.append(
+                    "JetPack 5.1.4 expects Torch CUDA 11.4; got %s"
+                    % torch.version.cuda
+                )
+
+            # YOLOE commonly uses torchvision.ops.nms. A mismatched generic
+            # torchvision wheel can import successfully but fail here.
+            if torchvision is not None:
+                try:
+                    from torchvision.ops import nms
+                    boxes = torch.tensor(
+                        [[0.0, 0.0, 10.0, 10.0],
+                         [1.0, 1.0, 9.0, 9.0]],
+                        device="cuda",
+                    )
+                    scores = torch.tensor(
+                        [0.9, 0.8], device="cuda")
+                    keep = nms(boxes, scores, 0.5)
+                    torch.cuda.synchronize()
+                    print(
+                        "[OK] torchvision CUDA NMS",
+                        keep.detach().cpu().tolist(),
+                    )
+                except Exception as exc:
+                    problems.append(
+                        "torchvision CUDA ops are incompatible with "
+                        "JetPack Torch: %s" % exc
+                    )
+
+    trt = modules.get("tensorrt")
+    if trt is not None:
+        version = getattr(trt, "__version__", "0")
+        if _version_tuple(version) < (8, 5):
+            problems.append(
+                "TensorRT >=8.5 is required; got %s" % version
+            )
+
+    trtexec = (
+        shutil.which("trtexec")
+        or (
+            "/usr/src/tensorrt/bin/trtexec"
+            if os.path.isfile("/usr/src/tensorrt/bin/trtexec")
+            else None
+        )
+    )
+    print("trtexec:", trtexec or "not found")
+    if not trtexec:
+        problems.append("trtexec is required to build VGN engine")
+
+    total_gib = _mem_total_gib()
+    if total_gib is not None:
+        print("System RAM: %.1f GiB" % total_gib)
+        if total_gib < 28.0:
+            problems.append(
+                "expected 32 GB Xavier SKU (>=28 GiB visible RAM)"
+            )
+
+    free_gib = shutil.disk_usage(str(ROOT)).free / (1024.0 ** 3)
+    print("Free disk: %.1f GiB" % free_gib)
+    if free_gib < 8.0:
+        problems.append(
+            "less than 8 GiB free disk; model/build artifacts may fail"
+        )
+
+    artifacts = (
+        "model/yoloe-26s-seg.pt",
+        "mobileclip2_b.ts",
+        "model/lite-mono/encoder.pth",
+        "model/lite-mono/depth.pth",
+        "model/vgn.engine",
+    )
+    for rel in artifacts:
+        path = ROOT / rel
+        ok = path.is_file() and path.stat().st_size > 0
+        print("[%s] %s" % ("OK" if ok else "--", rel))
+        if not ok:
+            problems.append("missing artifact %s" % rel)
+
+    # Deserialize and execute the exact TensorRT engine once. This verifies
+    # the 8.5.x Python API path, plan compatibility and CUDA execution on sm_72.
+    if not problems:
+        try:
+            from grasppose.adapters.vgn_trt import VgnTensorRT
+            from grasppose.domain.types import TSDFResult
+
+            smoke = VgnTensorRT(str(ROOT / "model/vgn.engine"))
+            smoke.load()
+            tsdf = TSDFResult(
+                grid=np.full(
+                    (1, 40, 40, 40), 0.5, dtype=np.float32),
+                voxel_size=0.0075,
+                T_cam_volume=np.eye(4, dtype=np.float32),
+                observed_voxels=40 ** 3,
+            )
+            result = smoke.predict(tsdf)
+            smoke.close()
+            print(
+                "[OK] VGN TensorRT smoke inference | grasps:",
+                len(result.graspgroup),
+            )
+        except Exception as exc:
+            problems.append(
+                "VGN TensorRT smoke inference failed: %s: %s"
+                % (type(exc).__name__, exc)
+            )
+
+    if problems:
+        print("Problems:")
+        for problem in problems:
+            print(" -", problem)
+        return 1
+
+    print("Jetson AGX Xavier environment looks compatible.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
