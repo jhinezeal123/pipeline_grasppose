@@ -156,6 +156,28 @@ class EnvironmentTests(unittest.TestCase):
             source,
         )
 
+    def test_prepare_does_not_run_global_pip_check(self):
+        source = (ROOT / "prepare.sh").read_text()
+        self.assertNotIn(
+            '"$PYTHON" -m pip check',
+            source,
+        )
+
+    def test_check_env_compares_imported_runtime_versions(self):
+        source = (ROOT / "env" / "check_env.py").read_text()
+        self.assertIn(
+            'protected_modules = {',
+            source,
+        )
+        self.assertIn(
+            'getattr(module, "__version__", "")',
+            source,
+        )
+        self.assertNotIn(
+            'actual = metadata.version(dist_name)',
+            source,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
