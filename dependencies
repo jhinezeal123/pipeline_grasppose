@@ -1,18 +1,36 @@
 # Edge pipeline model/source dependencies.
-# YOLOE weights are downloaded by Ultralytics in prepare.sh if missing.
 
+# YOLOE-26s checkpoint is resolved by Ultralytics during prepare.sh.
+NAME = yoloe-26s-seg
+KIND = url
+URL = https://github.com/ultralytics/assets/releases/download/v8.4.0/yoloe-26s-seg.pt
+DEST = model/yoloe-26s-seg.pt
+---
+# YOLOE text tokenizer dependency, pinned so first inference never installs code.
+NAME = ultralytics-clip
+KIND = git
+URL = https://github.com/ultralytics/CLIP.git
+REVISION = a13192f8cb767260d7dfd98c843b0716593169e7
+DEST = .venv
+---
+# YOLOE-26 MobileCLIP2 TorchScript text encoder.
+NAME = mobileclip2-b
+KIND = url
+URL = https://github.com/ultralytics/assets/releases/download/v8.4.0/mobileclip2_b.ts
+SHA256 = 35d7f213e4d75f38514e4656ad3cb91158bd33e3805d8ac349f23b186f66982f
+DEST = mobileclip2_b.ts
+---
 NAME = lite-mono-repo
 KIND = git
 URL = https://github.com/noahzn/Lite-Mono.git
 DEST = model/Lite-Mono
 REVISION = 4874b35df8ed4da16159ce8be8c697028b72bf76
 ---
-# Official 640x192 Lite-Mono trained model. prepare.sh downloads/extracts this share.
+# Official 640x192 Lite-Mono trained model.
 NAME = lite-mono-weights
 KIND = url
 URL = https://surfdrive.surf.nl/files/index.php/s/CUjiK221EFLyXDY/download
 DEST = model/lite-mono
----
 ---
 # Official ETH VGN data bundle. prepare.sh extracts data/models/vgn_conv.pth
 # and builds a target-specific TensorRT engine locally.
