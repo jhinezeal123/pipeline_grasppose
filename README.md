@@ -47,7 +47,7 @@ bash prepare.sh
 
 `prepare.sh` tạo `.venv` với `--system-site-packages`, cài Python dependencies nhưng không thay CUDA/PyTorch của JetPack, tải `yoloe-26s-seg.pt`, clone Lite-Mono và tải weight 640x192.
 
-VGN TensorRT engine phải được build trên chính Jetson. Đặt checkpoint tại `model/vgn_conv.pth` hoặc truyền `VGN_CHECKPOINT=/path/to/vgn_conv.pth`; nếu chưa có `model/vgn.engine`, `prepare.sh` tự export ONNX và chạy `trtexec --fp16`.
+VGN TensorRT engine phải được build trên chính Jetson. Nếu chưa có `model/vgn_conv.pth`, `prepare.sh` tự tải data bundle chính thức của ETH VGN và trích checkpoint. Sau đó script export ONNX và chạy `trtexec --fp16` để tạo `model/vgn.engine`. Có thể override bằng `VGN_CHECKPOINT=/path/to/vgn_conv.pth`.
 
 ### 2. Inference một ảnh
 
