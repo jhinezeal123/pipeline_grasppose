@@ -32,10 +32,17 @@ Lưu ý versioning NVIDIA: JetPack 5.1.4 gốc đi với L4T 35.6.0; target th�
 `--system-site-packages` + constraints. Python 3.8 dependencies có pin riêng
 để tránh pip chọn wheel mới không còn hỗ trợ focal/aarch64.
 
-YOLOE-26 mặc định chạy FP32 trên Xavier. Kiểm thử trực tiếp trên target cho thấy
-CUDA FP32 khôi phục detections trong khi đường adapter FP16 có thể trả 0 box.
-FP16 vì vậy chỉ là opt-in bằng `YOLOE_HALF=1`; khi chọn `device="cpu"`,
-adapter luôn dùng FP32 kể cả máy có CUDA.
+YOLOE-26 mặc định chạy FP32 trên Xavier. Adapter đi theo flow chính thức của
+Ultralytics: không probe Torch/CUDA trong constructor, để `device=None` cho
+Ultralytics chọn device ở bước predict, và để precision unset cho FP32 mặc
+định. FP16 chỉ là opt-in bằng `YOLOE_HALF=1`, được truyền bằng
+`quantize=16` (cờ `half` upstream đã deprecated). Khi chọn
+`device="cpu"`, adapter không bật FP16.
+
+Điều này cũng áp dụng cho composition root: constructor Lite-Mono không còn
+gọi `torch.cuda.is_available()`. Nhờ vậy import `grasppose.facade` chỉ tạo
+object graph, chưa import Torch; lần framework import đầu tiên trong production
+path là khi `Yoloe26sVision.load()` import `ultralytics.YOLOE`.
 
 YOLOE-26 text prompting cần thêm `mobileclip2_b.ts`. `prepare.sh` tải artifact
 này, kiểm tra SHA-256, cài Ultralytics CLIP ở revision đã pin và chạy
@@ -53,7 +60,7 @@ VGN ONNX được export bằng `onnx==1.14.1` trên Python 3.8 và TensorRT eng
 - CUDA torchvision NMS hoạt động;
 - TensorRT >= 8.5 và `trtexec` có mặt;
 - artifact YOLOE/MobileCLIP/Lite-Mono/VGN đầy đủ;
-- chạy YOLOE CUDA inference thật ở runtime image size;
+- chạy YOLOE semantic smoke trong subprocess sạch theo đúng import order production, dùng `ultralytics/assets/bus.jpg` + prompt `person` và bắt buộc có ít nhất một box;
 - chạy Lite-Mono CUDA inference thật;
 - deserialize và chạy một VGN TensorRT dummy inference thật.
 
