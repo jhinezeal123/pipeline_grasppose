@@ -47,7 +47,7 @@ VGN ONNX được export bằng `onnx==1.14.1` trên Python 3.8 và TensorRT eng
 - TensorRT >= 8.5 và `trtexec` có mặt;
 - artifact YOLOE/MobileCLIP/Lite-Mono/VGN đầy đủ;
 - chạy YOLOE CUDA inference thật ở runtime image size;
-- chạy Lite-Mono FP16 CUDA inference thật;
+- chạy Lite-Mono CUDA inference thật;
 - deserialize và chạy một VGN TensorRT dummy inference thật.
 
 Lưu ý: venv dùng wheel `opencv-python==4.8.1.78` vì Ultralytics yêu cầu
