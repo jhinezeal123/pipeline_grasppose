@@ -57,6 +57,27 @@ def main():
     print("Python %d.%d.%d" % sys.version_info[:3])
     print("Machine:", platform.machine())
 
+    compatible_path = Path("/proc/device-tree/compatible")
+    if compatible_path.is_file():
+        compatible = compatible_path.read_bytes().replace(
+            b"\x00", b" ").decode("ascii", "replace")
+        print("Device tree:", compatible.strip())
+        if "tegra194" not in compatible:
+            problems.append(
+                "expected Jetson Xavier tegra194; device tree is %s"
+                % compatible.strip()
+            )
+
+    l4t_path = Path("/etc/nv_tegra_release")
+    if l4t_path.is_file():
+        l4t = l4t_path.read_text(errors="replace").splitlines()[0]
+        print("L4T:", l4t)
+        if "R35" not in l4t or "REVISION: 6.4" not in l4t:
+            problems.append(
+                "expected L4T R35.6.4 / JetPack 5.1.4; got %s"
+                % l4t
+            )
+
     if sys.version_info[:2] != (3, 8):
         problems.append(
             "JetPack 5.1.4 target expects Python 3.8; got %d.%d"
@@ -129,6 +150,30 @@ def main():
                     % torch.version.cuda
                 )
 
+            cudnn_version = torch.backends.cudnn.version()
+            print("cuDNN:", cudnn_version)
+            if cudnn_version != 8600:
+                problems.append(
+                    "JetPack 5.1.4 target expects cuDNN 8.6.0 "
+                    "(8600); got %s" % cudnn_version
+                )
+
+            torch_version = str(getattr(torch, "__version__", ""))
+            if not torch_version.startswith("2.1.0a0+"):
+                problems.append(
+                    "expected NVIDIA JetPack Torch 2.1.0a0 build; got %s"
+                    % torch_version
+                )
+
+            if torchvision is not None:
+                tv_version = str(
+                    getattr(torchvision, "__version__", ""))
+                if not tv_version.startswith("0.16.1"):
+                    problems.append(
+                        "expected torchvision 0.16.1; got %s"
+                        % tv_version
+                    )
+
             # YOLOE commonly uses torchvision.ops.nms. A mismatched generic
             # torchvision wheel can import successfully but fail here.
             if torchvision is not None:
@@ -159,6 +204,11 @@ def main():
         if _version_tuple(version) < (8, 5):
             problems.append(
                 "TensorRT >=8.5 is required; got %s" % version
+            )
+        if not str(version).startswith("8.5."):
+            problems.append(
+                "JetPack 5.1.4 target expects TensorRT 8.5.x; got %s"
+                % version
             )
 
     trtexec = (
