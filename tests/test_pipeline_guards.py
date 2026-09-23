@@ -13,6 +13,7 @@ from grasppose.domain.geometry import (
 )
 from grasppose.domain.tsdf import ProjectiveTSDFBuilder
 from grasppose.domain.vgn import vgn_to_graspgroup
+from grasppose.facade import GraspService
 from grasppose.presentation.rendering import hw_open_note
 import grasppose.runtime as runtime
 
@@ -164,6 +165,21 @@ class RenderingGuardTests(unittest.TestCase):
         note = hw_open_note(0.075)
         self.assertIn("75.0 mm", note)
         self.assertIn("HW 69.4 mm", note)
+
+
+class FacadeInputGuardTests(unittest.TestCase):
+    def test_2d_image_raises_value_error_before_core_run(self):
+        class Core:
+            def run(self, *args, **kwargs):
+                raise AssertionError("core must not be called")
+
+        service = GraspService(Core())
+        with self.assertRaisesRegex(
+                ValueError, "input image must have shape"):
+            service.infer(
+                np.zeros((10, 10), np.uint8),
+                prompt="object",
+            )
 
 
 if __name__ == "__main__":
