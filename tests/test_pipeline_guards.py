@@ -1,5 +1,6 @@
 import subprocess
 import sys
+from pathlib import Path
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -18,6 +19,8 @@ from grasppose.domain.vgn import vgn_to_graspgroup
 from grasppose.facade import GraspService
 from grasppose.presentation.rendering import hw_open_note
 import grasppose.runtime as runtime
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class GeometryTests(unittest.TestCase):
