@@ -38,6 +38,8 @@ def build_ui():
 
 
 def main():
+    # Pay model startup cost once; every Submit reuses the same resident instances.
+    P.load_models()
     ap=argparse.ArgumentParser(); ap.add_argument("--port",type=int,default=PORT_DEFAULT); ap.add_argument("--host",default="0.0.0.0"); args=ap.parse_args()
     demo=build_ui(); demo.queue(); demo.launch(server_name=args.host,server_port=args.port,share=False); return 0
 
