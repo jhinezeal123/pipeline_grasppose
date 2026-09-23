@@ -6,6 +6,7 @@ from unittest.mock import patch
 import numpy as np
 
 from grasppose.adapters.vgn_trt import classify_vgn_outputs
+from grasppose.adapters.yoloe import Yoloe26sVision
 from grasppose.domain.geometry import (
     depth_range_str,
     depth_to_cloud,
@@ -157,6 +158,38 @@ class RuntimeCleanupTests(unittest.TestCase):
 
         self.assertEqual(
             events, ["gc", "synchronize", "empty_cache"])
+
+
+class YoloeInputTests(unittest.TestCase):
+    def test_rgb_pipeline_input_is_converted_to_bgr_for_ultralytics(self):
+        captured = {}
+
+        class FakeModel:
+            def set_classes(self, classes):
+                captured["classes"] = list(classes)
+
+            def predict(self, **kwargs):
+                captured["source"] = kwargs["source"].copy()
+                return [SimpleNamespace(boxes=[])]
+
+        adapter = Yoloe26sVision(device="cpu")
+        adapter._model = FakeModel()
+        rgb = np.array(
+            [[[10, 20, 30], [40, 50, 60]]],
+            dtype=np.uint8,
+        )
+
+        result = adapter.predict(rgb, "cube")
+
+        np.testing.assert_array_equal(
+            captured["source"],
+            np.array(
+                [[[30, 20, 10], [60, 50, 40]]],
+                dtype=np.uint8,
+            ),
+        )
+        self.assertEqual(captured["classes"], ["cube"])
+        self.assertEqual(len(result.detection.boxes), 0)
 
 
 class RenderingGuardTests(unittest.TestCase):
