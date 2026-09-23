@@ -178,6 +178,25 @@ class EnvironmentTests(unittest.TestCase):
             source,
         )
 
+    def test_check_env_uses_clean_semantic_yoloe_smoke(self):
+        source = (ROOT / "env" / "check_env.py").read_text()
+        self.assertIn(
+            '"Torch was imported before YOLOE load during service construction"',
+            source,
+        )
+        self.assertIn(
+            'ASSETS / "bus.jpg"',
+            source,
+        )
+        self.assertIn(
+            'vision.predict(image, "person")',
+            source,
+        )
+        self.assertIn(
+            '"YOLOE returned zero boxes for bundled bus.jpg/person smoke"',
+            source,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
