@@ -76,20 +76,26 @@ class LiteMonoDepth(DepthPort):
         encoder = networks.LiteMono(
             model=self.model_name, height=feed_h, width=feed_w)
         encoder_state = encoder.state_dict()
-        encoder.load_state_dict({
+        encoder_weights = {
             key: value
             for key, value in encoder_checkpoint.items()
             if key in encoder_state
-        })
+        }
+        # Explicit strict=True guarantees that every model parameter is
+        # present after filtering checkpoint metadata such as height/width.
+        encoder.load_state_dict(
+            encoder_weights, strict=True)
 
         decoder = networks.DepthDecoder(
             encoder.num_ch_enc, scales=range(3))
         decoder_state = decoder.state_dict()
-        decoder.load_state_dict({
+        decoder_weights = {
             key: value
             for key, value in decoder_checkpoint.items()
             if key in decoder_state
-        })
+        }
+        decoder.load_state_dict(
+            decoder_weights, strict=True)
 
         encoder.to(self.device).eval()
         decoder.to(self.device).eval()
