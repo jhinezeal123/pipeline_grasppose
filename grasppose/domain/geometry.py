@@ -5,16 +5,6 @@ import os
 import numpy as np
 
 
-def K_from_fovy(fovy_deg, width, height):
-    fy = (height / 2.0) / np.tan(np.radians(fovy_deg) / 2.0)
-    return np.array(
-        [[fy, 0.0, width / 2.0],
-         [0.0, fy, height / 2.0],
-         [0.0, 0.0, 1.0]],
-        dtype=np.float64,
-    )
-
-
 def fov_x_from_fovy(fovy_deg, width, height):
     return float(2.0 * np.degrees(np.arctan(
         np.tan(np.radians(fovy_deg) / 2.0) * float(width) / float(height)
@@ -88,28 +78,3 @@ def depth_to_cloud(depth, K, mask=None):
     return np.stack([px, py, zz], axis=-1).astype(np.float32)
 
 
-def nms_grasps(graspgroup, translation_threshold=0.03,
-               rotation_threshold=np.pi / 6):
-    gg = np.asarray(graspgroup)
-    if len(gg) == 0:
-        return gg
-    order = np.argsort(-gg[:, 0])
-    translations = gg[:, 13:16]
-    rotations = gg[:, 4:13].reshape(-1, 3, 3)
-    keep = []
-    for index in order:
-        duplicate = False
-        for kept in keep:
-            distance = np.linalg.norm(
-                translations[index] - translations[kept])
-            angle = np.arccos(np.clip(
-                (np.trace(rotations[index].T @ rotations[kept]) - 1) / 2,
-                -1, 1,
-            ))
-            if (distance < translation_threshold and
-                    angle < rotation_threshold):
-                duplicate = True
-                break
-        if not duplicate:
-            keep.append(index)
-    return gg[keep]
