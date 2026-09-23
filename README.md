@@ -178,13 +178,19 @@ bash infer.sh img/frame.png \
   --prompt "the object"
 ```
 
-`infer.sh` không cài dependency. Nó chạy `pipeline.py` và ghi đúng một bộ:
+`infer.sh` không cài dependency. Mặc định nó ghi đúng một bộ vào thư mục `output/` trong repo (được `prepare.sh` tạo, nên user Jetson thông thường có quyền ghi):
 
 ```text
-/output/<stem>_box.png
-/output/<stem>_mask.png
-/output/<stem>_depthmap.png
-/output/<stem>_grasp.png
+<repo>/output/<stem>_box.png
+<repo>/output/<stem>_mask.png
+<repo>/output/<stem>_depthmap.png
+<repo>/output/<stem>_grasp.png
+```
+
+Nếu môi trường/container đã provision một thư mục tuyệt đối khác, có thể override:
+
+```bash
+OUTPUT_DIR=/output bash infer.sh img/frame.png --camera-k FX FY CX CY
 ```
 
 ### 3. UI Space
