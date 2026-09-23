@@ -5,29 +5,14 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.10', '3.12']
+        python-version: ['3.8', '3.12']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
       - run: bash -n run.sh
-      # numpy + opencv-python-headless phai cai TRUOC buoc unittest:
-      # tests/test_pipeline_guards.py import pipeline.py, ma pipeline.py can numpy
-      # va draw_grasp() can cv2. Cac test con lai chi test shell va chuoi nen khong
-      # can gi. CI co tinh KHONG cai torch/CUDA — day la test logic thuan, chay
-      # duoc tren may khong GPU.
-      #
-      # Ghim DUNG range cua runtime (requirements.txt): numpy>=2,<3 va
-      # opencv-python-headless>=4.10,<5. Khong ghim thi pip lay ban moi nhat —
-      # log tung thay opencv-python-headless 5.0.0.93, NGOAI range runtime, tuc la
-      # CI xanh tren mot to hop thu vien khong bao gio chay that.
-      #
-      # test_pipeline_mock.py va test_app.py nam o thu muc GOC repo (khong phai
-      # tests/) va KHONG dung unittest — 'discover -s tests' khong bao gio chay
-      # chung. Chung la script tu chay, in 'TAT CA MUC DEU PASS' va exit 0; chay
-      # truc tiep de exit code khac 0 lam CI fail.
-      - run: python -m pip install 'numpy>=2,<3' 'opencv-python-headless>=4.10,<5'
-      - run: python -m unittest discover -s tests -v
+      - run: python -m pip install 'numpy>=1.24,<3' 'scipy>=1.10,<2' 'opencv-python-headless>=4.8,<5'
+      - run: python -m unittest tests.test_architecture tests.test_pipeline_guards tests.test_environment -v
       - run: python test_pipeline_mock.py
       - run: python test_app.py
