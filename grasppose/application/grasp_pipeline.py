@@ -11,15 +11,19 @@ from ..domain.types import (
     DepthResult,
     GraspResult,
     PipelineResult,
-    VisionResult,
 )
+from ..ports.depth import DepthPort
+from ..ports.grasp import GraspPort
+from ..ports.tsdf import TSDFPort
+from ..ports.vision import VisionPort
 from ..runtime import log, log_vram
 
 
 class GraspPipeline:
     """Coordinate the grasp workflow without knowing model frameworks."""
 
-    def __init__(self, vision, depth, tsdf_builder, grasper):
+    def __init__(self, vision: VisionPort, depth: DepthPort,
+                 tsdf_builder: TSDFPort, grasper: GraspPort):
         self._vision = vision
         self._depth = depth
         self._tsdf_builder = tsdf_builder
