@@ -11,7 +11,7 @@ RGB
                  └─ VGN TensorRT -> 6-DoF grasp poses
 ```
 
-Grounding-DINO, SAM, MoGe và GraspNess/MinkowskiEngine không còn nằm trên đường chạy mặc định. YOLOE được release trước khi nạp Lite-Mono; Lite-Mono được release trước khi nạp VGN TensorRT. TSDF chạy bằng NumPy/CPU để giảm peak VRAM.
+Grounding-DINO, SAM, MoGe và GraspNess/MinkowskiEngine không còn nằm trên đường chạy mặc định. YOLOE, Lite-Mono và VGN TensorRT được **nạp một lần và giữ resident** trong suốt process; mỗi frame chỉ chạy inference. `close_models()` mới giải phóng model khi process kết thúc. TSDF chạy bằng NumPy/CPU.
 
 ## Calibration bắt buộc
 
@@ -62,7 +62,10 @@ VGN nhận TSDF `(1,40,40,40)`; TensorRT input sau batch là `(1,1,40,40,40)`.
 import numpy as np
 import pipeline as P
 K=np.array([[615.2,0,320.1],[0,614.8,239.7],[0,0,1.]])
+P.load_models()  # optional: preload before the first frame
 result=P.pipeline(rgb,prompt="the mug",camera_K=K,top=5)
+# loop frames: P.pipeline(...) reuses the same resident models
+# P.close_models() only when shutting down
 ```
 
 Có thể truyền `T_cam_volume` (4x4, volume -> OpenCV camera) để dùng task/world frame đã hiệu chuẩn. Nếu bỏ trống, TSDF builder tạo volume camera-aligned 0.30 m quanh point cloud mục tiêu; đây chỉ là fallback, không thay thế extrinsic/table calibration của robot.
