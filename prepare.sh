@@ -12,8 +12,11 @@ HOST_PYTHON="$(command -v "${PYTHON:-python3}")"
 PYTHON="$ROOT/.venv/bin/python"
 export PATH="$ROOT/.venv/bin:/usr/src/tensorrt/bin:/usr/local/cuda/bin:$PATH"
 "$HOST_PYTHON" env/setup_env.py --install
-"$PYTHON" -m pip check
 
+# Do not run global "pip check" here. The overlay intentionally inherits
+# JetPack/Ubuntu system packages via --system-site-packages, and unrelated
+# host distributions can have pre-existing metadata conflicts. The targeted
+# env/check_env.py preflight below validates the packages this pipeline uses.
 command -v git >/dev/null || { echo "git is required" >&2; exit 1; }
 command -v curl >/dev/null || { echo "curl is required" >&2; exit 1; }
 
