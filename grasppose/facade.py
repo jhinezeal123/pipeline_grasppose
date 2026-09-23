@@ -36,7 +36,12 @@ class GraspService:
             from PIL import Image
             image = np.array(
                 Image.open(image).convert("RGB"))
-        image = np.asarray(image)[:, :, :3]
+
+        image = np.asarray(image)
+        if image.ndim != 3 or image.shape[2] < 3:
+            raise ValueError(
+                "input image must have shape (H,W,3+)")
+        image = image[:, :, :3]
 
         result = self._core.run(
             image,
