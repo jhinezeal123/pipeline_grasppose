@@ -13,6 +13,12 @@ import sys
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
+# When executed as "python env/check_env.py", Python puts env/ rather than
+# the repository root on sys.path. Add ROOT explicitly because this repository
+# is intentionally not installed as a site-package.
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 ENV = ROOT / ".venv"
 
 REQUIRED = (
