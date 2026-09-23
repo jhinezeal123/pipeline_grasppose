@@ -103,6 +103,25 @@ class EnvironmentTests(unittest.TestCase):
             for line in lines
         ))
 
+    def test_check_env_adds_repo_root_to_sys_path(self):
+        check_path = ROOT / "env" / "check_env.py"
+        source = check_path.read_text()
+        self.assertIn(
+            "sys.path.insert(0, str(ROOT))",
+            source,
+        )
+
+    def test_infer_defaults_to_repo_local_output(self):
+        source = (ROOT / "infer.sh").read_text()
+        self.assertIn(
+            'OUT="${OUTPUT_DIR:-$ROOT/output}"',
+            source,
+        )
+        self.assertNotIn(
+            "\nOUT=/output\n",
+            source,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
