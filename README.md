@@ -13,6 +13,47 @@ RGB
 
 YOLOE, Lite-Mono và VGN TensorRT được nạp một lần và giữ resident trong suốt process. Mỗi frame chỉ chạy inference; model chỉ được giải phóng khi gọi `close_models()` hoặc service kết thúc.
 
+
+## Hardware target
+
+Nhánh này được khóa cho Jetson AGX Xavier 32 GB / JetPack 5.1.4:
+
+- Ubuntu 20.04 / L4T R35.6.4;
+- aarch64 + Carmel CPU;
+- Volta GPU compute capability 7.2 (`sm_72`);
+- CUDA 11.4, cuDNN 8.6, TensorRT 8.5.x;
+- Python 3.8;
+- NVIDIA Torch 2.1.0a0 + torchvision 0.16.x;
+- NumPy 1.23.5 / SciPy 1.10.1 từ host JetPack.
+
+`prepare.sh` giữ nguyên Torch/torchvision/NumPy/SciPy của host bằng
+`--system-site-packages` + constraints. Python 3.8 dependencies có pin riêng
+để tránh pip chọn wheel mới không còn hỗ trợ focal/aarch64.
+
+YOLOE-26 text prompting cần thêm `mobileclip2_b.ts`. `prepare.sh` tải artifact
+này, kiểm tra SHA-256, cài Ultralytics CLIP ở revision đã pin và chạy
+`set_classes(["object"])` một lần. Vì vậy `infer.sh` / `space.sh` không cần
+tự cài package hay tải text encoder ở request đầu tiên.
+
+VGN ONNX được export bằng `onnx==1.14.1` trên Python 3.8 và TensorRT engine
+được build bằng `trtexec` ngay trên Xavier. Không reuse engine build trên T4
+(sm_75) hay máy TensorRT khác.
+
+`env/check_env.py` kiểm tra thêm:
+
+- đúng aarch64 / Python 3.8 / CUDA 11.4 / `sm_72`;
+- Torch/torchvision/NumPy/SciPy trong venv không bị thay khỏi host versions;
+- CUDA torchvision NMS hoạt động;
+- TensorRT >= 8.5 và `trtexec` có mặt;
+- artifact YOLOE/MobileCLIP/Lite-Mono/VGN đầy đủ;
+- deserialize và chạy một VGN TensorRT dummy inference thật.
+
+Lưu ý: venv dùng wheel `opencv-python==4.8.1.78` vì Ultralytics yêu cầu
+distribution này. OpenCV hệ thống 4.5.4 có GStreamer vẫn còn nguyên trên OS,
+nhưng code chạy trong venv sẽ import bản pip; pipeline hiện nhận ảnh file/Gradio
+nên không phụ thuộc GStreamer. Nếu sau này đọc camera qua GStreamer thì cần tách
+camera I/O khỏi venv hoặc đổi chiến lược OpenCV.
+
 ## Kiến trúc OOP
 
 ```text
