@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Create a repo-local overlay without replacing the JetPack CUDA stack."""
 
+import importlib
 import importlib.metadata as metadata
 import json
 from pathlib import Path
@@ -13,15 +14,45 @@ ENV = ROOT / ".venv"
 PIP_VERSION = "25.0.1"
 
 
+RUNTIME_PROTECTED = ("torch", "torchvision", "numpy", "scipy")
+
+
+def _runtime_version(name):
+    """Return the version of the module this interpreter actually imports."""
+    try:
+        module = importlib.import_module(name)
+    except Exception as exc:
+        raise RuntimeError(
+            "Missing/broken host %s. Install the JetPack-compatible "
+            "package first: %s" % (name, exc)
+        )
+    version = str(getattr(module, "__version__", "")).strip()
+    if not version:
+        raise RuntimeError(
+            "Host %s does not expose __version__" % name)
+    return version
+
+
 def protected_versions():
-    versions = {}
+    # JetPack/Ubuntu may expose duplicate dist-info metadata from /usr/lib
+    # and /usr/local. Protect the versions Python actually imports, rather
+    # than whichever duplicate metadata entry happens to be iterated last.
+    versions = {
+        name: _runtime_version(name)
+        for name in RUNTIME_PROTECTED
+    }
+
+    # Preserve optional CUDA/runtime packages when present, but never let
+    # duplicate metadata override the imported core stack above.
     for dist in metadata.distributions():
-        name = dist.metadata["Name"].lower().replace("_", "-")
-        if name in {"torch", "torchvision", "torchaudio", "numpy", "scipy", "triton"} or name.startswith("nvidia-"):
+        raw_name = dist.metadata.get("Name")
+        if not raw_name:
+            continue
+        name = raw_name.lower().replace("_", "-")
+        if name in versions:
+            continue
+        if name in {"torchaudio", "triton"} or name.startswith("nvidia-"):
             versions[name] = dist.version
-    for name in ("torch", "torchvision", "numpy"):
-        if name not in versions:
-            raise RuntimeError("Missing host %s. Install the JetPack-compatible package first." % name)
     return versions
 
 
