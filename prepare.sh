@@ -12,6 +12,7 @@ HOST_PYTHON="$(command -v "${PYTHON:-python3}")"
 PYTHON="$ROOT/.venv/bin/python"
 export PATH="$ROOT/.venv/bin:/usr/src/tensorrt/bin:/usr/local/cuda/bin:$PATH"
 "$HOST_PYTHON" env/setup_env.py --install
+"$PYTHON" -m pip check
 
 command -v git >/dev/null || { echo "git is required" >&2; exit 1; }
 command -v curl >/dev/null || { echo "curl is required" >&2; exit 1; }
