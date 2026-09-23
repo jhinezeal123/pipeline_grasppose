@@ -1,6 +1,7 @@
 # Model weights / TensorRT engines are downloaded or built locally.
 model/*
 !model/.gitkeep
+mobileclip2_b.ts
 
 .venv/
 env/lib/
