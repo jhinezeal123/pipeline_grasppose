@@ -13,6 +13,18 @@ PYTHON="$ROOT/.venv/bin/python"
 export PATH="$ROOT/.venv/bin:/usr/src/tensorrt/bin:/usr/local/cuda/bin:$PATH"
 "$HOST_PYTHON" env/setup_env.py --install
 
+# YOLOE text prompting lazily installs CLIP and downloads MobileCLIP on first
+# set_classes(). Do both here under the JetPack constraints so inference never
+# mutates the environment at runtime.
+CLIP_REV="a13192f8cb767260d7dfd98c843b0716593169e7"
+CLIP_STAMP="$ROOT/.venv/ultralytics-clip-revision.txt"
+if [ ! -s "$CLIP_STAMP" ] || [ "$(cat "$CLIP_STAMP")" != "$CLIP_REV" ]; then
+  "$PYTHON" -m pip install \
+    -c "$ROOT/.venv/host-constraints.txt" \
+    "git+https://github.com/ultralytics/CLIP.git@$CLIP_REV"
+  printf '%s\n' "$CLIP_REV" > "$CLIP_STAMP"
+fi
+
 command -v git >/dev/null || { echo "git is required" >&2; exit 1; }
 command -v curl >/dev/null || { echo "curl is required" >&2; exit 1; }
 
@@ -39,6 +51,33 @@ if src.resolve() != dst.resolve():
 print(dst)
 PY
 fi
+
+MOBILECLIP="$ROOT/mobileclip2_b.ts"
+MOBILECLIP_SHA256="35d7f213e4d75f38514e4656ad3cb91158bd33e3805d8ac349f23b186f66982f"
+if [ ! -s "$MOBILECLIP" ]; then
+  TMP_CLIP="$(mktemp)"
+  trap 'rm -f "$TMP_CLIP"' EXIT
+  echo "Downloading YOLOE-26 MobileCLIP2 text encoder ..."
+  curl -L --fail --retry 3 \
+    'https://github.com/ultralytics/assets/releases/download/v8.4.0/mobileclip2_b.ts' \
+    -o "$TMP_CLIP"
+  printf '%s  %s\n' "$MOBILECLIP_SHA256" "$TMP_CLIP" | sha256sum -c -
+  mv "$TMP_CLIP" "$MOBILECLIP"
+  trap - EXIT
+fi
+
+echo "Validating YOLOE text-prompt path with JetPack Torch ..."
+"$PYTHON" - <<'PY'
+from pathlib import Path
+from ultralytics import YOLOE
+
+asset = Path("mobileclip2_b.ts")
+if not asset.is_file():
+    raise SystemExit("mobileclip2_b.ts is missing")
+model = YOLOE("model/yoloe-26s-seg.pt")
+model.set_classes(["object"])
+print("YOLOE text prompt ready:", asset)
+PY
 
 if [ ! -s model/lite-mono/encoder.pth ] || [ ! -s model/lite-mono/depth.pth ]; then
   TMP="$(mktemp -d)"
