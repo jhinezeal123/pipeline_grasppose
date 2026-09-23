@@ -132,18 +132,21 @@ def main():
             )
 
     expected = _host_protected_versions()
-    for dist_name in ("torch", "torchvision", "numpy", "scipy"):
+    protected_modules = {
+        "torch": modules.get("torch"),
+        "torchvision": modules.get("torchvision"),
+        "numpy": modules.get("numpy"),
+        "scipy": modules.get("scipy"),
+    }
+    for dist_name, module in protected_modules.items():
         expected_version = expected.get(dist_name)
-        if not expected_version:
+        if not expected_version or module is None:
             continue
-        try:
-            actual = metadata.version(dist_name)
-        except metadata.PackageNotFoundError:
-            problems.append("missing protected package %s" % dist_name)
-            continue
+        actual = str(getattr(module, "__version__", "")).strip()
         if actual != expected_version:
             problems.append(
-                "%s was replaced inside .venv: host=%s venv=%s"
+                "%s runtime was replaced inside .venv: "
+                "host=%s runtime=%s"
                 % (dist_name, expected_version, actual)
             )
 
