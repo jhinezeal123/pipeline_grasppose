@@ -16,7 +16,7 @@ from ..config import (
 from ..domain.geometry import resolve_camera_intrinsics
 from ..domain.types import DepthResult
 from ..ports.depth import DepthPort
-from ..runtime import cuda_available, log, release_attributes
+from ..runtime import log, release_attributes
 
 
 class LiteMonoDepth(DepthPort):
@@ -27,8 +27,10 @@ class LiteMonoDepth(DepthPort):
         self.model_path = weights or LITEMONO_WEIGHTS
         self.home = home or LITEMONO_HOME
         self.model_name = model_name or LITEMONO_MODEL
-        self.device = device or (
-            "cuda" if cuda_available() else "cpu")
+        # Resolve the default device lazily in load(). This keeps construction
+        # of the full service from importing/probing Torch before YOLOE gets
+        # the first framework import, matching the validated Xavier order.
+        self.device = device
         self.depth_scale = (
             LITEMONO_DEPTH_SCALE if depth_scale is None
             else float(depth_scale)
@@ -47,6 +49,10 @@ class LiteMonoDepth(DepthPort):
             return self
 
         import torch
+
+        if self.device is None:
+            self.device = (
+                "cuda" if torch.cuda.is_available() else "cpu")
 
         if not os.path.isdir(self.home):
             raise RuntimeError(
