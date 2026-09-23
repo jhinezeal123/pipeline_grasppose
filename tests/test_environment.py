@@ -14,25 +14,47 @@ spec.loader.exec_module(setup)
 class EnvironmentTests(unittest.TestCase):
     def test_requires_jetpack_stack(self):
         with patch.object(
-                setup.metadata, "distributions", return_value=[]):
+                setup.importlib, "import_module",
+                side_effect=ImportError("missing")):
             with self.assertRaisesRegex(
-                    RuntimeError, "Missing host torch"):
+                    RuntimeError, "Missing/broken host torch"):
                 setup.protected_versions()
 
-    def test_does_not_pin_ui_packages(self):
+    def test_runtime_versions_win_over_stale_duplicate_metadata(self):
+        runtime_versions = {
+            "torch": "2.1.0a0+41361538.nv23.06",
+            "torchvision": "0.16.1",
+            "numpy": "1.23.5",
+            "scipy": "1.10.1",
+        }
         distributions = [
-            Mock(metadata={"Name": name}, version="1.0")
-            for name in (
-                "torch", "torchvision", "numpy",
-                "gradio", "ultralytics",
-            )
+            Mock(metadata={"Name": "numpy"}, version="1.17.4"),
+            Mock(metadata={"Name": "scipy"}, version="1.3.3"),
+            Mock(metadata={"Name": "torch"}, version="1.13.0"),
+            Mock(metadata={"Name": "gradio"}, version="1.0"),
+            Mock(metadata={"Name": "ultralytics"}, version="1.0"),
         ]
+
+        def import_module(name):
+            module = Mock()
+            module.__version__ = runtime_versions[name]
+            return module
+
         with patch.object(
-                setup.metadata, "distributions",
-                return_value=distributions):
+                setup.importlib, "import_module",
+                side_effect=import_module), \
+                patch.object(
+                    setup.metadata, "distributions",
+                    return_value=distributions):
             versions = setup.protected_versions()
 
-        self.assertIn("torch", versions)
+        self.assertEqual(versions["numpy"], "1.23.5")
+        self.assertEqual(versions["scipy"], "1.10.1")
+        self.assertEqual(
+            versions["torch"],
+            "2.1.0a0+41361538.nv23.06",
+        )
+        self.assertEqual(versions["torchvision"], "0.16.1")
         self.assertNotIn("gradio", versions)
         self.assertNotIn("ultralytics", versions)
 
