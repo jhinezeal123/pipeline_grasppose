@@ -26,17 +26,24 @@ class Yoloe26sVision:
         self.model = None
         self._image = None
         self._prompt = None
+        self._classes_prompt = None
         self._result = None
 
-    def prepare(self, image, prompt):
-        from ultralytics import YOLOE
-        self._image = np.asarray(image)[:, :, :3]
-        self._prompt = str(prompt).strip() or "object"
+    def load(self):
         if self.model is None:
+            from ultralytics import YOLOE
             t0 = time.time()
             self.model = YOLOE(self.model_path)
             _log("YOLOE-26s loaded in %.1fs" % (time.time() - t0))
-        self.model.set_classes([self._prompt])
+        return self
+
+    def prepare(self, image, prompt):
+        self.load()
+        self._image = np.asarray(image)[:, :, :3]
+        self._prompt = str(prompt).strip() or "object"
+        if self._classes_prompt != self._prompt:
+            self.model.set_classes([self._prompt])
+            self._classes_prompt = self._prompt
         self._result = self.model.predict(
             source=self._image, conf=self.conf, imgsz=self.imgsz,
             device=self.device, half=bool(_cuda()), retina_masks=True,
@@ -76,6 +83,7 @@ class Yoloe26sVision:
 
     def release(self):
         _free(self, "model", "_result")
+        self._classes_prompt = None
 
 
 class LiteMonoDepth:
@@ -118,17 +126,22 @@ class LiteMonoDepth:
         self.encoder, self.decoder, self._layers = encoder, decoder, layers
         self._feed_hw = (feed_h, feed_w)
 
-    def prepare(self, image, camera_K=None, fov_x=None):
-        from PIL import Image
-        from torchvision import transforms
-        self._image = np.asarray(image)[:, :, :3]
-        h, w = self._image.shape[:2]
-        self._K = _resolve_K(camera_K, fov_x, w, h)
+    def load(self):
         if self.encoder is None:
-            t0 = time.time(); self._load()
+            t0 = time.time()
+            self._load()
             _log("Lite-Mono loaded in %.1fs (%s)" % (time.time() - t0, self.device))
             if self._scale_is_default:
                 _log("WARNING: Lite-Mono is monocular/scale-ambiguous; calibrate LITEMONO_DEPTH_SCALE before metric TSDF/VGN use")
+        return self
+
+    def prepare(self, image, camera_K=None, fov_x=None):
+        from PIL import Image
+        from torchvision import transforms
+        self.load()
+        self._image = np.asarray(image)[:, :, :3]
+        h, w = self._image.shape[:2]
+        self._K = _resolve_K(camera_K, fov_x, w, h)
         feed_h, feed_w = self._feed_hw
         pil = Image.fromarray(self._image.astype(np.uint8)).resize((feed_w, feed_h), Image.LANCZOS)
         tensor = transforms.ToTensor()(pil).unsqueeze(0).to(self.device)
@@ -181,12 +194,18 @@ class VgnTensorRT:
             raise RuntimeError("failed to deserialize VGN TensorRT engine")
         self.engine, self.context, self._trt = engine, engine.create_execution_context(), trt
 
+    def load(self):
+        if self.engine is None:
+            t0 = time.time()
+            self._load()
+            _log("VGN TensorRT engine loaded in %.1fs" % (time.time() - t0))
+        return self
+
     def prepare(self, tsdf_grid, voxel_size, T_cam_volume):
+        self.load()
         grid = np.asarray(tsdf_grid, np.float32)
         if grid.shape != (1, 40, 40, 40):
             raise ValueError("VGN expects TSDF shape (1,40,40,40), got %r" % (grid.shape,))
-        if self.engine is None:
-            self._load()
         self._input = np.ascontiguousarray(grid[None], dtype=np.float32)
         self._meta = (float(voxel_size), np.asarray(T_cam_volume, np.float32))
         return self
