@@ -13,5 +13,10 @@ KIND = url
 URL = https://surfdrive.surf.nl/files/index.php/s/CUjiK221EFLyXDY/download
 DEST = model/lite-mono
 ---
-# VGN TensorRT is intentionally not listed here: TensorRT engines are tied to the
-# Jetson/TensorRT version. Build model/vgn.engine on the target with tools below.
+---
+# Official ETH VGN data bundle. prepare.sh extracts data/models/vgn_conv.pth
+# and builds a target-specific TensorRT engine locally.
+NAME = vgn-official-data
+KIND = url
+URL = https://drive.google.com/file/d/1MysYHve3ooWiLq12b58Nm8FWiFBMH-bJ/view?usp=sharing
+DEST = model/vgn_conv.pth
