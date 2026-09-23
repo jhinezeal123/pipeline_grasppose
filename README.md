@@ -157,6 +157,7 @@ bash prepare.sh
 `prepare.sh`:
 
 - tạo `.venv` với `--system-site-packages`;
+- bootstrap `pip==25.0.1` trước khi resolve dependencies; đây là bản cuối hỗ trợ Python 3.8 trong dòng pip 25.0 và nhận diện các wheel tag ARM64/manylinux mới hơn tốt hơn pip cũ đi kèm Ubuntu 20.04;
 - cài Python dependencies mà không thay Torch/CUDA của JetPack;
 - tải YOLOE;
 - clone Lite-Mono và tải weights;
