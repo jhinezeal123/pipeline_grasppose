@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Jetson AGX Xavier / JetPack 5.1.4 compatibility preflight."""
+"""Jetson AGX Xavier / L4T R35.6.4 (JetPack 5.1.6) compatibility preflight."""
 
 import importlib
 import importlib.metadata as metadata
@@ -74,13 +74,13 @@ def main():
         print("L4T:", l4t)
         if "R35" not in l4t or "REVISION: 6.4" not in l4t:
             problems.append(
-                "expected L4T R35.6.4 / JetPack 5.1.4; got %s"
+                "expected L4T R35.6.4 / JetPack 5.1.6; got %s"
                 % l4t
             )
 
     if sys.version_info[:2] != (3, 8):
         problems.append(
-            "JetPack 5.1.4 target expects Python 3.8; got %d.%d"
+            "JetPack 5.x target expects Python 3.8; got %d.%d"
             % sys.version_info[:2]
         )
     if platform.machine() != "aarch64":
@@ -169,7 +169,7 @@ def main():
                 )
             if str(torch.version.cuda) != "11.4":
                 problems.append(
-                    "JetPack 5.1.4 expects Torch CUDA 11.4; got %s"
+                    "L4T R35.6.4 target expects Torch CUDA 11.4; got %s"
                     % torch.version.cuda
                 )
 
@@ -177,7 +177,7 @@ def main():
             print("cuDNN:", cudnn_version)
             if cudnn_version != 8600:
                 problems.append(
-                    "JetPack 5.1.4 target expects cuDNN 8.6.0 "
+                    "L4T R35.6.4 target expects cuDNN 8.6.0 "
                     "(8600); got %s" % cudnn_version
                 )
 
@@ -230,7 +230,7 @@ def main():
             )
         if not str(version).startswith("8.5."):
             problems.append(
-                "JetPack 5.1.4 target expects TensorRT 8.5.x; got %s"
+                "L4T R35.6.4 target expects TensorRT 8.5.x; got %s"
                 % version
             )
 
