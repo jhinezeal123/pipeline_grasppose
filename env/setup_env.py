@@ -10,6 +10,7 @@ import venv
 
 ROOT = Path(__file__).resolve().parents[1]
 ENV = ROOT / ".venv"
+PIP_VERSION = "25.0.1"
 
 
 def protected_versions():
@@ -46,7 +47,20 @@ def main():
     if "--install" not in sys.argv:
         print(".venv ready (%s)" % ENV); return
     python = ENV / "bin" / "python"
-    subprocess.run([str(python), "-m", "pip", "install", "-c", str(constraints), "-r", str(ROOT / "requirements.txt")], check=True)
+    # Ubuntu 20.04's venv can start with an old pip that does not recognize
+    # newer manylinux/aarch64 wheel tags. Upgrade pip before dependency
+    # resolution so compatible ARM64 wheels are selected instead of sdists.
+    subprocess.run(
+        [str(python), "-m", "pip", "install", "--upgrade",
+         "pip==%s" % PIP_VERSION],
+        check=True,
+    )
+    subprocess.run(
+        [str(python), "-m", "pip", "install",
+         "-c", str(constraints),
+         "-r", str(ROOT / "requirements.txt")],
+        check=True,
+    )
 
 
 if __name__ == "__main__":
