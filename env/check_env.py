@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import platform
 import shutil
+import subprocess
 import sys
 
 import numpy as np
@@ -284,26 +285,59 @@ def main():
         if not ok:
             problems.append("missing artifact %s" % rel)
 
-    # Run each real backend once on CUDA. This is intentionally part of
-    # prepare.sh: compatibility with NVIDIA's JetPack Torch/Torchvision and
-    # TorchScript artifacts cannot be proven by x86 GitHub CI.
+    # Run YOLOE in a clean subprocess. The production service must be
+    # constructible before Torch is imported so Ultralytics owns the first
+    # framework/CUDA initialization, matching its official YOLOE flow.
+    # Use Ultralytics' bundled bus.jpg and require a real semantic detection;
+    # a blank-image smoke can succeed while silently returning zero boxes.
     if not problems:
-        try:
-            from grasppose.adapters.yoloe import Yoloe26sVision
+        yoloe_smoke = r"""
+import sys
 
-            image = np.zeros((480, 640, 3), dtype=np.uint8)
-            smoke = Yoloe26sVision()
-            smoke.load()
-            result = smoke.predict(image, "object")
-            smoke.close()
-            print(
-                "[OK] YOLOE CUDA smoke inference | boxes:",
-                len(result.detection.boxes),
-            )
-        except Exception as exc:
+import numpy as np
+from PIL import Image
+
+from grasppose.facade import DEFAULT_SERVICE
+
+if "torch" in sys.modules:
+    raise RuntimeError(
+        "Torch was imported before YOLOE load during service construction"
+    )
+
+vision = DEFAULT_SERVICE.core._vision
+vision.load()
+
+from ultralytics import ASSETS
+
+image = np.array(
+    Image.open(ASSETS / "bus.jpg").convert("RGB")
+)
+result = vision.predict(image, "person")
+scores = np.asarray(result.detection.scores, np.float32)
+if len(result.detection.boxes) == 0:
+    raise RuntimeError(
+        "YOLOE returned zero boxes for bundled bus.jpg/person smoke"
+    )
+top = float(scores.max()) if scores.size else 0.0
+print(
+    "YOLOE semantic smoke: boxes=%d top_score=%.6f"
+    % (len(result.detection.boxes), top)
+)
+vision.close()
+"""
+        completed = subprocess.run(
+            [sys.executable, "-c", yoloe_smoke],
+            cwd=str(ROOT),
+            text=True,
+            capture_output=True,
+        )
+        if completed.stdout.strip():
+            print(completed.stdout.strip())
+        if completed.returncode != 0:
+            detail = completed.stderr.strip() or completed.stdout.strip()
             problems.append(
-                "YOLOE CUDA smoke inference failed: %s: %s"
-                % (type(exc).__name__, exc)
+                "YOLOE clean-process semantic smoke failed: %s"
+                % detail
             )
 
     if not problems:
