@@ -17,6 +17,12 @@ from grasppose.facade import DEFAULT_SERVICE
 from grasppose.runtime import log
 
 
+DEFAULT_OUTPUT_DIR = os.environ.get(
+    "OUTPUT_DIR",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "output"),
+)
+
+
 # Compatibility alias for callers that need the typed core pipeline.
 DEFAULT_PIPELINE = DEFAULT_SERVICE.core
 
@@ -64,7 +70,7 @@ def main():
         )
     )
     parser.add_argument("--img", required=True)
-    parser.add_argument("--out", default="/output")
+    parser.add_argument("--out", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--prompt", default=DEFAULT_PROMPT)
     parser.add_argument(
         "--camera-k",
