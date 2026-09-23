@@ -86,7 +86,9 @@ class Grasp:
     def predict(self, tsdf):
         graspgroup = np.zeros((1, 17), np.float64)
         graspgroup[0, 0] = 0.9
-        graspgroup[0, 1] = 0.05
+        # Deliberately above the 69.4 mm hardware opening but below
+        # the 80 mm visualization limit, so the warning path is rendered.
+        graspgroup[0, 1] = 0.075
         graspgroup[0, 4:13] = np.eye(3).reshape(-1)
         graspgroup[0, 13:16] = [0, 0, 0.6]
         return GraspResult(graspgroup=graspgroup)
@@ -127,6 +129,10 @@ def main():
             "box", "mask", "depthmap", "grasp")
     )
     assert abs(result["depth_m"] - 0.6) < 1e-5
+    # Regression guard: correct shape alone is insufficient. Each renderer
+    # must actually draw content (this previously caught a P0 rendering bug).
+    for key in ("box", "mask", "depthmap", "grasp"):
+        assert np.any(result[key]), "%s rendering is empty" % key
     print("TAT CA MUC DEU PASS")
     return 0
 
