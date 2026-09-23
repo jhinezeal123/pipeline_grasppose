@@ -102,6 +102,29 @@ def main():
             print("[--] %-12s %s" % (name, exc))
             problems.append("missing/broken %s: %s" % (name, exc))
 
+    target_versions = {
+        "ultralytics": "8.4.140",
+        "opencv-python": "4.8.1.78",
+        "Pillow": "10.4.0",
+        "timm": "0.9.16",
+        "gradio": "4.44.1",
+        "gdown": "5.2.0",
+        "onnx": "1.14.1",
+        "polars": "0.20.31",
+        "matplotlib": "3.7.5",
+    }
+    for dist_name, expected_version in target_versions.items():
+        try:
+            actual = metadata.version(dist_name)
+        except metadata.PackageNotFoundError:
+            problems.append("missing target package %s" % dist_name)
+            continue
+        if actual != expected_version:
+            problems.append(
+                "%s version mismatch: expected=%s actual=%s"
+                % (dist_name, expected_version, actual)
+            )
+
     expected = _host_protected_versions()
     for dist_name in ("torch", "torchvision", "numpy", "scipy"):
         expected_version = expected.get(dist_name)
