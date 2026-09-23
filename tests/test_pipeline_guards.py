@@ -170,6 +170,7 @@ class YoloeInputTests(unittest.TestCase):
 
             def predict(self, **kwargs):
                 captured["source"] = kwargs["source"].copy()
+                captured["half"] = kwargs["half"]
                 return [SimpleNamespace(boxes=[])]
 
         adapter = Yoloe26sVision(device="cpu")
@@ -189,7 +190,56 @@ class YoloeInputTests(unittest.TestCase):
             ),
         )
         self.assertEqual(captured["classes"], ["cube"])
+        self.assertFalse(captured["half"])
         self.assertEqual(len(result.detection.boxes), 0)
+
+    def test_cpu_device_never_enables_half_even_when_cuda_exists(self):
+        captured = {}
+
+        class FakeModel:
+            def set_classes(self, classes):
+                pass
+
+            def predict(self, **kwargs):
+                captured["half"] = kwargs["half"]
+                return [SimpleNamespace(boxes=[])]
+
+        adapter = Yoloe26sVision(device="cpu", half=True)
+        adapter._model = FakeModel()
+
+        with patch(
+                "grasppose.adapters.yoloe.cuda_available",
+                return_value=True):
+            adapter.predict(
+                np.zeros((2, 2, 3), np.uint8),
+                "cube",
+            )
+
+        self.assertFalse(captured["half"])
+
+    def test_cuda_half_is_opt_in(self):
+        captured = {}
+
+        class FakeModel:
+            def set_classes(self, classes):
+                pass
+
+            def predict(self, **kwargs):
+                captured["half"] = kwargs["half"]
+                return [SimpleNamespace(boxes=[])]
+
+        adapter = Yoloe26sVision(device=0, half=True)
+        adapter._model = FakeModel()
+
+        with patch(
+                "grasppose.adapters.yoloe.cuda_available",
+                return_value=True):
+            adapter.predict(
+                np.zeros((2, 2, 3), np.uint8),
+                "cube",
+            )
+
+        self.assertTrue(captured["half"])
 
 
 class RenderingGuardTests(unittest.TestCase):
