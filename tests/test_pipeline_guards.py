@@ -217,6 +217,30 @@ class YoloeInputTests(unittest.TestCase):
 
         self.assertFalse(captured["half"])
 
+    def test_cuda_defaults_to_fp32(self):
+        captured = {}
+
+        class FakeModel:
+            def set_classes(self, classes):
+                pass
+
+            def predict(self, **kwargs):
+                captured["half"] = kwargs["half"]
+                return [SimpleNamespace(boxes=[])]
+
+        adapter = Yoloe26sVision(device=0)
+        adapter._model = FakeModel()
+
+        with patch(
+                "grasppose.adapters.yoloe.cuda_available",
+                return_value=True):
+            adapter.predict(
+                np.zeros((2, 2, 3), np.uint8),
+                "cube",
+            )
+
+        self.assertFalse(captured["half"])
+
     def test_cuda_half_is_opt_in(self):
         captured = {}
 
