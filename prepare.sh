@@ -66,6 +66,10 @@ if [ ! -s "$MOBILECLIP" ]; then
   trap - EXIT
 fi
 
+# From here onward all lazy YOLOE dependencies are already installed. Refuse
+# runtime auto-upgrades that could replace the JetPack Torch/NumPy stack.
+export ULTRALYTICS_SKIP_REQUIREMENTS_CHECKS=1
+
 echo "Validating YOLOE text-prompt path with JetPack Torch ..."
 "$PYTHON" - <<'PY'
 from pathlib import Path
