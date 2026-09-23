@@ -22,7 +22,7 @@ K = [[fx, 0, cx], [0, fy, cy], [0, 0, 1]]
 ```
 
 ```bash
-bash run.sh img/frame.png --prompt "the mug" --camera-k 615.2 614.8 320.1 239.7
+bash infer.sh img/frame.png --prompt "the mug" --camera-k 615.2 614.8 320.1 239.7
 # hoặc cho Web UI
 export CAMERA_K="615.2 614.8 320.1 239.7"
 ```
@@ -35,15 +35,36 @@ export LITEMONO_DEPTH_SCALE=0.73   # ví dụ; phải đo trên camera/scene th�
 
 Nếu không đặt, pipeline dùng `1.0` và log cảnh báo.
 
-## Setup Xavier
+## Ba entrypoint
 
-Yêu cầu JetPack đã có CUDA, TensorRT và PyTorch/torchvision tương thích Jetson. `run.sh` không cài đè CUDA/PyTorch của JetPack.
+Yêu cầu JetPack đã có CUDA, TensorRT và PyTorch/torchvision tương thích Jetson.
+
+### 1. Chuẩn bị tài nguyên
 
 ```bash
-bash run.sh img/frame.png --camera-k FX FY CX CY --prompt "the object"
+bash prepare.sh
 ```
 
-Script tạo `.venv` với `--system-site-packages`, tải `yoloe-26s-seg.pt`, clone Lite-Mono + weight 640x192, và yêu cầu `model/vgn.engine` được build trên chính Jetson.
+`prepare.sh` tạo `.venv` với `--system-site-packages`, cài Python dependencies nhưng không thay CUDA/PyTorch của JetPack, tải `yoloe-26s-seg.pt`, clone Lite-Mono và tải weight 640x192.
+
+VGN TensorRT engine phải được build trên chính Jetson. Đặt checkpoint tại `model/vgn_conv.pth` hoặc truyền `VGN_CHECKPOINT=/path/to/vgn_conv.pth`; nếu chưa có `model/vgn.engine`, `prepare.sh` tự export ONNX và chạy `trtexec --fp16`.
+
+### 2. Inference một ảnh
+
+```bash
+bash infer.sh img/frame.png --camera-k FX FY CX CY --prompt "the object"
+```
+
+`infer.sh` chỉ chạy `pipeline.py`, không bootstrap dependency. Mỗi lần chạy ghi một bộ 4 ảnh `*_box.png`, `*_mask.png`, `*_depthmap.png`, `*_grasp.png` vào thư mục tuyệt đối `/output`.
+
+### 3. UI
+
+```bash
+export CAMERA_K="FX FY CX CY"
+bash space.sh --host 0.0.0.0 --port 8080
+```
+
+`space.sh` khởi động Gradio UI. Các model được preload một lần khi service khởi động và giữ resident cho các request tiếp theo.
 
 ### Build VGN TensorRT
 
