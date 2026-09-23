@@ -16,20 +16,12 @@ from ..domain.types import (
     VisionResult,
 )
 from ..ports.vision import VisionPort
-from ..runtime import cuda_available, log, release_attributes
+from ..runtime import log, release_attributes
 
 
-def _is_cuda_device(device):
-    """Return whether an Ultralytics device selector targets CUDA."""
-    if not cuda_available():
-        return False
-    if isinstance(device, int):
-        return device >= 0
-    text = str(device).strip().lower()
-    return (
-        text.startswith("cuda")
-        or text.isdigit()
-    )
+def _is_explicit_cpu_device(device):
+    """Return whether the caller explicitly selected CPU inference."""
+    return str(device).strip().lower() == "cpu"
 
 
 class Yoloe26sVision(VisionPort):
@@ -38,8 +30,10 @@ class Yoloe26sVision(VisionPort):
     def __init__(self, model_path=None, device=None, conf=None, imgsz=None,
                  half=None):
         self.model_path = model_path or YOLOE_MODEL
-        self.device = device if device is not None else (
-            0 if cuda_available() else "cpu")
+        # Match the official Ultralytics predict flow: do not probe Torch/CUDA
+        # before YOLOE is imported and constructed. device=None lets
+        # Ultralytics select CUDA:0 when available, otherwise CPU.
+        self.device = device
         self.conf = YOLOE_CONF if conf is None else float(conf)
         self.imgsz = YOLOE_IMGSZ if imgsz is None else int(imgsz)
         self.half = YOLOE_HALF if half is None else bool(half)
@@ -69,16 +63,21 @@ class Yoloe26sVision(VisionPort):
             self._model.set_classes([prompt])
             self._classes_prompt = prompt
 
-        use_half = self.half and _is_cuda_device(self.device)
-        result = self._model.predict(
-            source=bgr,
-            conf=self.conf,
-            imgsz=self.imgsz,
-            device=self.device,
-            half=use_half,
-            retina_masks=True,
-            verbose=False,
-        )[0]
+        predict_kwargs = {
+            "source": bgr,
+            "conf": self.conf,
+            "imgsz": self.imgsz,
+            "retina_masks": True,
+            "verbose": False,
+        }
+        if self.device is not None:
+            predict_kwargs["device"] = self.device
+        # Ultralytics 8.4.x uses quantize=16 for FP16; the legacy half flag
+        # is deprecated. Leave precision unset for the official FP32 default.
+        if self.half and not _is_explicit_cpu_device(self.device):
+            predict_kwargs["quantize"] = 16
+
+        result = self._model.predict(**predict_kwargs)[0]
 
         if result is None or result.boxes is None or len(result.boxes) == 0:
             reason = "YOLOE did not find an object for prompt %r" % prompt
