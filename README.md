@@ -32,6 +32,11 @@ Lưu ý versioning NVIDIA: JetPack 5.1.4 gốc đi với L4T 35.6.0; target th�
 `--system-site-packages` + constraints. Python 3.8 dependencies có pin riêng
 để tránh pip chọn wheel mới không còn hỗ trợ focal/aarch64.
 
+YOLOE-26 mặc định chạy FP32 trên Xavier. Kiểm thử trực tiếp trên target cho thấy
+CUDA FP32 khôi phục detections trong khi đường adapter FP16 có thể trả 0 box.
+FP16 vì vậy chỉ là opt-in bằng `YOLOE_HALF=1`; khi chọn `device="cpu"`,
+adapter luôn dùng FP32 kể cả máy có CUDA.
+
 YOLOE-26 text prompting cần thêm `mobileclip2_b.ts`. `prepare.sh` tải artifact
 này, kiểm tra SHA-256, cài Ultralytics CLIP ở revision đã pin và chạy
 `set_classes(["object"])` một lần. Vì vậy `infer.sh` / `space.sh` không cần
