@@ -19,6 +19,7 @@ TSDF_RESOLUTION = int(os.environ.get("TSDF_RESOLUTION", "40"))
 TSDF_TRUNC_VOXELS = float(os.environ.get("TSDF_TRUNC_VOXELS", "4.0"))
 
 VGN_ENGINE = os.environ.get("VGN_ENGINE", os.path.join(MODEL_DIR, "vgn.engine"))
+# Matches ethz-asl/vgn detection.select default threshold.
 VGN_QUAL_THRESHOLD = float(os.environ.get("VGN_QUAL_THRESHOLD", "0.90"))
 
 GRIP_HW_OPEN_M = 0.0694
