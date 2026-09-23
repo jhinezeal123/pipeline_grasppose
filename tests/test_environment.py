@@ -173,8 +173,8 @@ class EnvironmentTests(unittest.TestCase):
             'getattr(module, "__version__", "")',
             source,
         )
-        self.assertNotIn(
-            'actual = metadata.version(dist_name)',
+        self.assertIn(
+            'actual = str(getattr(module, "__version__", "")).strip()',
             source,
         )
 
