@@ -62,20 +62,26 @@ class EnvironmentTests(unittest.TestCase):
                 (setup.ENV / "bin").mkdir()
 
             create.side_effect = make_env
+            expected_python = setup.ENV / "bin" / "python"
+            expected_constraints = setup.ENV / "host-constraints.txt"
             setup.main()
             cmd = run.call_args_list[-1].args[0]
 
-        self.assertEqual(
-            cmd[:3],
-            [str(setup.ENV / "bin/python"), "-m", "pip"],
-        )
-        self.assertIn(
-            str(setup.ENV / "host-constraints.txt"), cmd)
-        self.assertIn(
-            str(setup.ROOT / "requirements.txt"), cmd)
+            self.assertEqual(
+                cmd[:3],
+                [str(expected_python), "-m", "pip"],
+            )
+            self.assertIn(str(expected_constraints), cmd)
+            self.assertIn(
+                str(setup.ROOT / "requirements.txt"), cmd)
 
     def test_python38_requirements_match_xavier_host(self):
-        requirements = (ROOT / "requirements.txt").read_text()
+        lines = [
+            line.strip()
+            for line in (ROOT / "requirements.txt").read_text().splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        requirements = "\n".join(lines)
         self.assertIn(
             'numpy==1.23.5; python_version < "3.9"',
             requirements,
@@ -92,7 +98,10 @@ class EnvironmentTests(unittest.TestCase):
             'opencv-python==4.8.1.78; python_version < "3.9"',
             requirements,
         )
-        self.assertNotIn("opencv-python-headless", requirements)
+        self.assertFalse(any(
+            line.startswith("opencv-python-headless")
+            for line in lines
+        ))
 
 
 if __name__ == "__main__":
