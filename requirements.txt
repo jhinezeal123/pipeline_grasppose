@@ -1,4 +1,4 @@
-# Jetson AGX Xavier / JetPack 5.1.4 target runtime.
+# Jetson AGX Xavier / L4T R35.6.4 (JetPack 5.1.6) target runtime.
 # Torch/torchvision/TensorRT come from JetPack and MUST NOT be replaced by pip.
 #
 # Python 3.8 pins below are selected for aarch64 manylinux wheels and the
