@@ -70,8 +70,10 @@ class GraspPipeline:
                     resource.close()
                 except Exception as exc:
                     failures.append((name, exc))
-                    log("ERROR closing %s: %s: %s" % (
-                        name, type(exc).__name__, exc))
+                    log_exception(
+                        "ERROR closing %s: %s: %s" % (
+                            name, type(exc).__name__, exc)
+                    )
             self._loaded = False
             log_vram(" after pipeline close")
             if failures:
