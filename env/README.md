@@ -1,6 +1,6 @@
 # Môi trường Jetson
 
-`run.sh` giữ nguyên CUDA stack của JetPack. `.venv` dùng `--system-site-packages`; `env/setup_env.py` ghi version host vào `.venv/host-constraints.txt` để pip không tự thay Torch/CUDA packages.
+`prepare.sh` giữ nguyên CUDA stack của JetPack. `.venv` dùng `--system-site-packages`; `env/setup_env.py` ghi version host vào `.venv/host-constraints.txt` để pip không tự thay Torch/CUDA packages.
 
 Yêu cầu: Jetson Xavier + JetPack/CUDA/TensorRT, Python >=3.8, host `torch`, `torchvision`, `numpy` hoạt động và `torch.cuda.is_available()` là `True`.
 
