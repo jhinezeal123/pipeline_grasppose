@@ -202,8 +202,63 @@ def main():
         if not ok:
             problems.append("missing artifact %s" % rel)
 
+    # Run each real backend once on CUDA. This is intentionally part of
+    # prepare.sh: compatibility with NVIDIA's JetPack Torch/Torchvision and
+    # TorchScript artifacts cannot be proven by x86 GitHub CI.
+    if not problems:
+        try:
+            from grasppose.adapters.yoloe import Yoloe26sVision
+
+            image = np.zeros((480, 640, 3), dtype=np.uint8)
+            smoke = Yoloe26sVision()
+            smoke.load()
+            result = smoke.predict(image, "object")
+            smoke.close()
+            print(
+                "[OK] YOLOE CUDA smoke inference | boxes:",
+                len(result.detection.boxes),
+            )
+        except Exception as exc:
+            problems.append(
+                "YOLOE CUDA smoke inference failed: %s: %s"
+                % (type(exc).__name__, exc)
+            )
+
+    if not problems:
+        try:
+            from grasppose.adapters.lite_mono import LiteMonoDepth
+
+            image = np.zeros((192, 640, 3), dtype=np.uint8)
+            K = np.array(
+                [[500.0, 0.0, 320.0],
+                 [0.0, 500.0, 96.0],
+                 [0.0, 0.0, 1.0]],
+                dtype=np.float64,
+            )
+            smoke = LiteMonoDepth()
+            smoke.load()
+            result = smoke.predict(image, camera_K=K)
+            smoke.close()
+            if result.depth.shape != (192, 640):
+                raise RuntimeError(
+                    "unexpected depth shape %r"
+                    % (result.depth.shape,)
+                )
+            if not np.isfinite(result.depth).all():
+                raise RuntimeError(
+                    "Lite-Mono returned non-finite depth")
+            print(
+                "[OK] Lite-Mono CUDA smoke inference | depth:",
+                result.depth.shape,
+            )
+        except Exception as exc:
+            problems.append(
+                "Lite-Mono CUDA smoke inference failed: %s: %s"
+                % (type(exc).__name__, exc)
+            )
+
     # Deserialize and execute the exact TensorRT engine once. This verifies
-    # the 8.5.x Python API path, plan compatibility and CUDA execution on sm_72.
+    # the 8.5.x API path, engine compatibility and CUDA execution on sm_72.
     if not problems:
         try:
             from grasppose.adapters.vgn_trt import VgnTensorRT
