@@ -16,7 +16,7 @@ YOLOE, Lite-Mono và VGN TensorRT được nạp một lần và giữ resident 
 
 ## Hardware target
 
-Nhánh này được khóa cho Jetson AGX Xavier 32 GB / JetPack 5.1.4:
+Nhánh này được khóa cho Jetson AGX Xavier 32 GB / L4T R35.6.4 (JetPack 5.1.6):
 
 - Ubuntu 20.04 / L4T R35.6.4;
 - aarch64 + Carmel CPU;
@@ -25,6 +25,8 @@ Nhánh này được khóa cho Jetson AGX Xavier 32 GB / JetPack 5.1.4:
 - Python 3.8;
 - NVIDIA Torch 2.1.0a0 + torchvision 0.16.x;
 - NumPy 1.23.5 / SciPy 1.10.1 từ host JetPack.
+
+Lưu ý versioning NVIDIA: JetPack 5.1.4 gốc đi với L4T 35.6.0; target thực tế ở đây là L4T 35.6.4, tương ứng JetPack 5.1.6. Compute stack vẫn là CUDA 11.4 / cuDNN 8.6 / TensorRT 8.5.x.
 
 `prepare.sh` giữ nguyên Torch/torchvision/NumPy/SciPy của host bằng
 `--system-site-packages` + constraints. Python 3.8 dependencies có pin riêng
