@@ -31,6 +31,16 @@ DEFAULT_PIPELINE = GraspPipeline(
 )
 
 
+def load_models():
+    """Load YOLOE, Lite-Mono and VGN TensorRT once and keep them resident."""
+    return DEFAULT_PIPELINE.load()
+
+
+def close_models():
+    """Release resident models; intended for process shutdown only."""
+    DEFAULT_PIPELINE.close()
+
+
 def run_phases(image, prompt, camera_K=None, fov_x=None, T_cam_volume=None,
                vision=None, depther=None, tsdf_builder=None, grasper=None):
     return DEFAULT_PIPELINE.run(image, prompt, camera_K=camera_K, fov_x=fov_x,
@@ -75,6 +85,7 @@ def main():
     K = _camera_K_from_args(args)
     if K is None and fov_x is None and not os.environ.get("CAMERA_K"):
         ap.error("real-camera pipeline needs --camera-k FX FY CX CY (or CAMERA_K env)")
+    load_models()
     t0 = time.time(); res = pipeline(img, prompt=args.prompt, camera_K=K, fov_x=fov_x,
                                      max_width=args.max_width, top=args.top)
     _log("TOTAL: %.2fs" % (time.time() - t0))
