@@ -8,6 +8,10 @@ MODEL_DIR = os.path.join(HERE, "model")
 YOLOE_MODEL = os.environ.get("YOLOE_MODEL", os.path.join(MODEL_DIR, "yoloe-26s-seg.pt"))
 YOLOE_IMGSZ = int(os.environ.get("YOLOE_IMGSZ", "640"))
 YOLOE_CONF = float(os.environ.get("YOLOE_CONF", "0.20"))
+YOLOE_HALF = (
+    os.environ.get("YOLOE_HALF", "0").strip().lower()
+    in {"1", "true", "yes", "on"}
+)
 
 LITEMONO_HOME = os.environ.get("LITEMONO_HOME", os.path.join(MODEL_DIR, "Lite-Mono"))
 LITEMONO_WEIGHTS = os.environ.get("LITEMONO_WEIGHTS", os.path.join(MODEL_DIR, "lite-mono"))
