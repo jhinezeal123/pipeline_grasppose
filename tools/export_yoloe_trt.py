@@ -35,6 +35,7 @@ def main():
         imgsz=args.imgsz,
         batch=1,
         dynamic=False,
+        simplify=False,
         device=0,
         quantize=16,
         workspace=args.workspace,
