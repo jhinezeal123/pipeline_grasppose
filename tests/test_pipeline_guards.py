@@ -229,7 +229,7 @@ class YoloeInputTests(unittest.TestCase):
     def test_runtime_rejects_prompts_not_baked_into_engine(self):
         adapter = Yoloe26sVision()
         with self.assertRaisesRegex(
-                ValueError, "blue cube.*yellow ball.*blue cyclinder"):
+                ValueError, "blue cube.*yellow ball.*blue cylinder"):
             adapter.predict(
                 np.zeros((2, 2, 3), np.uint8),
                 "red cube",
