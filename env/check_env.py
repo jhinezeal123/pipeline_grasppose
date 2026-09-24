@@ -254,7 +254,7 @@ def main():
     )
     print("trtexec:", trtexec or "not found")
     if not trtexec:
-        problems.append("trtexec is required to build VGN engine")
+        problems.append("trtexec is required to build TensorRT engines")
 
     total_gib = _mem_total_gib()
     if total_gib is not None:
@@ -274,8 +274,9 @@ def main():
     artifacts = (
         "model/yoloe-26s-seg.pt",
         "mobileclip2_b.ts",
-        "model/lite-mono/encoder.pth",
-        "model/lite-mono/depth.pth",
+        "model/lite-mono-tiny_192x640_op11.onnx",
+        "model/lite-mono-tiny_192x640_op11_fp16.engine",
+        "build/litemono_trt/liblitemono_trt.so",
         "model/vgn.engine",
     )
     for rel in artifacts:
@@ -364,12 +365,12 @@ vision.close()
                 raise RuntimeError(
                     "Lite-Mono returned non-finite depth")
             print(
-                "[OK] Lite-Mono CUDA smoke inference | depth:",
+                "[OK] Lite-Mono Tiny TensorRT smoke inference | depth:",
                 result.depth.shape,
             )
         except Exception as exc:
             problems.append(
-                "Lite-Mono CUDA smoke inference failed: %s: %s"
+                "Lite-Mono Tiny TensorRT smoke inference failed: %s: %s"
                 % (type(exc).__name__, exc)
             )
 
