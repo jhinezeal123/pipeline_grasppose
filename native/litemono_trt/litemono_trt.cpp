@@ -25,7 +25,7 @@ class Logger final : public nvinfer1::ILogger {
 template <typename T>
 struct TrtDestroy {
   void operator()(T* ptr) const noexcept {
-    if (ptr) ptr->destroy();
+    delete ptr;
   }
 };
 
