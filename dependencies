@@ -1,103 +1,40 @@
-# =============================================================================
-# dependencies - NGUON DUY NHAT (single source of truth) cho run.sh biet can tai gi.
-# File nay vua de nguoi doc, vua duoc run.sh parse bang python3.
-#
-# CU PHAP: moi model la 1 block gom cac dong "KEY = VALUE",
-#          cac block cach nhau bang 1 dong chi chua "---",
-#          dong bat dau bang '#' la comment (bo qua).
-#
-# KIND co dung 3 gia tri:
-#   hf  = tai ca repo bang huggingface snapshot_download  -> can REPO (repo_id)
-#   git = git clone --depth 1                             -> can URL
-#   url = tai 1 file don bang wget/curl                    -> can URL
-#
-# REVISION (tuy chon): ghim dung 1 commit de ket qua TAI LAP DUOC.
-#   - KIND = hf : commit sha tren HuggingFace, truyen vao snapshot_download(revision=...).
-#                 KHONG ghim thi moi lan chay tai ban moi nhat -> noi dung doi theo.
-#   - KIND = git: commit sha, git fetch --depth 1 roi checkout --detach.
-#   Bo trong = dung mac dinh (hf: nhanh main; git: HEAD cua lan clone).
-#
-# DEST luon la duong dan TINH DOI voi thu muc goc cua repo (khong dung / tuyet doi).
-# =============================================================================
+# Edge pipeline model/source dependencies.
 
-# -----------------------------------------------------------------------------
-# 1) Grounding DINO (tiny): text prompt -> bounding box cua vat the.
-# -----------------------------------------------------------------------------
-NAME = grounding-dino
-KIND = hf
-REPO = IDEA-Research/grounding-dino-tiny
-DEST = model/grounding-dino-tiny
-REVISION = a2bb814dd30d776dcf7e30523b00659f4f141c71
----
-# -----------------------------------------------------------------------------
-# 2) SAM (Segment Anything, vit-base): bounding box -> mask chinh xac.
-# -----------------------------------------------------------------------------
-NAME = sam
-KIND = hf
-REPO = facebook/sam-vit-base
-DEST = model/sam-vit-base
-REVISION = 70c1a07f894ebb5b307fd9eaaee97b9dfc16068f
----
-# -----------------------------------------------------------------------------
-# 3) MoGe v3 (ViT-L): anh -> depth map + point cloud + intrinsics.
-#    Luu y: day chi la WEIGHTS. Code MoGe duoc ghim commit
-#    va duoc cai tu requirements.txt vao .venv.
-# -----------------------------------------------------------------------------
-NAME = moge
-KIND = hf
-REPO = Ruicheng/moge-3-vitl
-DEST = model/moge-3-vitl
-REVISION = 184008f877d7ad1ad4c2cd2182a9bd1f63d0e5be
----
-# -----------------------------------------------------------------------------
-# 5) GraspNetAPI source code (graspnet/graspnetAPI) - bat buoc dung ban git clone.
-#    Goi "graspnetAPI" tren PyPI bi HONG (van import setuptools.extern.six da bi
-#    Python moi xoa), nen run.sh clone repo nay va them vao PYTHONPATH.
-# -----------------------------------------------------------------------------
-NAME = graspnetapi-repo
-KIND = git
-URL = https://github.com/graspnet/graspnetAPI.git
-DEST = model/graspnetAPI_repo
-REVISION = eb57dd2092d8dbe05312a29c3d0c22f3226efbfc
----
-# -----------------------------------------------------------------------------
-# 6) Graspness checkpoint (GraspNet-1Billion), ban RealSense.
-#
-#    NGUON CHINH THUC (da kiem chung, khong phai suy doan):
-#      repo  : https://github.com/graspnet/graspness_unofficial
-#      README: muc "Model Weights" -> Google Drive
-#      file  : minkuresunet_realsense.tar  (176 MB, ben trong co .pth)
-#      link  : https://drive.google.com/file/d/1RfdpEM2y0x98rV28d7B2Dg8LLFKnBkfL/view
-#      (ban Kinect: https://drive.google.com/file/d/10o5fc8LQsbI8H0pIC2RTJMNapW9eczqF/view)
-#
-#    DA DOI CHIEU NOI DUNG voi upstream — file ta dung dung la weight do:
-#      epoch            = 10   (khop --checkpoint_path logs/log_kn/minkresunet_epoch10.tar
-#                               trong command_test.sh cua upstream)
-#      216 tham so, gom 4 nhanh graspable/rotation/crop/swad — bon ten nay CHI
-#      co trong models/graspnet.py cua graspness_unofficial
-#      md5 = f2c14a02cf024de789f324ba2da76277, 184.4 MB, luu dang zip
-#      va quan trong nhat: chay ra ket qua dung (199 tu the, 108 vua khe kep 69 mm)
-#
-#    CACH TAI TU DONG: dataset Kaggle cong khai, da kiem chung tai duoc
-#    KHONG can dang nhap (HTTP 200 voi isPrivate=false):
-#      https://www.kaggle.com/datasets/bbucxi/graspness-realsense-ckpt
-#    Day la ban sao cua dung file trong minkuresunet_realsense.tar o tren,
-#    md5 f2c14a02cf024de789f324ba2da76277 / 184429769 byte.
-#
-#    LUU Y: link Google Drive KHONG tai truc tiep duoc — .../file/d/<id>/view chi
-#    la trang xem, file >100 MB bi chan them buoc "Virus scan warning", va rat hay
-#    gap "Quota exceeded". Do la ly do ton tai ban sao tren Kaggle.
-# -----------------------------------------------------------------------------
-NAME = graspness
+# YOLOE-26s checkpoint is resolved by Ultralytics during prepare.sh.
+NAME = yoloe-26s-seg
 KIND = url
-URL = https://www.kaggle.com/api/v1/datasets/download/bbucxi/graspness-realsense-ckpt
-DEST = model/graspness_reckpt.pth
-MD5 = f2c14a02cf024de789f324ba2da76277
-
+URL = https://github.com/ultralytics/assets/releases/download/v8.4.0/yoloe-26s-seg.pt
+DEST = model/yoloe-26s-seg.pt
 ---
-# Native GraspNess source (pointnet2 is compiled by run.sh).
-NAME = graspness-repo
+# YOLOE text tokenizer dependency, pinned so first inference never installs code.
+NAME = ultralytics-clip
 KIND = git
-URL = https://github.com/graspnet/graspness_unofficial.git
-DEST = model/graspness_unofficial
-REVISION = b5abf5aaaf3a797514f89161d8ccc8dfc2ec0eca
+URL = https://github.com/ultralytics/CLIP.git
+REVISION = a13192f8cb767260d7dfd98c843b0716593169e7
+DEST = .venv
+---
+# YOLOE-26 MobileCLIP2 TorchScript text encoder.
+NAME = mobileclip2-b
+KIND = url
+URL = https://github.com/ultralytics/assets/releases/download/v8.4.0/mobileclip2_b.ts
+SHA256 = 35d7f213e4d75f38514e4656ad3cb91158bd33e3805d8ac349f23b186f66982f
+DEST = mobileclip2_b.ts
+---
+NAME = lite-mono-repo
+KIND = git
+URL = https://github.com/noahzn/Lite-Mono.git
+DEST = model/Lite-Mono
+REVISION = 4874b35df8ed4da16159ce8be8c697028b72bf76
+---
+# Official 640x192 Lite-Mono trained model.
+NAME = lite-mono-weights
+KIND = url
+URL = https://surfdrive.surf.nl/files/index.php/s/CUjiK221EFLyXDY/download
+DEST = model/lite-mono
+---
+# Official ETH VGN data bundle. prepare.sh extracts data/models/vgn_conv.pth
+# and builds a target-specific TensorRT engine locally.
+NAME = vgn-official-data
+KIND = url
+URL = https://drive.google.com/file/d/1MysYHve3ooWiLq12b58Nm8FWiFBMH-bJ/view?usp=sharing
+DEST = model/vgn_conv.pth

@@ -1,339 +1,257 @@
-# grasp_pipeline_repo
+# Jetson Xavier grasp-pose pipeline
 
-Pipeline: **text prompt -> grasp pose**, chay tren may Linux GPU (Kaggle).
-Tu mot cau prompt (vi du "cai coc") + mot anh RGB -> vi tri dat tay de gap vat the:
+Runtime:
 
-1. **Grounding DINO** (tiny) - prompt -> **bounding box** cua vat the.
-2. **SAM** (vit-base) - box -> **mask** chinh xac cua vat the.
-3. **MoGe v3** (ViT-L) - anh -> **depth map** + point cloud + intrinsics (3D).
-4. **GraspNet / Graspness** - point cloud + mask -> **grasp pose** (6-DoF).
-
-Co **2 che do chay**:
-
-- **Batch** (mac dinh): `bash run.sh img/anh.png` -> 4 anh trong `output/`. Muc 3.
-- **Web UI** kieu HuggingFace Space: `bash run.sh --serve` -> mo trinh duyet, tai
-  anh len, bam Submit -> 4 anh + **do sau cua vat (met)**. Muc 7.
-
-## Cau truc thu muc
-
-```
-grasp_pipeline_repo/
-  run.sh              # chay tat ca: tai model -> cai thu vien -> chay pipeline
-  dependencies        # danh sach model can tai (nguon duy nhat, run.sh parse file nay)
-  requirements.txt    # thu vien Python, dung dinh dang HF Spaces (xem muc 7)
-  requirements.lock.txt # snapshot lịch sử, không dùng để bootstrap
-  hf_token            # token HuggingFace, de TRONG cung duoc
-  pipeline.py         # CHAY CHINH: dinh nghia 4 lop cu the + noi pipeline + pipeline(img)
-  app.py              # WEB UI (gradio): anh -> 4 anh + do sau (muc 7)
-  Object_Detection.py # \  KHAI BAO giao dien 4 module (lop truu tuong).
-  Segmentation.py     #  | Chi co chu ky prepare()/inference()/release() va
-  Depth_Estimate.py   #  | thuoc tinh model_path. Khong dinh nghia gi.
-  GraspNess.py        # /  Doi model = thay lop cu the trong pipeline.py.
-  test_pipeline_mock.py # kiem thu khong can GPU (model gia)
-  test_app.py           # kiem thu web UI khong can gradio (muc 6)
-  env/                # phu thuoc moi truong: check_env.py + ghi chu (muc 8)
-  .venv/            # thu vien run.sh cai rieng cho repo (sinh ra, KHONG commit)
-  example/            # anh mau de thu ngay
-  img/                # anh dau vao (.png/.jpg/.jpeg)
-  output/             # anh ket qua
-  model/              # trong so model duoc tai ve day
+```text
+RGB
+ └─ YOLOE-26s-seg -> bbox + instance mask
+     └─ Lite-Mono -> depth map
+         └─ depth + camera K + mask -> point cloud
+             └─ projective TSDF 0.30 m / 40^3
+                 └─ VGN TensorRT -> 6-DoF grasp poses
 ```
 
-`.venv/` va `model/` la **sinh ra**, khong nam trong git — `run.sh` tu tao lai.
+YOLOE, Lite-Mono và VGN TensorRT được nạp một lần và giữ resident trong suốt process. Mỗi frame chỉ chạy inference; model chỉ được giải phóng khi gọi `close_models()` hoặc service kết thúc.
 
-### Thao/lap model khac
 
-4 file module la **hop dong**: chung chi khai bao lop truu tuong
-(`model_path`, `prepare()`, `inference()`, `release()`). Toan bo phan dinh nghia
-cu the nam trong `pipeline.py`. Muon doi model (vi du thay Grounding DINO bang
-OWL-ViT) thi chi viet mot lop con moi cua `Object_Detection` trong `pipeline.py`
-va doi cho khoi tao — khong phai sua file module nao.
+## Hardware target
 
-## 1. Dien hf_token
+Nhánh này được khóa cho Jetson AGX Xavier 32 GB / L4T R35.6.4 (JetPack 5.1.6):
 
-Mo file `hf_token`, dan token HuggingFace vao (1 dong, khong xuong dong thua).
-De trong cung chay duoc, chi la tai cham hon. Token chi duoc export thanh bien moi
-truong `HF_TOKEN`, khong bao gio bi in ra.
+- Ubuntu 20.04 / L4T R35.6.4;
+- aarch64 + Carmel CPU;
+- Volta GPU compute capability 7.2 (`sm_72`);
+- CUDA 11.4, cuDNN 8.6, TensorRT 8.5.x;
+- Python 3.8;
+- NVIDIA Torch 2.1.0a0 + torchvision 0.16.x;
+- NumPy 1.23.5 / SciPy 1.10.1 từ host JetPack.
 
-## 2. Checkpoint graspness — `run.sh` tu tai, khong can lam gi
+Lưu ý versioning NVIDIA: JetPack 5.1.4 gốc đi với L4T 35.6.0; target thực tế ở đây là L4T 35.6.4, tương ứng JetPack 5.1.6. Compute stack vẫn là CUDA 11.4 / cuDNN 8.6 / TensorRT 8.5.x.
 
-Block `NAME = graspness` trong `dependencies` da tro san vao mot dataset Kaggle
-cong khai:
+`prepare.sh` giữ nguyên Torch/torchvision/NumPy/SciPy của host bằng
+`--system-site-packages` + constraints. Python 3.8 dependencies có pin riêng
+để tránh pip chọn wheel mới không còn hỗ trợ focal/aarch64.
 
+YOLOE-26 mặc định chạy FP32 trên Xavier. Adapter đi theo flow chính thức của
+Ultralytics: không probe Torch/CUDA trong constructor, để `device=None` cho
+Ultralytics chọn device ở bước predict, và để precision unset cho FP32 mặc
+định. FP16 chỉ là opt-in bằng `YOLOE_HALF=1`, được truyền bằng
+`quantize=16` (cờ `half` upstream đã deprecated). Khi chọn
+`device="cpu"`, adapter không bật FP16.
+
+Điều này cũng áp dụng cho composition root: constructor Lite-Mono không còn
+gọi `torch.cuda.is_available()`. Nhờ vậy import `grasppose.facade` chỉ tạo
+object graph, chưa import Torch; lần framework import đầu tiên trong production
+path là khi `Yoloe26sVision.load()` import `ultralytics.YOLOE`.
+
+YOLOE-26 text prompting cần thêm `mobileclip2_b.ts`. `prepare.sh` tải artifact
+này, kiểm tra SHA-256, cài Ultralytics CLIP ở revision đã pin và chạy
+`set_classes(["object"])` một lần. Vì vậy `infer.sh` / `space.sh` không cần
+tự cài package hay tải text encoder ở request đầu tiên.
+
+VGN ONNX được export bằng `onnx==1.14.1` trên Python 3.8 và TensorRT engine
+được build bằng `trtexec` ngay trên Xavier. Không reuse engine build trên T4
+(sm_75) hay máy TensorRT khác.
+
+`env/check_env.py` kiểm tra thêm:
+
+- đúng aarch64 / Python 3.8 / CUDA 11.4 / `sm_72`;
+- Torch/torchvision/NumPy/SciPy trong venv không bị thay khỏi host versions;
+- CUDA torchvision NMS hoạt động;
+- TensorRT >= 8.5 và `trtexec` có mặt;
+- artifact YOLOE/MobileCLIP/Lite-Mono/VGN đầy đủ;
+- chạy YOLOE semantic smoke trong subprocess sạch theo đúng import order production, dùng `ultralytics/assets/bus.jpg` + prompt `person` và bắt buộc có ít nhất một box;
+- chạy Lite-Mono CUDA inference thật;
+- deserialize và chạy một VGN TensorRT dummy inference thật.
+
+Lưu ý: venv dùng wheel `opencv-python==4.8.1.78` vì Ultralytics yêu cầu
+distribution này. OpenCV hệ thống 4.5.4 có GStreamer vẫn còn nguyên trên OS,
+nhưng code chạy trong venv sẽ import bản pip; pipeline hiện nhận ảnh file/Gradio
+nên không phụ thuộc GStreamer. Nếu sau này đọc camera qua GStreamer thì cần tách
+camera I/O khỏi venv hoặc đổi chiến lược OpenCV.
+
+## Kiến trúc OOP
+
+```text
+CLI / Gradio
+    │
+    ▼
+facade.py
+    │
+    ▼
+application/
+    │ depends only on
+    ▼
+ports/ + domain/
+    ▲
+    │ implemented by
+    │
+adapters/
+  ├─ yoloe.py
+  ├─ lite_mono.py
+  └─ vgn_trt.py
 ```
-URL = https://www.kaggle.com/api/v1/datasets/download/bbucxi/graspness-realsense-ckpt
-MD5 = f2c14a02cf024de789f324ba2da76277
+
+Cấu trúc chính:
+
+```text
+grasppose/
+├── adapters/                 # code phụ thuộc framework/model
+│   ├── yoloe.py
+│   ├── lite_mono.py
+│   └── vgn_trt.py
+├── application/
+│   └── grasp_pipeline.py     # orchestration/use-case
+├── domain/                   # numpy/scipy, không biết model framework
+│   ├── geometry.py
+│   ├── tsdf.py
+│   ├── types.py
+│   └── vgn.py
+├── ports/                    # interface/contract
+│   ├── vision.py
+│   ├── depth.py
+│   ├── tsdf.py
+│   └── grasp.py
+├── presentation/
+│   └── rendering.py
+├── bootstrap.py              # composition root
+├── facade.py                 # API chung cho CLI/UI
+├── config.py
+└── runtime.py
 ```
 
-`run.sh` tai ve, tu giai nen (Kaggle tra ve **zip** chua `.pth`), roi doi chieu
-md5. Lech md5 thi xoa file va dung ngay — tai hong (nhan phai trang HTML, file
-bi cat ngan) bi bat o day thay vi chet mo ho o buoc GraspNess sau nay.
+Các adapter chỉ giữ resource persistent như weights, encoder/decoder hoặc TensorRT engine. Dữ liệu theo frame không được lưu trong object; mỗi frame đi qua `predict(...)` và typed dataclass trong `domain/types.py`.
 
-Da do thuc te: tai xong trong **4.1 giay**, md5 khop, `epoch=10`, 216 tham so.
+Các implementation Grounding-DINO, SAM, MoGe và GraspNess/MinkowskiEngine cũ đã được loại khỏi source tree để repository chỉ có một runtime architecture canonical.
 
-### Nguon goc
+## Calibration bắt buộc
 
-Checkpoint `graspness_realsense.pth` (epoch=10) cua GraspNet. Link chinh thuc
-nam o muc "Model Weights" trong README cua
-[graspnet/graspness_unofficial](https://github.com/graspnet/graspness_unofficial),
-duoi dang Google Drive, file goc ten `minkuresunet_realsense.tar`.
+Point cloud dùng K thật của camera:
 
-**Khong dung duoc link Google Drive lam URL mac dinh**: `.../file/d/<id>/view`
-chi la trang xem chu khong phai link tai, file >100 MB bi chan them buoc
-"Virus scan warning", va rat hay gap "Quota exceeded". Dataset Kaggle o tren la
-ban sao cua dung file do — da doi chieu noi dung, khong phai suy doan:
+```text
+K = [[fx, 0, cx],
+     [0, fy, cy],
+     [0,  0,  1]]
+```
 
-| | |
-|---|---|
-| `epoch` | 10 — khop `--checkpoint_path logs/log_kn/minkresunet_epoch10.tar` trong `command_test.sh` cua upstream |
-| So tham so | 216, gom 4 nhanh `graspable` / `rotation` / `crop` / `swad` |
-| Bon ten nhanh do | **chi** xuat hien trong `models/graspnet.py` cua `graspness_unofficial` |
-| md5 | `f2c14a02cf024de789f324ba2da76277`, 184429769 byte |
+Ví dụ:
 
-Muon doi sang nguon khac: sua `URL` (va `MD5` neu co) trong `dependencies`.
-De `URL` trong thi `run.sh` dung lai va in huong dan. Cung co the copy tay file
-vao `model/graspness_reckpt.pth` truoc khi chay.
+```bash
+bash infer.sh img/frame.png \
+  --prompt "the mug" \
+  --camera-k 615.2 614.8 320.1 239.7
+```
 
-## 2b. `pointnet2._ext` — `run.sh` tu bien dich, khong can lam tay
+Cho UI:
 
-`graspness_unofficial/pointnet2/pointnet2_utils.py` co dong:
+```bash
+export CAMERA_K="615.2 614.8 320.1 239.7"
+```
+
+Lite-Mono là monocular depth nên scale metric không tuyệt đối. Cần hiệu chuẩn:
+
+```bash
+export LITEMONO_DEPTH_SCALE=0.73
+```
+
+Nếu không đặt, pipeline dùng `1.0` và log cảnh báo.
+
+## Ba entrypoint
+
+Yêu cầu JetPack đã có CUDA, TensorRT và PyTorch/torchvision tương thích Jetson.
+
+### 1. Chuẩn bị
+
+```bash
+bash prepare.sh
+```
+
+`prepare.sh`:
+
+- tạo `.venv` với `--system-site-packages`;
+- bootstrap `pip==25.0.1` trước khi resolve dependencies; đây là bản cuối hỗ trợ Python 3.8 trong dòng pip 25.0 và nhận diện các wheel tag ARM64/manylinux mới hơn tốt hơn pip cũ đi kèm Ubuntu 20.04;
+- cài Python dependencies mà không thay Torch/CUDA của JetPack;
+- tải YOLOE;
+- clone Lite-Mono và tải weights;
+- tải checkpoint VGN chính thức nếu thiếu;
+- export ONNX và build `model/vgn.engine` bằng TensorRT trên chính Jetson;
+- chạy `env/check_env.py`.
+
+Có thể override checkpoint VGN:
+
+```bash
+VGN_CHECKPOINT=/path/to/vgn_conv.pth bash prepare.sh
+```
+
+### 2. Inference một ảnh
+
+```bash
+bash infer.sh img/frame.png \
+  --camera-k FX FY CX CY \
+  --prompt "the object"
+```
+
+`infer.sh` không cài dependency. Mặc định nó ghi đúng một bộ vào thư mục `output/` trong repo (được `prepare.sh` tạo, nên user Jetson thông thường có quyền ghi):
+
+```text
+<repo>/output/<stem>_box.png
+<repo>/output/<stem>_mask.png
+<repo>/output/<stem>_depthmap.png
+<repo>/output/<stem>_grasp.png
+```
+
+Nếu môi trường/container đã provision một thư mục tuyệt đối khác, có thể override:
+
+```bash
+OUTPUT_DIR=/output bash infer.sh img/frame.png --camera-k FX FY CX CY
+```
+
+### 3. UI Space
+
+```bash
+export CAMERA_K="FX FY CX CY"
+bash space.sh --host 0.0.0.0 --port 8080
+```
+
+UI preload các model một lần rồi tái sử dụng cho mọi request.
+
+## Python API
 
 ```python
-import pointnet2._ext as _ext
+import numpy as np
+import pipeline as P
+
+K = np.array([
+    [615.2, 0, 320.1],
+    [0, 614.8, 239.7],
+    [0, 0, 1.0],
+])
+
+P.load_models()
+
+result = P.pipeline(
+    rgb,
+    prompt="the mug",
+    camera_K=K,
+    top=5,
+)
+
+# các frame tiếp theo tái sử dụng model resident
+# P.close_models() khi shutdown
 ```
 
-`pointnet2/_ext` la mot **extension CUDA**, va trong repo upstream **chi co ma
-nguon** (`_ext_src/`), khong co ban dung san o bat ky dau. Thieu no thi
-`from models.graspnet import GraspNet` nem:
+Có thể truyền `T_cam_volume` (4x4, volume -> OpenCV camera). Nếu bỏ trống, TSDF builder tạo volume camera-aligned 0.30 m quanh point cloud mục tiêu; đây là fallback, không thay thế extrinsic/table calibration cho robot thật.
 
-```
-ImportError: Could not import _ext module.
-```
+## Test
 
-va **GraspNess khong nap duoc** — hau qua la khong ra tu the nao ca. Trieu chung
-nay rat de chan doan nham thanh "loc qua chat" hoac "mask rong", nen `run.sh`
-(BUOC 5d) tu lo:
-
-- thu ghi that vao `pointnet2/`; ghi duoc thi build tai cho, khong thi **copy
-  sang `model/graspness_unofficial_build/`** roi tro `GRASPNESS_HOME` vao do
-  (tren Kaggle `model/` la symlink vao `/kaggle/input` chi doc);
-  phep thu la mot lan `touch` that, **khong** dung `[ -w ]`: chay bang root thi
-  `[ -w ]` tra ve dung ca tren mount chi doc;
-- copy bang **`cp -rL`** chu khong phai `cp -r`. `model/graspness_unofficial`
-  thuong **la mot symlink** vao `/kaggle/input`, ma `cp -r` mac dinh **copy chinh
-  symlink do**, nen "ban sao" van tro vao cho chi doc va build chet bang
-  `error: could not create '...': Read-only file system`;
-- them `/usr/local/cuda/bin` vao `PATH` (nvcc co san nhung khong nam trong PATH);
-- dat `TORCH_CUDA_ARCH_LIST` theo GPU that, mac dinh `7.5`. Khong dat thi torch
-  tu do arch, va tren may khong thay GPU se ra danh sach rong roi build chet voi
-  `IndexError` o `_get_cuda_arch_flags`;
-- `setup.py build_ext --inplace` hay hong o buoc **copy cuoi cung** (no giai ma
-  ten goi thanh `pointnet2/` tuong doi voi CWD, ma CWD da la `pointnet2/`, nen doi
-  thu muc `pointnet2/pointnet2/` khong ton tai) — nhung file `.so` **da duoc sinh
-  ra**, nen script chep thang no vao cho ma `import pointnet2._ext` tim.
-
-### `set -euo pipefail` o dau `run.sh` va moi lenh co the that bai
-
-`run.sh` chay duoi `set -euo pipefail`. Nghia la **mot lenh that bai bat ky se
-giet ca script ngay lap tuc** — va vi `run.sh` la thu duy nhat ghi ra man hinh,
-nguoi dung chi thay kernel Kaggle bao `ERROR` ma **khong co log nao**.
-
-Ba cho trong BUOC 5d tung bi dung loi nay:
+Các test logic không yêu cầu GPU/model:
 
 ```bash
-EXT_SO="$(find ... | head -1)"          # find loi, hoac head dong ong som
-                                        # -> pipefail tra ve khac 0
-TORCH_CUDA_ARCH_LIST=$(python3 -c ...)  # python3 loi -> khac 0, va gia tri
-                                        # mac dinh 7.5 khong bao gio duoc dat
-cp -r ... / chmod -R ...                # loi -> khac 0
-```
+python -m unittest \
+  tests.test_architecture \
+  tests.test_pipeline_guards \
+  tests.test_environment -v
 
-Nay ca ba deu duoc chan (`|| true` cho phep gan, `if` cho `cp`). Khi sua BUOC 5d,
-**phai chay `vla_test/_test_runsh_build.sh`** — no trich dung khoi nay tu `run.sh`
-va chay duoi `set -euo pipefail` y nhu that.
-
-Mat khoang 2-4 phut, chi chay mot lan. Build that bai **khong** lam chet script:
-GraspNess se bao ro ly do ngay tren anh ket qua (xem `grasp_empty_msg`).
-
-## 3. Chay
-
-```bash
-bash run.sh                                  # tu lay anh dau tien trong img/
-bash run.sh img/anh-cua-ban.png              # chi dinh anh
-bash run.sh img/anh.png --prompt "cai coc"   # flag them duoc chuyen tiep
-bash run.sh --serve                          # WEB UI thay vi chay 1 anh (muc 7)
-```
-
-`run.sh` chay lai nhieu lan khong tai lai model (idempotent). `--serve` va `--port`
-duoc `run.sh` tach ra truoc, phan tham so con lai moi chuyen cho `pipeline.py`.
-
-## 4. Ket qua trong output/
-
-Ten file la `<ten-anh>_<loai>.png`, gom 4 loai:
-- **box** - anh goc ve bounding box tim duoc tu prompt.
-- **mask** - anh goc + mask cua vat the (SAM cat theo box).
-- **depthmap** - ban do do sau tu MoGe.
-- **grasp** - anh goc + grasp pose (vi tri + huong dat tay).
-
-Anh mau trong `example/` (prompt "a little bag", anh 1280x960):
-
-| | |
-|---|---|
-| `bag_input.png` | anh goc |
-| `bag_box.png` | DINO: 1 hop `bag` score 0.265 |
-| `bag_mask.png` | SAM: 136358 px (11.1%) IoU 0.988 |
-| `bag_depthmap.png` | MoGe: fov_x 74.42 do, depth 0.403..1.150 m |
-| `bag_grasp.png` | 191 tu the, 114 vua khe kep that 69 mm |
-
-Tong thoi gian chay: **~51 s** tren Tesla T4 (MoGe 11 s, DINO 5 s, SAM CPU ~9 s,
-GraspNess phan con lai).
-
-### `depth_m` - con so do sau cua vat
-
-`pipeline()` tra ve them khoa `"depth_m"`: **trung vi do sau MoGe tren cac pixel
-nam trong mask SAM**, don vi met. `None` khi mask rong hoac khong co pixel hop le.
-
-- Trung vi chu khong phai trung binh: pixel nhieu o ria mask se keo lech trung binh.
-- La do sau cua **VAT**, khong phai cua ca anh. Tren anh mau: ca anh 0.403..1.150 m
-  nhung trong mask chi 0.444..0.811 m.
-- CLI in ra dong `DO SAU VAT: ... m` o cuoi.
-
-### Cach ve gripper trong anh
-
-Mesh gripper cua upstream gom **4 hop** — ngon trai, ngon phai, thanh noi phia
-truoc, va duoi — nhin thang ra **hinh chu U**.
-
-`GraspGroup.to_open3d_geometry_list()` tra ve **`LineSet`**, khong phai
-`TriangleMesh`. Ban dau code doc `np.asarray(mesh.triangles)`; `LineSet` khong co
-thuoc tinh do nen numpy tra ve **mang rong**, vong lap ve canh khong chay dong
-nao, va thu duy nhat hien len la cac vach do `fillPoly` sinh ra — anh trong nhu
-"may cai que". Nay doc `geom.lines` va ve bang `cv2.line`, du **12 canh moi hop**
-dung nhu upstream.
-
-`o3d.visualization.draw_geometries` (duong ve goc cua upstream) khong chay duoc
-o day: `OffscreenRenderer` bao `Failed to load vulkan library`. Nen mesh duoc
-chieu xuong anh roi ve tung doan thang.
-
-Da thu loc bot canh cho do roi (chi giu duong cheo mat) nhung bo di: o goc nhin
-thay doi, khong phan biet duoc "canh song song truc" voi "duong cheo mat", nen
-cach loc do lam mat net that cua hinh. Trung thanh voi upstream quan trong hon.
-
-Hinh hoc va mau (R=score, G=0, B=1-score) lay nguyen tu upstream.
-
-## 5. Chien luoc VRAM 3 pha
-
-Khong bao gio giu 2 model nang cung luc tren VRAM. Model nao chay xong thi bi
-day ra ngay.
-
-- **Pha 1**: nap **MoGe + Grounding DINO cung luc**, cho chung chay **song song**
-  (2 thread). Cai nao xong truoc thi `release()` truoc. Day la cap duy nhat chay
-  dong thoi, vi chung doc cung mot anh dau vao va khong phu thuoc nhau.
-- **Pha 2**: DINO da nha VRAM -> nap **SAM** -> cat mask theo box -> nha.
-  (SAM phai cho DINO vi no can box; trong khi do MoGe co the van dang chay.)
-- **Pha 3**: tat ca da nha -> nap **GraspNet/Graspness** -> chay -> nha.
-  (Can ca mask lan point cloud, nen phai cho ca 2 pha tren xong.)
-
-Thu tu nay duoc `test_pipeline_mock.py` kiem chung bang day goi thuc te, khong
-phai bang doc code.
-
-## 6. Kiem thu khong can GPU
-
-```bash
 python test_pipeline_mock.py
 python test_app.py
 ```
-
-`test_pipeline_mock.py` thay 4 model bang lop gia roi chay `pipeline()` that. Kiem
-tra: cong thuc intrinsics, `depth_to_cloud` loc theo mask, NMS, thu tu 3 pha,
-`depth_m` dung dinh nghia (trung vi trong mask, khac trung vi ca anh), va 4 anh
-dau ra. Chay duoc tren may khong co GPU (chi can numpy + opencv + open3d).
-
-`test_app.py` kiem tra phan loi cua web UI ma **khong can cai gradio**: `app.py`
-co y khong import gradio o cap module, nen thay `pipeline.pipeline()` bang ham gia
-la test duoc. Kiem tra: tra ve dung thu tu, prompt rong -> dung mac dinh, pipeline
-nem loi -> hien chu LOI chu khong crash, va `run_one()` **khong bao gio raise**
-ke ca voi dau vao ki quac.
-
-## 7. Web UI (kieu HuggingFace Space)
-
-```bash
-bash run.sh --serve                # cong 8080
-bash run.sh --serve --port 7860    # doi cong
-```
-
-Mo `http://<may-chu>:<cong>/`. Giao dien gom:
-
-- o tai **anh** len, o **prompt** (dien san `the object`), nut **Submit**;
-- 4 anh ket qua: box -> mask -> depthmap -> grasp pose;
-- o **Do sau vat (m)** va dong trang thai.
-
-Thiet ke dang chu y:
-
-- **Moi lan Submit nap lai ca 4 model, mat khoang 50 giay.** Do la he qua truc
-  tiep cua chien luoc VRAM 3 pha (muc 5): model dung xong bi day ra ngay, nen lan
-  sau phai nap lai. Doi lay viec chay duoc tren GPU 16 GB.
-- **Chay song song bi gioi han ve 1** (mac dinh cua Gradio, khong phai cho dep): 2
-  lan chay cung luc se OOM T4 16 GB, vi thiet ke 3 pha chi giai phong VRAM khi chay
-  tuan tu. `app.py` co y **KHONG** viet `queue(concurrency_limit=...)`: tham so do
-  khong ton tai (da bi loi that tren Kaggle: `Blocks.queue() got an unexpected
-  keyword argument`), va mac dinh cua Gradio da la 1.
-- Prompt rong -> dung `the object`. DINO khong tim thay vat -> **van tra 4 anh**
-  kem ly do ghi truc tiep tren anh, o do sau de trong, app khong crash.
-- `app.py` tach phan loi (`run_one`) khoi gradio de test duoc (muc 6). Import
-  gradio o dau file se khien `import app` that bai tren may khong co gradio.
-- **`share=False`** trong `launch()` la co y: chay trong notebook thi gradio tu
-  bat `share=True` va mo mot duong cong khai ra Internet toi may dang chay GPU,
-  khong xac thuc gi. Ta da co duong ham rieng nen khong can.
-
-### So do that, do tren Kaggle T4 (khong phai suy doan)
-
-Anh `example/bag_input.png`, prompt `"a little bag"`, qua dung duong web UI
-(`/gradio_api/call/run_one` tren cong 8080):
-
-| Buoc | Ket qua |
-|---|---|
-| Khoi dong (da gom build `_ext`) | 234-306 s, trong do build ~140 s |
-| MoGe | `fov_x=74.42 do`, depth toan anh 0.403..1.150 m |
-| Grounding-DINO | 1 hop `bag`, score 0.265 |
-| SAM | mask 136358 px (11.1%) |
-| Cloud tu mask | bbox 461 x 218 x 367 mm |
-| GraspNess | 196 tu the, 109 vua khe kep 69 mm |
-| **`depth_m`** | **0.482 m**, lap lai y nguyen qua 3 lan chay doc lap |
-| Anh grasp | 55999 byte — rut ra 5 tu the, rong 42.2 / 54.2 / 65.2 / 68.3 / 77.7 mm |
-| Ca am (prompt `"xyzzynotathing"`) | `depth_m = None`, 4 anh van tra ve, ghi ro ly do |
-
-Lam lai: `vla_test/_remote_e2e.py` goi Gradio API **tu trong may Kaggle**
-(127.0.0.1:8080) nen khong phu thuoc tunnel; `vla_test/_fetch_space_out.py` chay
-no qua SSH roi keo 4 anh ve.
-
-### Ve `requirements.txt`
-
-File nay viet theo dung dinh dang HF Spaces doc duoc, nhung **khong du de dung mot
-HF Space that**: hai thu bat buoc khong the cai bang pip —
-
-1. **graspnetAPI** — goi tren PyPI bi hong (con import `setuptools.extern.six` da
-   bi Python moi xoa). Phai `git clone` roi them vao `PYTHONPATH`; `pipeline.py`
-   lam viec do qua `_load_graspnetapi()`. `run.sh` clone vao `model/graspnetAPI_repo`.
-2. **pointnet2 `_ext`** — extension CUDA, upstream chi co ma nguon, phai bien dich
-   bang `setup.py` (muc 2b). Tren Kaggle `run.sh` lo viec nay; tren HF Spaces thi
-   khong co GPU san va khong chay duoc `nvcc` theo cach tuong tu.
-
-Vi vay **Kaggle la duong chay chinh thuc**. `requirements.txt` chi de repo hop
-chuan va de cai nhanh phan UI.
-
-## 8. Phu thuoc moi truong (CUDA, GPU, va cach ly)
-
-`run.sh` tạo `.venv` riêng, dùng lại bộ Torch/CUDA trên máy và
-cài dependencies bổ sung bằng pip resolver. Phiên bản các thư viện ABI của máy
-được giữ bằng constraints; MoGe, GraspNetAPI và GraspNess source được ghim commit.
-Nếu thiếu native prerequisites hoặc extension lỗi ABI, setup dừng với thông báo.
-
-Xem [hướng dẫn môi trường](env/README.md) để chuẩn bị máy, chạy kiểm tra và xử lý
-môi trường cũ. `requirements.lock.txt` chỉ là snapshot lịch sử, không phải lock
-cài được trên mọi máy. Bản sửa bootstrap được kiểm thử bằng mock; vẫn cần kiểm
-chứng cài mới và suy luận trên GPU thật.
-
-MinkowskiEngine được cài sau bước tải model: dùng wheel chỉ định qua
-`MINKOWSKI_ENGINE_WHEEL`, dùng bản sẵn có nếu qua CUDA smoke test, hoặc thử build
-source ghim commit. Xem `env/README.md` cho native prerequisites và giới hạn
-chưa kiểm chứng trên Kaggle mới. Không yêu cầu host cài MinkowskiEngine từ trước.

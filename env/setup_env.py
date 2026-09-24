@@ -1,19 +1,7 @@
 #!/usr/bin/env python3
-"""Create a repo-local overlay while preserving the host CUDA ABI stack.
+"""Create a repo-local overlay without replacing the JetPack CUDA stack."""
 
-Hai giai doan, tach roi co chu y:
-
-    python env/setup_env.py            # giai doan 1: tao .venv + constraints
-    python env/setup_env.py --install  # giai doan 2: cai requirements.txt
-
-Giai doan 1 tao venv; chi can mang neu thieu huggingface_hub.
-Giai doan 2 moi cai runtime day du.
-Ly do tach: run.sh goi giai doan 1 TRUOC khi tai model (de phat hien som may
-hong), roi tai model, ROI MOI goi giai doan 2. Nho vay mot lan cai that bai vi
-mang/PyPI khong lam mat model da tai xong.
-
-`--install` chay lai duoc nhieu lan: pip tu bo qua nhung gi da dung.
-"""
+import importlib
 import importlib.metadata as metadata
 import json
 from pathlib import Path
@@ -22,76 +10,90 @@ import sys
 import venv
 
 ROOT = Path(__file__).resolve().parents[1]
-ENV = ROOT / '.venv'
+ENV = ROOT / ".venv"
+PIP_VERSION = "25.0.1"
+
+
+RUNTIME_PROTECTED = ("torch", "torchvision", "numpy", "scipy")
+
+
+def _runtime_version(name):
+    """Return the version of the module this interpreter actually imports."""
+    try:
+        module = importlib.import_module(name)
+    except Exception as exc:
+        raise RuntimeError(
+            "Missing/broken host %s. Install the JetPack-compatible "
+            "package first: %s" % (name, exc)
+        )
+    version = str(getattr(module, "__version__", "")).strip()
+    if not version:
+        raise RuntimeError(
+            "Host %s does not expose __version__" % name)
+    return version
 
 
 def protected_versions():
-    # KHONG ghim minkowskiengine vao host-constraints.txt. MinkowskiEngine co
-    # installer rieng (env/install_minkowski.py) va installer do cung truyen
-    # '-c host-constraints.txt'; neu host dang co 0.5.3 thi constraints se ghim
-    # minkowskiengine==0.5.3, va pip se tu choi bundled wheel 0.5.4 bang
-    # ResolutionImpossible — tuc la chinh constraints pha co che fallback.
-    # Cac goi con lai van giu vi chung thuoc ABI stack cua host.
-    versions = {}
+    # JetPack/Ubuntu may expose duplicate dist-info metadata from /usr/lib
+    # and /usr/local. Protect the versions Python actually imports, rather
+    # than whichever duplicate metadata entry happens to be iterated last.
+    versions = {
+        name: _runtime_version(name)
+        for name in RUNTIME_PROTECTED
+    }
+
+    # Preserve optional CUDA/runtime packages when present, but never let
+    # duplicate metadata override the imported core stack above.
     for dist in metadata.distributions():
-        name = dist.metadata['Name'].lower().replace('_', '-')
-        if name in {'torch', 'torchvision', 'torchaudio', 'numpy', 'scipy',
-                    'triton'} or name.startswith('nvidia-'):
+        raw_name = dist.metadata.get("Name")
+        if not raw_name:
+            continue
+        name = raw_name.lower().replace("_", "-")
+        if name in versions:
+            continue
+        if name in {"torchaudio", "triton"} or name.startswith("nvidia-"):
             versions[name] = dist.version
-    for name in ('torch', 'torchvision', 'numpy'):
-        if name not in versions:
-            raise RuntimeError(f'Missing host {name}. Install the matching CUDA stack first; see env/README.md.')
     return versions
 
 
+def _create_overlay():
+    try:
+        venv.EnvBuilder(system_site_packages=True, with_pip=True).create(ENV)
+    except Exception as exc:
+        raise RuntimeError("Could not create .venv with pip. Install the OS python3-venv package: %s" % exc)
+
+
 def main():
-    # --- Giai doan 1: kiem tra host + tao .venv. KHONG dung mang. ---
     versions = protected_versions()
-    # Fail before downloads if the native stack itself is broken.
-    subprocess.run([sys.executable, '-c',
-                    'import torch, torchvision, numpy; '
-                    'assert torch.cuda.is_available(), "CUDA GPU is unavailable"'], check=True)
-    fingerprint = {'python': sys.version, 'executable': sys.executable,
-                   'protected': versions}
-    stamp = ENV / 'host.json'
+    subprocess.run([sys.executable, "-c", "import torch, torchvision, numpy; assert torch.cuda.is_available(), 'CUDA GPU is unavailable'"], check=True)
+    fingerprint = {"python": sys.version, "executable": sys.executable, "protected": versions}
+    stamp = ENV / "host.json"
     if ENV.exists():
         if not stamp.exists() or json.loads(stamp.read_text()) != fingerprint:
-            raise RuntimeError('Host Python/CUDA packages changed or .venv is unmanaged. '
-                               'Move .venv aside and rerun; rebuild pointnet2 for the new host.')
+            raise RuntimeError("Host Python/CUDA packages changed or .venv is unmanaged. Remove/rename .venv and rerun.")
     else:
-        # No ensurepip needed, and the notebook's CUDA extensions remain visible.
-        venv.EnvBuilder(system_site_packages=True, with_pip=False).create(ENV)
-        stamp.write_text(json.dumps(fingerprint, indent=2) + '\n')
-    constraints = ENV / 'host-constraints.txt'
-    constraints.write_text(''.join(f'{k}=={v}\n' for k, v in sorted(versions.items())))
-
-    if '--install' not in sys.argv:
-        # huggingface_hub phai co TRUOC buoc tai model, ma requirements.txt chi
-        # duoc cai o giai doan 2 (sau khi tai xong). Tren Kaggle no thuong co san
-        # trong host va system_site_packages=True lam no hien ra qua .venv; neu
-        # host KHONG co thi tai model se chet ngay dong dau. Cai rieng mot goi
-        # nhe nay (~500 KB) ngay bay gio, ghim theo constraints.
-        try:
-            subprocess.run([str(ENV / 'bin/python'), '-c', 'import huggingface_hub'],
-                           check=True, capture_output=True)
-        except subprocess.CalledProcessError:
-            print('huggingface_hub thieu trong host -> cai vao .venv truoc khi tai model')
-            subprocess.run([sys.executable, '-m', 'pip', '--python',
-                            str(ENV / 'bin/python'), 'install', '-c', str(constraints),
-                            'huggingface_hub'], check=True)
-        print(f'.venv ready ({ENV}); run with --install to resolve requirements')
-        return
-
-    # --- Giai doan 2: cai requirements.txt vao overlay. ---
-    # The host pip drives installation into the overlay; it does not install into
-    # the host interpreter. Requires pip >=22.3 (--python).
-    subprocess.run([sys.executable, '-m', 'pip', '--python', str(ENV / 'bin/python'),
-                    'install', '-c', str(constraints), '-r', str(ROOT / 'requirements.txt')],
-                   check=True)
+        _create_overlay(); stamp.write_text(json.dumps(fingerprint, indent=2) + "\n")
+    constraints = ENV / "host-constraints.txt"
+    constraints.write_text("".join("%s==%s\n" % (k, v) for k, v in sorted(versions.items())))
+    if "--install" not in sys.argv:
+        print(".venv ready (%s)" % ENV); return
+    python = ENV / "bin" / "python"
+    # Ubuntu 20.04's venv can start with an old pip that does not recognize
+    # newer manylinux/aarch64 wheel tags. Upgrade pip before dependency
+    # resolution so compatible ARM64 wheels are selected instead of sdists.
+    subprocess.run(
+        [str(python), "-m", "pip", "install", "--upgrade",
+         "pip==%s" % PIP_VERSION],
+        check=True,
+    )
+    subprocess.run(
+        [str(python), "-m", "pip", "install",
+         "-c", str(constraints),
+         "-r", str(ROOT / "requirements.txt")],
+        check=True,
+    )
 
 
-if __name__ == '__main__':
-    try:
-        main()
-    except (RuntimeError, subprocess.CalledProcessError) as exc:
-        sys.exit(f'Environment setup failed: {exc}')
+if __name__ == "__main__":
+    try: main()
+    except (RuntimeError, subprocess.CalledProcessError) as exc: sys.exit("Environment setup failed: %s" % exc)

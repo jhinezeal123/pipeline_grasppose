@@ -1,19 +1,38 @@
-# Runtime requirements. run.sh resolves these inside .venv with host CUDA
-# constraints; do not install them into a shared notebook interpreter.
-# This is not a full lock: see env/README.md for native prerequisites.
-transformers>=5.0,<6
-timm>=1,<2
-open3d>=0.19,<0.21
-opencv-python-headless>=4.10,<5
-pillow>=11,<13
-numpy>=2,<3
-scipy>=1.14,<2
-huggingface_hub>=1,<2
-transforms3d==0.4.2
-trimesh>=4.11,<6
-einops>=0.8,<1
-gradio>=6,<7
-moge @ git+https://github.com/microsoft/MoGe.git@74fbce054ebed49800de42d0ad0e83495065719a
+# Jetson AGX Xavier / L4T R35.6.4 (JetPack 5.1.6) target runtime.
+# Torch/torchvision/TensorRT come from JetPack and MUST NOT be replaced by pip.
+#
+# Python 3.8 pins below are selected for aarch64 manylinux wheels and the
+# Xavier host stack (NumPy 1.23.5 / SciPy 1.10.1).
+ultralytics==8.4.140
 
-# MinkowskiEngine: native wheel/source installer in env/install_minkowski.py,
-# invoked by run.sh after runtime installation (not a host prerequisite).
+numpy==1.23.5; python_version < "3.9"
+numpy>=1.24,<3; python_version >= "3.9"
+
+scipy==1.10.1; python_version < "3.9"
+scipy>=1.10,<2; python_version >= "3.9"
+
+# Ultralytics depends on the opencv-python distribution. Do not install
+# opencv-python-headless alongside it because both provide the cv2 module.
+opencv-python==4.8.1.78; python_version < "3.9"
+opencv-python>=4.8,<5; python_version >= "3.9"
+
+pillow==10.4.0; python_version < "3.9"
+pillow>=10,<13; python_version >= "3.9"
+
+# Lite-Mono imports timm.models.layers; pin a known-compatible release.
+timm==0.9.16
+
+# Stable Python-3.8-compatible UI/download stack.
+gradio==4.44.1
+gdown==5.2.0
+
+# torch.onnx.export() in the JetPack Torch 2.1 build needs ONNX installed.
+onnx==1.14.1; python_version < "3.9"
+onnx>=1.14,<2; python_version >= "3.9"
+
+# Ultralytics dependency with a CPython 3.8 aarch64 wheel.
+polars==0.20.31; python_version < "3.9"
+
+# Keep a wheel-backed matplotlib on Python 3.8/aarch64 instead of allowing a
+# future release to force a source build on Ubuntu 20.04.
+matplotlib==3.7.5; python_version < "3.9"
