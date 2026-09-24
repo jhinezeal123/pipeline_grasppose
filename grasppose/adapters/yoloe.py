@@ -1,12 +1,12 @@
-"""Ultralytics YOLOE adapter implementing the vision port."""
+"""TensorRT YOLOE-26s adapter implementing the vision port."""
 
 import time
 
 import numpy as np
 
 from ..config import (
+    YOLOE_CLASSES,
     YOLOE_CONF,
-    YOLOE_HALF,
     YOLOE_IMGSZ,
     YOLOE_MODEL,
 )
@@ -19,49 +19,53 @@ from ..ports.vision import VisionPort
 from ..runtime import log, release_attributes
 
 
-def _is_explicit_cpu_device(device):
-    """Return whether the caller explicitly selected CPU inference."""
-    return str(device).strip().lower() == "cpu"
-
-
 class Yoloe26sVision(VisionPort):
-    """Open-vocabulary detection + segmentation in a single model."""
+    """Static three-class YOLOE-26s TensorRT segmentation runtime."""
 
-    def __init__(self, model_path=None, device=None, conf=None, imgsz=None,
-                 half=None):
+    def __init__(self, model_path=None, device=None, conf=None, imgsz=None):
         self.model_path = model_path or YOLOE_MODEL
-        # Match the official Ultralytics predict flow: do not probe Torch/CUDA
-        # before YOLOE is imported and constructed. device=None lets
-        # Ultralytics select CUDA:0 when available, otherwise CPU.
         self.device = device
         self.conf = YOLOE_CONF if conf is None else float(conf)
         self.imgsz = YOLOE_IMGSZ if imgsz is None else int(imgsz)
-        self.half = YOLOE_HALF if half is None else bool(half)
+        self.classes = tuple(YOLOE_CLASSES)
+        self._class_to_id = {
+            name: index for index, name in enumerate(self.classes)
+        }
         self._model = None
-        self._classes_prompt = None
 
     def load(self):
         if self._model is None:
-            from ultralytics import YOLOE
+            from ultralytics import YOLO
+
             started = time.time()
-            self._model = YOLOE(self.model_path)
-            log("YOLOE-26s loaded in %.1fs" % (
-                time.time() - started))
+            # The engine was exported from YOLOE after set_classes(), so it
+            # behaves like a normal static Ultralytics segmentation model.
+            self._model = YOLO(self.model_path, task="segment")
+            log("YOLOE-26s TensorRT loaded in %.1fs | classes=%r" % (
+                time.time() - started,
+                self.classes,
+            ))
         return self
 
+    def _target_id(self, prompt):
+        target = str(prompt).strip()
+        if not target:
+            target = self.classes[0]
+        if target not in self._class_to_id:
+            raise ValueError(
+                "YOLOE TensorRT prompt must be one of %r; got %r"
+                % (self.classes, target)
+            )
+        return target, self._class_to_id[target]
+
     def predict(self, image, prompt):
+        target, target_id = self._target_id(prompt)
         self.load()
+
         rgb = np.asarray(image)[:, :, :3]
         height, width = rgb.shape[:2]
-        # Ultralytics treats NumPy HWC inputs as OpenCV-style BGR and flips
-        # them to RGB in predictor.preprocess(). The pipeline contract is RGB,
-        # so convert here exactly once before handing the array to Ultralytics.
+        # Ultralytics treats NumPy HWC inputs as OpenCV-style BGR.
         bgr = np.ascontiguousarray(rgb[:, :, ::-1])
-        prompt = str(prompt).strip() or "object"
-
-        if self._classes_prompt != prompt:
-            self._model.set_classes([prompt])
-            self._classes_prompt = prompt
 
         predict_kwargs = {
             "source": bgr,
@@ -72,35 +76,47 @@ class Yoloe26sVision(VisionPort):
         }
         if self.device is not None:
             predict_kwargs["device"] = self.device
-        # Ultralytics 8.4.x uses quantize=16 for FP16; the legacy half flag
-        # is deprecated. Leave precision unset for the official FP32 default.
-        if self.half and not _is_explicit_cpu_device(self.device):
-            predict_kwargs["quantize"] = 16
 
         result = self._model.predict(**predict_kwargs)[0]
 
         if result is None or result.boxes is None or len(result.boxes) == 0:
-            reason = "YOLOE did not find an object for prompt %r" % prompt
+            reason = "YOLOE TensorRT did not find %r" % target
             return VisionResult(
                 detection=DetectionResult.empty(reason),
                 segmentation=SegmentationResult.empty(
                     height, width, reason),
             )
 
-        boxes = (
+        class_ids = (
+            result.boxes.cls.detach().cpu().numpy()
+            .astype(np.int64)
+        )
+        target_indices = np.flatnonzero(class_ids == target_id)
+        if target_indices.size == 0:
+            reason = "YOLOE TensorRT did not find %r" % target
+            return VisionResult(
+                detection=DetectionResult.empty(reason),
+                segmentation=SegmentationResult.empty(
+                    height, width, reason),
+            )
+
+        boxes_all = (
             result.boxes.xyxy.detach().cpu().numpy()
             .astype(np.float32)
         )
-        scores = (
+        scores_all = (
             result.boxes.conf.detach().cpu().numpy()
             .astype(np.float32)
         )
-        order = np.argsort(-scores)
-        boxes, scores = boxes[order], scores[order]
+        target_scores = scores_all[target_indices]
+        order = target_indices[np.argsort(-target_scores)]
+        boxes = boxes_all[order]
+        scores = scores_all[order]
+
         detection = DetectionResult(
             boxes=boxes,
             scores=scores,
-            labels=[prompt for _ in order],
+            labels=[target for _ in order],
         )
 
         if (result.masks is None or result.masks.data is None or
@@ -109,11 +125,12 @@ class Yoloe26sVision(VisionPort):
                 detection=detection,
                 segmentation=SegmentationResult.empty(
                     height, width,
-                    "YOLOE returned boxes but no instance mask",
+                    "YOLOE TensorRT returned boxes but no instance mask",
                 ),
             )
 
-        masks = result.masks.data.detach().cpu().numpy()[order]
+        masks_all = result.masks.data.detach().cpu().numpy()
+        masks = masks_all[order]
         if masks.shape[-2:] != (height, width):
             import cv2
             masks = np.stack([
@@ -138,4 +155,3 @@ class Yoloe26sVision(VisionPort):
 
     def close(self):
         release_attributes(self, "_model")
-        self._classes_prompt = None
