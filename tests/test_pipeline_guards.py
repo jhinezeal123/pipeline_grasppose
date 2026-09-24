@@ -180,26 +180,36 @@ class RuntimeCleanupTests(unittest.TestCase):
 
 
 class YoloeInputTests(unittest.TestCase):
+    class TensorValue:
+        def __init__(self, value):
+            self.value = np.asarray(value)
+
+        def detach(self):
+            return self
+
+        def cpu(self):
+            return self
+
+        def numpy(self):
+            return self.value
+
     def test_rgb_pipeline_input_is_converted_to_bgr_for_ultralytics(self):
         captured = {}
 
         class FakeModel:
-            def set_classes(self, classes):
-                captured["classes"] = list(classes)
-
             def predict(self, **kwargs):
                 captured["kwargs"] = dict(kwargs)
                 captured["source"] = kwargs["source"].copy()
                 return [SimpleNamespace(boxes=[])]
 
-        adapter = Yoloe26sVision(device="cpu")
+        adapter = Yoloe26sVision(device=0)
         adapter._model = FakeModel()
         rgb = np.array(
             [[[10, 20, 30], [40, 50, 60]]],
             dtype=np.uint8,
         )
 
-        result = adapter.predict(rgb, "cube")
+        result = adapter.predict(rgb, "blue cube")
 
         np.testing.assert_array_equal(
             captured["source"],
@@ -208,76 +218,72 @@ class YoloeInputTests(unittest.TestCase):
                 dtype=np.uint8,
             ),
         )
-        self.assertEqual(captured["classes"], ["cube"])
-        self.assertEqual(captured["kwargs"]["device"], "cpu")
+        self.assertEqual(captured["kwargs"]["device"], 0)
         self.assertNotIn("quantize", captured["kwargs"])
         self.assertNotIn("half", captured["kwargs"])
         self.assertEqual(len(result.detection.boxes), 0)
 
-    def test_default_device_and_precision_are_left_to_ultralytics(self):
+    def test_runtime_rejects_prompts_not_baked_into_engine(self):
+        adapter = Yoloe26sVision()
+        with self.assertRaisesRegex(
+                ValueError, "blue cube.*yellow ball.*blue cyclinder"):
+            adapter.predict(
+                np.zeros((2, 2, 3), np.uint8),
+                "red cube",
+            )
+
+    def test_static_engine_filters_requested_baked_class(self):
         captured = {}
+        tensor = self.TensorValue
+
+        class Boxes:
+            def __init__(self):
+                self.xyxy = tensor([
+                    [0, 0, 1, 1],
+                    [1, 1, 2, 2],
+                    [2, 2, 3, 3],
+                ])
+                self.conf = tensor([0.95, 0.70, 0.85])
+                self.cls = tensor([0, 1, 1])
+
+            def __len__(self):
+                return 3
+
+        class Masks:
+            def __init__(self):
+                self.data = tensor(np.array([
+                    [[0, 0], [0, 0]],
+                    [[0, 1], [0, 0]],
+                    [[1, 0], [0, 0]],
+                ], dtype=np.float32))
 
         class FakeModel:
-            def set_classes(self, classes):
-                pass
-
             def predict(self, **kwargs):
                 captured.update(kwargs)
-                return [SimpleNamespace(boxes=[])]
+                return [SimpleNamespace(
+                    boxes=Boxes(),
+                    masks=Masks(),
+                )]
 
         adapter = Yoloe26sVision()
         adapter._model = FakeModel()
-        adapter.predict(
+        result = adapter.predict(
             np.zeros((2, 2, 3), np.uint8),
-            "cube",
+            "yellow ball",
         )
 
-        self.assertIsNone(adapter.device)
-        self.assertNotIn("device", captured)
+        self.assertEqual(
+            result.detection.labels,
+            ["yellow ball", "yellow ball"],
+        )
+        np.testing.assert_allclose(
+            result.detection.scores,
+            [0.85, 0.70],
+        )
+        self.assertEqual(
+            result.segmentation.candidate_count, 2)
+        self.assertTrue(result.segmentation.mask[0, 0])
         self.assertNotIn("quantize", captured)
-        self.assertNotIn("half", captured)
-
-    def test_cpu_device_never_enables_fp16(self):
-        captured = {}
-
-        class FakeModel:
-            def set_classes(self, classes):
-                pass
-
-            def predict(self, **kwargs):
-                captured.update(kwargs)
-                return [SimpleNamespace(boxes=[])]
-
-        adapter = Yoloe26sVision(device="cpu", half=True)
-        adapter._model = FakeModel()
-        adapter.predict(
-            np.zeros((2, 2, 3), np.uint8),
-            "cube",
-        )
-
-        self.assertEqual(captured["device"], "cpu")
-        self.assertNotIn("quantize", captured)
-
-    def test_cuda_fp16_uses_official_quantize_flag(self):
-        captured = {}
-
-        class FakeModel:
-            def set_classes(self, classes):
-                pass
-
-            def predict(self, **kwargs):
-                captured.update(kwargs)
-                return [SimpleNamespace(boxes=[])]
-
-        adapter = Yoloe26sVision(device=0, half=True)
-        adapter._model = FakeModel()
-        adapter.predict(
-            np.zeros((2, 2, 3), np.uint8),
-            "cube",
-        )
-
-        self.assertEqual(captured["device"], 0)
-        self.assertEqual(captured["quantize"], 16)
         self.assertNotIn("half", captured)
 
     def test_default_service_construction_does_not_import_torch(self):
