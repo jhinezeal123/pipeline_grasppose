@@ -272,8 +272,8 @@ def main():
         )
 
     artifacts = (
-        "model/yoloe-26s-seg.pt",
-        "mobileclip2_b.ts",
+        "model/yoloe-26s-seg.engine",
+        "model/yoloe-26s-seg.classes.txt",
         "model/lite-mono-tiny_192x640_op11.onnx",
         "model/lite-mono-tiny_192x640_op11_fp16.engine",
         "build/litemono_trt/liblitemono_trt.so",
@@ -286,44 +286,39 @@ def main():
         if not ok:
             problems.append("missing artifact %s" % rel)
 
-    # Run YOLOE in a clean subprocess. The production service must be
-    # constructible before Torch is imported so Ultralytics owns the first
-    # framework/CUDA initialization, matching its official YOLOE flow.
-    # Use Ultralytics' bundled bus.jpg and require a real semantic detection;
-    # a blank-image smoke can succeed while silently returning zero boxes.
+    # Deserialize and execute the exported YOLOE TensorRT engine in a clean
+    # subprocess. No text encoder or set_classes() call is allowed at runtime.
     if not problems:
         yoloe_smoke = r"""
 import sys
 
 import numpy as np
-from PIL import Image
 
+from grasppose.config import YOLOE_CLASSES
 from grasppose.facade import DEFAULT_SERVICE
 
 if "torch" in sys.modules:
     raise RuntimeError(
-        "Torch was imported before YOLOE load during service construction"
+        "Torch was imported before YOLOE TensorRT load during service construction"
     )
 
 vision = DEFAULT_SERVICE.core._vision
 vision.load()
-
-from ultralytics import ASSETS
-
-image = np.array(
-    Image.open(ASSETS / "bus.jpg").convert("RGB")
-)
-result = vision.predict(image, "person")
-scores = np.asarray(result.detection.scores, np.float32)
-if len(result.detection.boxes) == 0:
-    raise RuntimeError(
-        "YOLOE returned zero boxes for bundled bus.jpg/person smoke"
+image = np.zeros((640, 640, 3), dtype=np.uint8)
+for target in YOLOE_CLASSES:
+    result = vision.predict(image, target)
+    print(
+        "YOLOE TensorRT smoke: target=%r boxes=%d"
+        % (target, len(result.detection.boxes))
     )
-top = float(scores.max()) if scores.size else 0.0
-print(
-    "YOLOE semantic smoke: boxes=%d top_score=%.6f"
-    % (len(result.detection.boxes), top)
-)
+
+try:
+    vision.predict(image, "not baked")
+except ValueError:
+    pass
+else:
+    raise RuntimeError("YOLOE TensorRT accepted a prompt that was not baked")
+
 vision.close()
 """
         completed = subprocess.run(
@@ -337,7 +332,7 @@ vision.close()
         if completed.returncode != 0:
             detail = completed.stderr.strip() or completed.stdout.strip()
             problems.append(
-                "YOLOE clean-process semantic smoke failed: %s"
+                "YOLOE TensorRT smoke failed: %s"
                 % detail
             )
 
