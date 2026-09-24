@@ -178,24 +178,69 @@ class EnvironmentTests(unittest.TestCase):
             source,
         )
 
-    def test_check_env_uses_clean_semantic_yoloe_smoke(self):
+    def test_check_env_uses_fixed_class_yoloe_tensorrt_smoke(self):
         source = (ROOT / "env" / "check_env.py").read_text()
         self.assertIn(
-            '"Torch was imported before YOLOE load during service construction"',
+            '"Torch was imported before YOLOE TensorRT load during service construction"',
             source,
         )
         self.assertIn(
-            'ASSETS / "bus.jpg"',
+            "for target in YOLOE_CLASSES:",
             source,
         )
         self.assertIn(
-            'vision.predict(image, "person")',
+            'vision.predict(image, "not baked")',
             source,
         )
         self.assertIn(
-            '"YOLOE returned zero boxes for bundled bus.jpg/person smoke"',
+            '"YOLOE TensorRT smoke failed: %s"',
             source,
         )
+
+    def test_yoloe_export_bakes_exact_three_targets(self):
+        source = (ROOT / "tools" / "export_yoloe_trt.py").read_text()
+        for target in (
+            '"blue cube"',
+            '"yellow ball"',
+            '"blue cyclinder"',
+        ):
+            self.assertIn(target, source)
+        self.assertIn('format="engine"', source)
+        self.assertIn("quantize=16", source)
+        self.assertIn("model.set_classes(list(FIXED_CLASSES))", source)
+
+    def test_prepare_builds_yoloe_engine_only_for_pinned_class_stamp(self):
+        source = (ROOT / "prepare.sh").read_text()
+        self.assertIn(
+            "YOLOE_CLASSES_EXPECTED=
+
+    def test_prepare_pins_litemono_tiny_onnx_for_xavier_trt(self):
+        source = (ROOT / "prepare.sh").read_text()
+        self.assertIn(
+            'LITEMONO_MODEL_REV="520ab0e5aaabf705c25b4f23b3316ae2c5a7bd3a"',
+            source,
+        )
+        self.assertIn(
+            'LITEMONO_ONNX_BLOB_SHA="cbfaf3c2a0e6619d8d0ce554a35a009473d08faa"',
+            source,
+        )
+        self.assertIn(
+            "lite-mono-tiny_192x640_op11.onnx",
+            source,
+        )
+        self.assertIn("--fp16", source)
+        self.assertIn("native/litemono_trt", source)
+        self.assertNotIn("model/Lite-Mono", source)
+        self.assertNotIn("model/lite-mono/encoder.pth", source)
+
+
+if __name__ == "__main__":
+    unittest.main()
+blue cube\\nyellow ball\\nblue cyclinder'",
+            source,
+        )
+        self.assertIn("tools/export_yoloe_trt.py", source)
+        self.assertIn("model/yoloe-26s-seg.engine", source)
 
 
     def test_prepare_pins_litemono_tiny_onnx_for_xavier_trt(self):
