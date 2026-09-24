@@ -16,4 +16,38 @@ if [ "$#" -ne 1 ]; then
   exit 2
 fi
 
-exec "$PYTHON" tools/preprocess_yoloe.py "$1"
+if [ -z "${CAMERA_K:-}" ]; then
+  echo "Set CAMERA_K='FX FY CX CY' for full-pipeline parity validation" >&2
+  exit 2
+fi
+read -r -a CAMERA_K_VALUES <<< "$CAMERA_K"
+if [ "${#CAMERA_K_VALUES[@]}" -ne 4 ]; then
+  echo "CAMERA_K must contain FX FY CX CY" >&2
+  exit 2
+fi
+
+if bash "$ROOT/cold.sh" status >/dev/null 2>&1; then
+  echo "Stop the resident worker before preprocessing: bash cold.sh stop" >&2
+  exit 2
+fi
+
+ARTIFACT_ROOT="${YOLOE_ARTIFACT_ROOT:-$ROOT/model/runtime/yoloe}"
+CURRENT_FILE="$ARTIFACT_ROOT/CURRENT"
+OLD_CURRENT=""
+if [ -f "$CURRENT_FILE" ]; then
+  OLD_CURRENT="$(cat "$CURRENT_FILE")"
+fi
+
+"$PYTHON" tools/preprocess_yoloe.py "$1"
+if "$PYTHON" tools/select_yoloe_precision.py "$1" \
+    --camera-k "${CAMERA_K_VALUES[@]}"; then
+  exit 0
+fi
+if [ -n "$OLD_CURRENT" ]; then
+  printf '%s\n' "$OLD_CURRENT" > "$CURRENT_FILE.tmp"
+  mv "$CURRENT_FILE.tmp" "$CURRENT_FILE"
+else
+  rm -f "$CURRENT_FILE"
+fi
+echo "Full-pipeline parity failed; previous prompt artifact restored." >&2
+exit 1

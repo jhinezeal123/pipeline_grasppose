@@ -4,6 +4,7 @@
 import argparse
 import gc
 import math
+import os
 import sys
 from pathlib import Path
 
@@ -99,7 +100,10 @@ def main(argv=None):
     parser.add_argument("prompts_json")
     parser.add_argument(
         "--validation-dir",
-        default=str(ROOT / "model" / "validation" / "yoloe"),
+        default=os.environ.get(
+            "YOLOE_VALIDATION_DIR",
+            str(ROOT / "model" / "validation" / "yoloe"),
+        ),
     )
     parser.add_argument(
         "--camera-k", nargs=4, type=float, required=True,

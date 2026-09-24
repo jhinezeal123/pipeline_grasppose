@@ -34,10 +34,11 @@ Lưu ý versioning NVIDIA: JetPack 5.1.4 gốc đi với L4T 35.6.0; target th�
 
 YOLOE runtime dùng TensorRT engine tĩnh đã bake toàn bộ bộ prompt; request chỉ
 gửi prompt ID và không gọi text encoder/CLIP. `preprocess_prompt.sh` tạo
-embedding và export ứng viên FP32/FP16 trên Xavier, rồi chỉ chọn engine đạt
-mask IoU >= 0.99 so với PyTorch FP32 trên ảnh validation của từng prompt. Model
-YOLOE, MobileCLIP, prompt profile và engine được khóa bằng checksum trong
-manifest. Runtime từ chối artifact lệch model, profile hoặc checksum.
+embedding và export ứng viên FP32/FP16 trên Xavier, rồi chọn ứng viên nhanh
+nhất vượt kiểm tra mask, depth và grasp so với pipeline PyTorch FP32 trên ảnh
+validation của từng prompt. Model YOLOE, MobileCLIP, prompt profile và engine
+được khóa bằng checksum trong manifest. Worker chỉ nạp artifact có bản ghi
+full-pipeline parity đạt ngưỡng cho đúng engine đã chọn.
 
 Lite-Mono cũng dùng TensorRT engine tĩnh 192x640 gồm encoder và decoder.
 Exporter so sánh FP32/FP16 với checkpoint PyTorch và chỉ nhận ứng viên có
@@ -173,26 +174,20 @@ Tạo `prompts.json` với 1–16 prompt có thứ tự:
 
 Đặt một ảnh validation cho từng ID trong `model/validation/yoloe/`, ví dụ
 `model/validation/yoloe/blue_cube.png`. Ảnh phải có object của prompt đó.
-Sau đó chạy:
+Đặt `CAMERA_K` đúng với camera của các ảnh validation, rồi chạy khi worker
+đã dừng:
 
 ```bash
+export CAMERA_K="615.2 614.8 320.1 239.7"
 bash preprocess_prompt.sh prompts.json
 ```
 
-Lệnh lưu prompt embeddings, export engine ở 640x640 batch 1 theo FP32 và FP16,
-so sánh mask với PyTorch FP32, và chỉ kích hoạt artifact nếu một ứng viên đạt
-IoU >= 0.99 cho mọi prompt. Nếu không có ứng viên đạt ngưỡng, lệnh dừng và
-không chuyển con trỏ `CURRENT`.
-
-So sánh toàn pipeline với PyTorch FP32 trên cùng các ảnh validation:
-
-```bash
-.venv/bin/python tools/validate_trt_parity.py prompts.json \
-  --camera-k 615.2 614.8 320.1 239.7
-```
-
-Tool kiểm tra mask IoU >= 0.99, p95 relative depth error <= 2%, và khi cả hai
-bản có grasp thì tâm <= 7.5 mm, hướng <= 10 độ, độ mở <= 5 mm.
+Lệnh lưu prompt embeddings, export engine 640x640 batch 1 theo FP32 và FP16,
+kiểm tra mask IoU >= 0.99, rồi so sánh toàn pipeline trong các process CUDA
+riêng. Nó chọn engine nhanh nhất có p95 relative depth error <= 2% và, khi
+cả hai bản có grasp, tâm lệch <= 7.5 mm, hướng <= 10 độ, độ mở <= 5 mm.
+Nếu không có ứng viên đạt ngưỡng, lệnh dừng và khôi phục con trỏ `CURRENT`
+trước đó. Có thể chạy riêng `tools/validate_trt_parity.py` để xem lại số đo.
 
 ### 3. Cold start và quản lý worker
 

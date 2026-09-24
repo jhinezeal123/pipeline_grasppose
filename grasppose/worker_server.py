@@ -81,7 +81,7 @@ class Handler(socketserver.StreamRequestHandler):
         if not isinstance(output_dir, str) or not output_dir:
             raise ValueError("output directory is required")
         os.makedirs(output_dir, exist_ok=True)
-        if not os.access(output_dir, os.W_OK):
+        if not os.access(output_dir, os.W_OK | os.X_OK):
             raise ValueError("output directory is not writable: %s" % output_dir)
 
         profile = os.environ.get("GRASP_PROFILE_INFER") == "1"
@@ -167,7 +167,7 @@ def _write_pid():
 
 def serve():
     os.makedirs(RUNTIME_DIR, exist_ok=True)
-    os.umask(0o177)
+    os.umask(0o077)
     lock_path = os.path.join(RUNTIME_DIR, "worker.lock")
     lock_handle = open(lock_path, "w")
     try:
@@ -182,7 +182,7 @@ def serve():
 
     server = None
     try:
-        catalog = PromptCatalog.load(verify_engine=True)
+        catalog = PromptCatalog.load(verify_engine=True, require_full_pipeline=True)
         expected_artifact_id = catalog.manifest["artifact_id"]
         DEFAULT_SERVICE.load()
         loaded_catalog = DEFAULT_SERVICE.core._vision._catalog

@@ -36,7 +36,7 @@ class PromptCatalog:
         return self.by_id[prompt_id]
 
     @classmethod
-    def load(cls, verify_engine=False):
+    def load(cls, verify_engine=False, require_full_pipeline=False):
         if not os.path.isfile(YOLOE_CURRENT_FILE):
             raise RuntimeError(
                 "prompt artifacts are not prepared; run "
@@ -131,6 +131,21 @@ class PromptCatalog:
                 engine.get("sha256"),
                 "YOLOE TensorRT engine",
             )
+        if require_full_pipeline:
+            validation = manifest.get("full_pipeline_validation")
+            if (
+                not isinstance(validation, dict)
+                or validation.get("passed") is not True
+                or validation.get("artifact_id") != artifact_id
+                or validation.get("engine_sha256") != engine.get("sha256")
+                or validation.get("prompt_ids") != [
+                    item["id"] for item in prompts
+                ]
+            ):
+                raise RuntimeError(
+                    "YOLOE engine lacks passing full-pipeline validation; "
+                    "run preprocess_prompt.sh with CAMERA_K configured"
+                )
         return cls(prompts, manifest, artifact_dir)
 
     @staticmethod

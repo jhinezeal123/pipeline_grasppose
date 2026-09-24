@@ -165,6 +165,38 @@ class PromptCatalogTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "unknown prompt ID"):
                 catalog.require("cube")
 
+    def test_worker_requires_parity_for_selected_engine(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            artifact_id, artifact_dir, checkpoint, _, current = (
+                self.make_artifact(root)
+            )
+            contexts = self.patched_catalog_paths(root, checkpoint, current)
+            with contexts[0], contexts[1], contexts[2]:
+                with self.assertRaisesRegex(RuntimeError, "full-pipeline validation"):
+                    PromptCatalog.load(
+                        verify_engine=True, require_full_pipeline=True
+                    )
+                manifest_path = artifact_dir / "manifest.json"
+                manifest = json.loads(manifest_path.read_text())
+                manifest["full_pipeline_validation"] = {
+                    "passed": True,
+                    "artifact_id": artifact_id,
+                    "engine_sha256": manifest["engine"]["sha256"],
+                    "prompt_ids": ["blue_cube"],
+                    "camera_k": [957.0, 948.0, 636.0, 352.0],
+                }
+                manifest_path.write_text(json.dumps(manifest))
+                PromptCatalog.load(
+                    verify_engine=True, require_full_pipeline=True
+                )
+                manifest["full_pipeline_validation"]["engine_sha256"] = "0" * 64
+                manifest_path.write_text(json.dumps(manifest))
+                with self.assertRaisesRegex(RuntimeError, "full-pipeline validation"):
+                    PromptCatalog.load(
+                        verify_engine=True, require_full_pipeline=True
+                    )
+
     def test_load_rejects_changed_checkpoint(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

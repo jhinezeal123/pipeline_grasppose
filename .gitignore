@@ -17,3 +17,5 @@ __pycache__/
 *.pyo
 .ipynb_checkpoints/
 .DS_Store
+.runtime/
+.pytest_cache/
