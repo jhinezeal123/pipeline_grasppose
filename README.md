@@ -41,11 +41,12 @@ bằng checksum trong manifest. Worker từ chối mọi manifest YOLOE không c
 FP32 hoặc thiếu bản ghi full-pipeline parity đạt ngưỡng.
 
 Lite-Mono dùng TensorRT FP32 engine tĩnh 192x640 gồm encoder và decoder.
-`prepare.sh` tải YOLOE `cube` và Lite-Mono FP32 đã build trên AGX Xavier
+`prepare.sh` tải YOLOE `cube`, Lite-Mono và VGN đã build trên AGX Xavier
 L4T R35.6.4 / TensorRT 8.5.2.2 từ các URL cùng SHA-256 trong `dependencies`.
-Nó kiểm tra checksum weights, profile, engine và manifest trước khi kích hoạt;
-không export lại hai engine này khi chạy chuẩn bị. Torch vẫn được dùng để
-chuyển CUDA buffer và hậu xử lý depth.
+Gói VGN chứa cả engine và checkpoint; cả ba được cài trong chính checkout đang
+chạy. Nó kiểm tra checksum weights, profile, engine và manifest trước khi kích
+hoạt; không build lại TensorRT engine khi chạy chuẩn bị. Torch vẫn được dùng
+để chuyển CUDA buffer và hậu xử lý depth.
 
 Composition root không probe Torch/CUDA trong constructor. Worker nạp các
 engine một lần sau khi kiểm tra manifest, chạy warmup rồi giữ chúng trong process
@@ -56,16 +57,18 @@ này, kiểm tra SHA-256, cài Ultralytics CLIP ở revision đã pin và chạy
 `set_classes(["object"])` một lần. Vì vậy `infer.sh` / `space.sh` không cần
 tự cài package hay tải text encoder ở request đầu tiên.
 
-VGN ONNX được export bằng `onnx==1.14.1` trên Python 3.8 và TensorRT engine
-được build bằng `trtexec` ngay trên Xavier. Không reuse engine build trên T4
-(sm_75) hay máy TensorRT khác.
+VGN engine trong release được build trên chính Xavier với `trtexec --fp16`.
+`prepare.sh` tải nó về `model/vgn.engine` và không đọc engine từ checkout khác.
+`tools/export_vgn_onnx.py` vẫn có thể dùng để build thủ công khi đổi hardware
+hoặc checkpoint; engine phát hành không dùng được trên T4 (sm_75) hay stack
+TensorRT khác.
 
 `env/check_env.py` kiểm tra thêm:
 
 - đúng aarch64 / Python 3.8 / CUDA 11.4 / `sm_72`;
 - Torch/torchvision/NumPy/SciPy trong venv không bị thay khỏi host versions;
 - CUDA torchvision NMS hoạt động;
-- TensorRT >= 8.5 và `trtexec` có mặt;
+- TensorRT 8.5.2.2 khớp các engine đã đóng gói;
 - YOLOE checkpoint, MobileCLIP source, Lite-Mono TensorRT artifact và VGN engine/manifest đầy đủ;
 - chạy YOLOE text-encoder preparation smoke trong subprocess sạch, dùng `ultralytics/assets/bus.jpg` + prompt `person` và bắt buộc có ít nhất một box;
 - chạy Lite-Mono CUDA inference thật;

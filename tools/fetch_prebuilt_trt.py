@@ -17,7 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from grasppose.artifacts import sha256_file
+from grasppose.artifacts import atomic_write_json, sha256_file
 
 BUNDLES = {
     "yoloe-26s-cube-trt-fp32": {
@@ -31,6 +31,8 @@ BUNDLES = {
         "engine": "litemono_fp32.engine",
     },
 }
+VGN_BUNDLE_NAME = "vgn-trt-xavier"
+VGN_FILES = {"manifest.json", "vgn.engine", "vgn_conv.pth"}
 HEX64 = re.compile(r"^[a-f0-9]{64}$")
 
 
@@ -71,6 +73,24 @@ def require_record(record, name):
         raise ValueError("%s has an unexpected release URL" % name)
     if not HEX64.fullmatch(record["SHA256"]) or not HEX64.fullmatch(record["ARTIFACT_ID"]):
         raise ValueError("%s has an invalid SHA-256/artifact ID" % name)
+
+
+def require_vgn_record(record):
+    for field in (
+            "URL", "SHA256", "ARTIFACT_ID", "ENGINE_SHA256",
+            "CHECKPOINT_SHA256", "TENSORRT", "L4T", "GPU"):
+        if not record.get(field):
+            raise ValueError("VGN bundle is missing %s in dependencies" % field)
+    if record.get("KIND") != "tar.gz" or record.get("DEST") != "model":
+        raise ValueError("VGN bundle has an invalid kind or destination")
+    if record.get("PRECISION") != "fp16-enabled":
+        raise ValueError("VGN bundle must declare its FP16-enabled build")
+    if not record["URL"].startswith(
+            "https://github.com/jhinezeal123/pipeline_grasppose/releases/download/jetson-xavier-vgn-trt-v1/"):
+        raise ValueError("VGN bundle has an unexpected release URL")
+    for field in ("SHA256", "ARTIFACT_ID", "ENGINE_SHA256", "CHECKPOINT_SHA256"):
+        if not HEX64.fullmatch(record[field]):
+            raise ValueError("VGN bundle has an invalid %s" % field)
 
 
 def check_host(record):
@@ -175,6 +195,103 @@ def verify_artifact(name, record, artifact_dir, source_root):
     return manifest
 
 
+def verify_vgn_bundle(record, artifact_dir):
+    manifest_path = artifact_dir / "manifest.json"
+    if not manifest_path.is_file():
+        raise RuntimeError("VGN release manifest is missing")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    engine = manifest.get("engine", {})
+    checkpoint = manifest.get("checkpoint", {})
+    build = manifest.get("build", {})
+    if manifest.get("schema_version") != 1:
+        raise RuntimeError("VGN release manifest schema mismatch")
+    if manifest.get("artifact_id") != record["ARTIFACT_ID"]:
+        raise RuntimeError("VGN release artifact ID mismatch")
+    if (engine.get("file") != "vgn.engine"
+            or engine.get("precision") != "fp16-enabled"
+            or engine.get("sha256") != record["ENGINE_SHA256"]):
+        raise RuntimeError("VGN release engine metadata mismatch")
+    if (checkpoint.get("file") != "vgn_conv.pth"
+            or checkpoint.get("sha256") != record["CHECKPOINT_SHA256"]):
+        raise RuntimeError("VGN release checkpoint metadata mismatch")
+    if (build.get("tensorrt") != record["TENSORRT"]
+            or build.get("l4t") != record["L4T"]
+            or build.get("gpu") != record["GPU"]
+            or build.get("trtexec_flag") != "--fp16"):
+        raise RuntimeError("VGN release build metadata mismatch")
+    identity = {
+        "engine_sha256": engine["sha256"],
+        "checkpoint_sha256": checkpoint["sha256"],
+        "tensorrt": build["tensorrt"],
+        "l4t": build["l4t"],
+        "gpu": build["gpu"],
+        "build_flag": build["trtexec_flag"],
+    }
+    artifact_id = hashlib.sha256(
+        json.dumps(identity, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    if artifact_id != record["ARTIFACT_ID"]:
+        raise RuntimeError("VGN release identity mismatch")
+    _verify_file(artifact_dir / "vgn.engine", engine["sha256"], "VGN engine")
+    _verify_file(artifact_dir / "vgn_conv.pth", checkpoint["sha256"],
+                 "VGN checkpoint")
+
+
+def _extract_vgn_archive(archive_path, staging):
+    with tarfile.open(archive_path, "r:gz") as archive:
+        members = archive.getmembers()
+        if {item.name for item in members} != VGN_FILES or len(members) != len(VGN_FILES):
+            raise RuntimeError("VGN bundle has unexpected files")
+        for member in members:
+            if not member.isfile():
+                raise RuntimeError("VGN bundle contains a non-file entry")
+            stream = archive.extractfile(member)
+            if stream is None:
+                raise RuntimeError("cannot read VGN bundle entry")
+            with stream, (staging / member.name).open("wb") as output:
+                shutil.copyfileobj(stream, output)
+
+
+def install_vgn_bundle(record, install_root=ROOT, archive_path=None):
+    require_vgn_record(record)
+    destination = Path(install_root) / "model"
+    destination.mkdir(parents=True, exist_ok=True)
+    engine_path = destination / "vgn.engine"
+    checkpoint_path = destination / "vgn_conv.pth"
+    try:
+        _verify_file(engine_path, record["ENGINE_SHA256"], "VGN engine")
+        _verify_file(checkpoint_path, record["CHECKPOINT_SHA256"],
+                     "VGN checkpoint")
+        result = "reused"
+    except RuntimeError:
+        with tempfile.TemporaryDirectory(
+                prefix=".download-vgn-", dir=str(destination)) as temporary:
+            temporary = Path(temporary)
+            bundle = Path(archive_path) if archive_path else temporary / "bundle.tar.gz"
+            if archive_path is None:
+                subprocess.run([
+                    "curl", "--silent", "--show-error", "--location",
+                    "--fail", "--retry", "3", "--connect-timeout", "20",
+                    "--max-time", "600", record["URL"], "--output", str(bundle),
+                ], check=True)
+            _verify_file(bundle, record["SHA256"], "VGN release bundle")
+            staging = temporary / "artifact"
+            staging.mkdir()
+            _extract_vgn_archive(bundle, staging)
+            verify_vgn_bundle(record, staging)
+            os.replace(str(staging / "vgn_conv.pth"), str(checkpoint_path))
+            os.replace(str(staging / "vgn.engine"), str(engine_path))
+        result = "downloaded"
+
+    atomic_write_json(str(destination / "runtime" / "vgn.json"), {
+        "schema_version": 1,
+        "checkpoint_sha256": record["CHECKPOINT_SHA256"],
+        "engine_sha256": record["ENGINE_SHA256"],
+    })
+    print("%s: %s %s" % (VGN_BUNDLE_NAME, result, engine_path))
+    return engine_path
+
+
 def _extract_archive(archive_path, artifact_id, staging, files):
     expected = {artifact_id + "/" + name for name in files}
     with tarfile.open(archive_path, "r:gz") as archive:
@@ -251,6 +368,14 @@ def main(argv=None):
         archive = (Path(args.archive_dir) / Path(record["URL"]).name
                    if args.archive_dir else None)
         install_bundle(name, record, args.install_root, ROOT, archive)
+    vgn_record = records.get(VGN_BUNDLE_NAME)
+    if vgn_record is None:
+        raise RuntimeError("missing %s from dependencies" % VGN_BUNDLE_NAME)
+    require_vgn_record(vgn_record)
+    check_host(vgn_record)
+    vgn_archive = (Path(args.archive_dir) / Path(vgn_record["URL"]).name
+                   if args.archive_dir else None)
+    install_vgn_bundle(vgn_record, args.install_root, vgn_archive)
     return 0
 
 

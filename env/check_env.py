@@ -252,9 +252,9 @@ def main():
             else None
         )
     )
-    print("trtexec:", trtexec or "not found")
-    if not trtexec:
-        problems.append("trtexec is required to build VGN engine")
+    # Preparation installs pinned engines; trtexec is needed only for a
+    # manual rebuild after changing the hardware or model weights.
+    print("trtexec:", trtexec or "not found (manual rebuild only)")
 
     total_gib = _mem_total_gib()
     if total_gib is not None:

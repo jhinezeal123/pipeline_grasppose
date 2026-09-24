@@ -4,6 +4,10 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
+# Keep the resident worker on the artifacts installed by this checkout.
+export VGN_ENGINE="$ROOT/model/vgn.engine"
+export VGN_CHECKPOINT="$ROOT/model/vgn_conv.pth"
+export VGN_MANIFEST="$ROOT/model/runtime/vgn.json"
 export ULTRALYTICS_SKIP_REQUIREMENTS_CHECKS=1
 PYTHON="$ROOT/.venv/bin/python"
 RUNTIME_DIR="$(printenv GRASP_RUNTIME_DIR || true)"
@@ -35,6 +39,14 @@ is_our_worker() {
   ps -p "$pid" -o args= 2>/dev/null | grep -Fq "grasppose.worker_server"
 }
 
+worker_uses_checkout_vgn() {
+  local pid="$1"
+  [ -n "$pid" ] && [ -r "/proc/$pid/environ" ] || return 1
+  grep -zFxq "VGN_ENGINE=$ROOT/model/vgn.engine" "/proc/$pid/environ" &&
+    grep -zFxq "VGN_CHECKPOINT=$ROOT/model/vgn_conv.pth" "/proc/$pid/environ" &&
+    grep -zFxq "VGN_MANIFEST=$ROOT/model/runtime/vgn.json" "/proc/$pid/environ"
+}
+
 rpc_status() {
   "$PYTHON" -c 'from grasppose.worker_client import request_worker; import json; print(json.dumps(request_worker({"op":"status"}, timeout=2)))' 2>/dev/null
 }
@@ -42,6 +54,10 @@ rpc_status() {
 show_status() {
   local state pid
   if state="$(rpc_status)"; then
+    pid="$(worker_pid || true)"
+    if ! is_our_worker "$pid" || ! worker_uses_checkout_vgn "$pid"; then
+      echo "Worker is running with different VGN paths; start will restart it." >&2
+    fi
     printf '%s\n' "$state"
     return 0
   fi
@@ -78,9 +94,18 @@ wait_for_worker() {
 start_worker() {
   local pid state
   if state="$(rpc_status)"; then
-    echo "Worker already ready; reusing the resident models."
-    printf '%s\n' "$state"
-    return 0
+    pid="$(worker_pid || true)"
+    if ! is_our_worker "$pid"; then
+      echo "Worker socket is active but does not belong to this checkout." >&2
+      return 1
+    fi
+    if worker_uses_checkout_vgn "$pid"; then
+      echo "Worker already ready; reusing the resident models."
+      printf '%s\n' "$state"
+      return 0
+    fi
+    echo "Restarting worker to use checkout-local VGN ..."
+    stop_worker
   fi
   pid="$(worker_pid || true)"
   if is_our_worker "$pid"; then

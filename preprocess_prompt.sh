@@ -4,6 +4,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
+export VGN_ENGINE="$ROOT/model/vgn.engine"
+export VGN_CHECKPOINT="$ROOT/model/vgn_conv.pth"
+export VGN_MANIFEST="$ROOT/model/runtime/vgn.json"
 export ULTRALYTICS_SKIP_REQUIREMENTS_CHECKS=1
 PYTHON="$ROOT/.venv/bin/python"
 
