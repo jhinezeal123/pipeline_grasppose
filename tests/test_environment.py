@@ -240,32 +240,3 @@ class EnvironmentTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-blue cube\\nyellow ball\\nblue cyclinder'",
-            source,
-        )
-        self.assertIn("tools/export_yoloe_trt.py", source)
-        self.assertIn("model/yoloe-26s-seg.engine", source)
-
-
-    def test_prepare_pins_litemono_tiny_onnx_for_xavier_trt(self):
-        source = (ROOT / "prepare.sh").read_text()
-        self.assertIn(
-            'LITEMONO_MODEL_REV="520ab0e5aaabf705c25b4f23b3316ae2c5a7bd3a"',
-            source,
-        )
-        self.assertIn(
-            'LITEMONO_ONNX_BLOB_SHA="cbfaf3c2a0e6619d8d0ce554a35a009473d08faa"',
-            source,
-        )
-        self.assertIn(
-            "lite-mono-tiny_192x640_op11.onnx",
-            source,
-        )
-        self.assertIn("--fp16", source)
-        self.assertIn("native/litemono_trt", source)
-        self.assertNotIn("model/Lite-Mono", source)
-        self.assertNotIn("model/lite-mono/encoder.pth", source)
-
-
-if __name__ == "__main__":
-    unittest.main()
