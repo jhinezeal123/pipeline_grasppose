@@ -5,13 +5,21 @@ import os
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODEL_DIR = os.path.join(HERE, "model")
 
-YOLOE_MODEL = os.environ.get("YOLOE_MODEL", os.path.join(MODEL_DIR, "yoloe-26s-seg.pt"))
+YOLOE_SOURCE_MODEL = os.environ.get(
+    "YOLOE_SOURCE_MODEL",
+    os.path.join(MODEL_DIR, "yoloe-26s-seg.pt"),
+)
+YOLOE_MODEL = os.environ.get(
+    "YOLOE_MODEL",
+    os.path.join(MODEL_DIR, "yoloe-26s-seg.engine"),
+)
+YOLOE_CLASSES = (
+    "blue cube",
+    "yellow ball",
+    "blue cyclinder",
+)
 YOLOE_IMGSZ = int(os.environ.get("YOLOE_IMGSZ", "640"))
 YOLOE_CONF = float(os.environ.get("YOLOE_CONF", "0.20"))
-YOLOE_HALF = (
-    os.environ.get("YOLOE_HALF", "0").strip().lower()
-    in {"1", "true", "yes", "on"}
-)
 
 LITEMONO_ONNX = os.environ.get(
     "LITEMONO_ONNX",
@@ -37,4 +45,4 @@ VGN_QUAL_THRESHOLD = float(os.environ.get("VGN_QUAL_THRESHOLD", "0.90"))
 
 GRIP_HW_OPEN_M = 0.0694
 GRIP_MAX_OPEN_M = 0.080
-DEFAULT_PROMPT = "the object"
+DEFAULT_PROMPT = YOLOE_CLASSES[0]
