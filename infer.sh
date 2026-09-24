@@ -18,7 +18,7 @@ fi
 IMG="${1:-}"
 if [ -z "$IMG" ]; then
   echo "Usage: bash infer.sh /path/to/image.png [pipeline.py options]" >&2
-  echo "Example: bash infer.sh img/frame.png --camera-k FX FY CX CY --prompt 'the mug'" >&2
+  echo "Example: bash infer.sh img/frame.png --camera-k FX FY CX CY --prompt 'blue cube'" >&2
   exit 1
 fi
 shift
