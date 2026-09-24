@@ -163,6 +163,25 @@ class EnvironmentTests(unittest.TestCase):
             source,
         )
 
+    def test_check_env_honors_vgn_engine_override(self):
+        source = (ROOT / "env" / "check_env.py").read_text()
+        self.assertIn(
+            'VGN_ENGINE_PATH = _env_artifact_path("VGN_ENGINE", "model/vgn.engine")',
+            source,
+        )
+        self.assertIn(
+            '(os.environ.get("VGN_ENGINE", "model/vgn.engine"), VGN_ENGINE_PATH)',
+            source,
+        )
+        self.assertIn(
+            'VgnTensorRT(str(VGN_ENGINE_PATH))',
+            source,
+        )
+        self.assertNotIn(
+            'VgnTensorRT(str(ROOT / "model/vgn.engine"))',
+            source,
+        )
+
     def test_check_env_compares_imported_runtime_versions(self):
         source = (ROOT / "env" / "check_env.py").read_text()
         self.assertIn(
