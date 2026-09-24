@@ -41,6 +41,19 @@ class Yoloe26sVision(VisionPort):
             # The engine was exported from YOLOE after set_classes(), so it
             # behaves like a normal static Ultralytics segmentation model.
             self._model = YOLO(self.model_path, task="segment")
+            names = self._model.names
+            if isinstance(names, dict):
+                actual_classes = tuple(
+                    names[index] for index in sorted(names))
+            else:
+                actual_classes = tuple(names)
+            if actual_classes != self.classes:
+                release_attributes(self, "_model")
+                raise RuntimeError(
+                    "YOLOE TensorRT class metadata mismatch: "
+                    "expected=%r actual=%r"
+                    % (self.classes, actual_classes)
+                )
             log("YOLOE-26s TensorRT loaded in %.1fs | classes=%r" % (
                 time.time() - started,
                 self.classes,
