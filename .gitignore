@@ -4,6 +4,7 @@ model/*
 mobileclip2_b.ts
 
 .venv/
+build/
 env/lib/
 env/bin/
 output/*
