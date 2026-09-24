@@ -22,6 +22,17 @@ if str(ROOT) not in sys.path:
 
 ENV = ROOT / ".venv"
 
+
+def _env_artifact_path(name, default_rel):
+    raw = os.environ.get(name)
+    path = Path(raw) if raw else ROOT / default_rel
+    if not path.is_absolute():
+        path = ROOT / path
+    return path
+
+
+VGN_ENGINE_PATH = _env_artifact_path("VGN_ENGINE", "model/vgn.engine")
+
 REQUIRED = (
     "numpy", "scipy", "torch", "torchvision", "cv2", "PIL",
     "ultralytics", "timm", "onnx", "gradio", "gdown", "tensorrt",
@@ -272,19 +283,18 @@ def main():
         )
 
     artifacts = (
-        "model/yoloe-26s-seg.engine",
-        "model/yoloe-26s-seg.classes.txt",
-        "model/lite-mono-tiny_192x640_op11.onnx",
-        "model/lite-mono-tiny_192x640_op11_fp16.engine",
-        "build/litemono_trt/liblitemono_trt.so",
-        "model/vgn.engine",
+        ("model/yoloe-26s-seg.engine", ROOT / "model/yoloe-26s-seg.engine"),
+        ("model/yoloe-26s-seg.classes.txt", ROOT / "model/yoloe-26s-seg.classes.txt"),
+        ("model/lite-mono-tiny_192x640_op11.onnx", ROOT / "model/lite-mono-tiny_192x640_op11.onnx"),
+        ("model/lite-mono-tiny_192x640_op11_fp16.engine", ROOT / "model/lite-mono-tiny_192x640_op11_fp16.engine"),
+        ("build/litemono_trt/liblitemono_trt.so", ROOT / "build/litemono_trt/liblitemono_trt.so"),
+        (os.environ.get("VGN_ENGINE", "model/vgn.engine"), VGN_ENGINE_PATH),
     )
-    for rel in artifacts:
-        path = ROOT / rel
+    for label, path in artifacts:
         ok = path.is_file() and path.stat().st_size > 0
-        print("[%s] %s" % ("OK" if ok else "--", rel))
+        print("[%s] %s" % ("OK" if ok else "--", label))
         if not ok:
-            problems.append("missing artifact %s" % rel)
+            problems.append("missing artifact %s" % label)
 
     # Deserialize and execute the exported YOLOE TensorRT engine in a clean
     # subprocess. No text encoder or set_classes() call is allowed at runtime.
@@ -376,7 +386,7 @@ vision.close()
             from grasppose.adapters.vgn_trt import VgnTensorRT
             from grasppose.domain.types import TSDFResult
 
-            smoke = VgnTensorRT(str(ROOT / "model/vgn.engine"))
+            smoke = VgnTensorRT(str(VGN_ENGINE_PATH))
             smoke.load()
             tsdf = TSDFResult(
                 grid=np.full(
