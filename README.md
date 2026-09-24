@@ -38,7 +38,7 @@ bake cố định vào engine theo đúng thứ tự:
 ```text
 blue cube
 yellow ball
-blue cyclinder
+blue cylinder
 ```
 
 `prompt` runtime chỉ được dùng để chọn/filter một trong ba class này; adapter
@@ -272,7 +272,7 @@ K = np.array([
 P.load_models()
 
 # Allowed runtime targets:
-# "blue cube", "yellow ball", "blue cyclinder"
+# "blue cube", "yellow ball", "blue cylinder"
 
 result = P.pipeline(
     rgb,
