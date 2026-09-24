@@ -119,10 +119,10 @@ def main():
     finally:
         P.DEFAULT_SERVICE = original
 
-    assert set(result) == {
-        "box", "mask", "depthmap",
-        "grasp", "depth_m",
-    }
+    assert {
+        "box", "mask", "depthmap", "grasp", "depth_m",
+        "detection_count", "mask_pixels", "grasp_count",
+    }.issubset(set(result))
     assert all(
         result[key].shape == image.shape
         for key in (

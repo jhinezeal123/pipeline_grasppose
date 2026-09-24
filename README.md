@@ -32,17 +32,21 @@ Lưu ý versioning NVIDIA: JetPack 5.1.4 gốc đi với L4T 35.6.0; target th�
 `--system-site-packages` + constraints. Python 3.8 dependencies có pin riêng
 để tránh pip chọn wheel mới không còn hỗ trợ focal/aarch64.
 
-YOLOE-26 mặc định chạy FP32 trên Xavier. Adapter đi theo flow chính thức của
-Ultralytics: không probe Torch/CUDA trong constructor, để `device=None` cho
-Ultralytics chọn device ở bước predict, và để precision unset cho FP32 mặc
-định. FP16 chỉ là opt-in bằng `YOLOE_HALF=1`, được truyền bằng
-`quantize=16` (cờ `half` upstream đã deprecated). Khi chọn
-`device="cpu"`, adapter không bật FP16.
+YOLOE runtime dùng TensorRT engine tĩnh đã bake toàn bộ bộ prompt; request chỉ
+gửi prompt ID và không gọi text encoder/CLIP. `preprocess_prompt.sh` tạo
+embedding và export ứng viên FP32/FP16 trên Xavier, rồi chỉ chọn engine đạt
+mask IoU >= 0.99 so với PyTorch FP32 trên ảnh validation của từng prompt. Model
+YOLOE, MobileCLIP, prompt profile và engine được khóa bằng checksum trong
+manifest. Runtime từ chối artifact lệch model, profile hoặc checksum.
 
-Điều này cũng áp dụng cho composition root: constructor Lite-Mono không còn
-gọi `torch.cuda.is_available()`. Nhờ vậy import `grasppose.facade` chỉ tạo
-object graph, chưa import Torch; lần framework import đầu tiên trong production
-path là khi `Yoloe26sVision.load()` import `ultralytics.YOLOE`.
+Lite-Mono cũng dùng TensorRT engine tĩnh 192x640 gồm encoder và decoder.
+Exporter so sánh FP32/FP16 với checkpoint PyTorch và chỉ nhận ứng viên có
+p95 relative depth error <= 2%. Torch vẫn được dùng để chuyển CUDA buffer và
+hậu xử lý depth; không có PyTorch model fallback khi runtime thiếu engine.
+
+Composition root không probe Torch/CUDA trong constructor. Worker nạp các
+engine một lần sau khi kiểm tra manifest, chạy warmup rồi giữ chúng trong process
+nền. CLI và Gradio gửi ảnh/prompt ID qua Unix socket cục bộ.
 
 YOLOE-26 text prompting cần thêm `mobileclip2_b.ts`. `prepare.sh` tải artifact
 này, kiểm tra SHA-256, cài Ultralytics CLIP ở revision đã pin và chạy
@@ -59,8 +63,8 @@ VGN ONNX được export bằng `onnx==1.14.1` trên Python 3.8 và TensorRT eng
 - Torch/torchvision/NumPy/SciPy trong venv không bị thay khỏi host versions;
 - CUDA torchvision NMS hoạt động;
 - TensorRT >= 8.5 và `trtexec` có mặt;
-- artifact YOLOE/MobileCLIP/Lite-Mono/VGN đầy đủ;
-- chạy YOLOE semantic smoke trong subprocess sạch theo đúng import order production, dùng `ultralytics/assets/bus.jpg` + prompt `person` và bắt buộc có ít nhất một box;
+- YOLOE checkpoint, MobileCLIP source, Lite-Mono TensorRT artifact và VGN engine/manifest đầy đủ;
+- chạy YOLOE text-encoder preparation smoke trong subprocess sạch, dùng `ultralytics/assets/bus.jpg` + prompt `person` và bắt buộc có ít nhất một box;
 - chạy Lite-Mono CUDA inference thật;
 - deserialize và chạy một VGN TensorRT dummy inference thật.
 
@@ -134,86 +138,119 @@ K = [[fx, 0, cx],
      [0,  0,  1]]
 ```
 
-Ví dụ:
+Truyền camera matrix qua `--camera-k FX FY CX CY`, hoặc đặt
+`CAMERA_K="FX FY CX CY"`. Có thể dùng `--fov-x DEGREES` cho ảnh synthetic
+khi chưa có calibration thật. Lite-Mono là monocular depth nên scale metric
+không tuyệt đối; đặt `LITEMONO_DEPTH_SCALE` sau khi hiệu chuẩn nếu cần.
 
-```bash
-bash infer.sh img/frame.png \
-  --prompt "the mug" \
-  --camera-k 615.2 614.8 320.1 239.7
-```
-
-Cho UI:
-
-```bash
-export CAMERA_K="615.2 614.8 320.1 239.7"
-```
-
-Lite-Mono là monocular depth nên scale metric không tuyệt đối. Cần hiệu chuẩn:
-
-```bash
-export LITEMONO_DEPTH_SCALE=0.73
-```
-
-Nếu không đặt, pipeline dùng `1.0` và log cảnh báo.
-
-## Ba entrypoint
+## Chuẩn bị và chạy
 
 Yêu cầu JetPack đã có CUDA, TensorRT và PyTorch/torchvision tương thích Jetson.
 
-### 1. Chuẩn bị
+### 1. Chuẩn bị môi trường và engine depth/grasp
 
 ```bash
 bash prepare.sh
 ```
 
-`prepare.sh`:
+Script tạo `.venv`, cài dependency tương thích JetPack, tải YOLOE/MobileCLIP
+và Lite-Mono weights, rồi export + build Lite-Mono và VGN TensorRT ngay trên
+Xavier. Nó chạy các preflight inference ở cuối. Không xóa hoặc thay Torch,
+CUDA hay package hệ thống của JetPack.
 
-- tạo `.venv` với `--system-site-packages`;
-- bootstrap `pip==25.0.1` trước khi resolve dependencies; đây là bản cuối hỗ trợ Python 3.8 trong dòng pip 25.0 và nhận diện các wheel tag ARM64/manylinux mới hơn tốt hơn pip cũ đi kèm Ubuntu 20.04;
-- cài Python dependencies mà không thay Torch/CUDA của JetPack;
-- tải YOLOE;
-- clone Lite-Mono và tải weights;
-- tải checkpoint VGN chính thức nếu thiếu;
-- export ONNX và build `model/vgn.engine` bằng TensorRT trên chính Jetson;
-- chạy `env/check_env.py`.
+### 2. Đóng bộ prompt thành YOLOE engine
 
-Có thể override checkpoint VGN:
+Tạo `prompts.json` với 1–16 prompt có thứ tự:
 
-```bash
-VGN_CHECKPOINT=/path/to/vgn_conv.pth bash prepare.sh
+```json
+{
+  "prompts": [
+    {"id": "blue_cube", "text": "blue cube"},
+    {"id": "red_mug", "text": "red mug"}
+  ]
+}
 ```
 
-### 2. Inference một ảnh
+Đặt một ảnh validation cho từng ID trong `model/validation/yoloe/`, ví dụ
+`model/validation/yoloe/blue_cube.png`. Ảnh phải có object của prompt đó.
+Sau đó chạy:
+
+```bash
+bash preprocess_prompt.sh prompts.json
+```
+
+Lệnh lưu prompt embeddings, export engine ở 640x640 batch 1 theo FP32 và FP16,
+so sánh mask với PyTorch FP32, và chỉ kích hoạt artifact nếu một ứng viên đạt
+IoU >= 0.99 cho mọi prompt. Nếu không có ứng viên đạt ngưỡng, lệnh dừng và
+không chuyển con trỏ `CURRENT`.
+
+So sánh toàn pipeline với PyTorch FP32 trên cùng các ảnh validation:
+
+```bash
+.venv/bin/python tools/validate_trt_parity.py prompts.json \
+  --camera-k 615.2 614.8 320.1 239.7
+```
+
+Tool kiểm tra mask IoU >= 0.99, p95 relative depth error <= 2%, và khi cả hai
+bản có grasp thì tâm <= 7.5 mm, hướng <= 10 độ, độ mở <= 5 mm.
+
+### 3. Cold start và quản lý worker
+
+```bash
+bash cold.sh start
+bash cold.sh status
+bash cold.sh restart
+bash cold.sh stop
+```
+
+`start` nạp và warmup YOLOE, Lite-Mono, VGN một lần rồi giữ process nền qua
+Unix socket riêng trên máy. Gọi `start` khi worker đã sẵn sàng sẽ dùng lại
+process hiện tại. Sau khi tạo bộ prompt mới, chạy `cold.sh restart` để nạp
+artifact mới. Worker từ chối prompt ID không có trong profile hoặc manifest
+không khớp checksum.
+
+### 4. Inference một ảnh
 
 ```bash
 bash infer.sh img/frame.png \
-  --camera-k FX FY CX CY \
-  --prompt "the object"
+  --prompt-id blue_cube \
+  --camera-k 615.2 614.8 320.1 239.7
 ```
 
-`infer.sh` không cài dependency. Mặc định nó ghi đúng một bộ vào thư mục `output/` trong repo (được `prepare.sh` tạo, nên user Jetson thông thường có quyền ghi):
+CLI chỉ nhận prompt ID đã bake, không nhận prompt text tự do. Mỗi request gửi
+ảnh qua worker resident, rồi ghi bốn file:
 
 ```text
-<repo>/output/<stem>_box.png
-<repo>/output/<stem>_mask.png
-<repo>/output/<stem>_depthmap.png
-<repo>/output/<stem>_grasp.png
+output/<stem>_box.png
+output/<stem>_mask.png
+output/<stem>_depthmap.png
+output/<stem>_grasp.png
 ```
 
-Nếu môi trường/container đã provision một thư mục tuyệt đối khác, có thể override:
+Có thể đặt output directory bằng `--out DIR` hoặc `OUTPUT_DIR`. Worker ghi
+PNG lossless song song (4 writer) với nén mức 1 để giảm latency; có thể điều
+chỉnh bằng `GRASP_PNG_WORKERS` và `GRASP_PNG_COMPRESSION_LEVEL` (0–9). Dùng
+`GRASP_PROFILE_INFER=1` khi khởi động worker để xem thời gian từng stage/render/write.
+Để đo yêu cầu latency sau cold start (ít nhất 20 lần, gồm IPC và bốn lần ghi PNG):
 
 ```bash
-OUTPUT_DIR=/output bash infer.sh img/frame.png --camera-k FX FY CX CY
+python tools/benchmark_infer.py img/frame.png \
+  --prompt-id blue_cube \
+  --camera-k 615.2 614.8 320.1 239.7 \
+  --runs 20
 ```
 
-### 3. UI Space
+Ngưỡng nghiệm thu là P95 dưới 1000 ms và mọi lượt phải có detection. Kết quả
+chỉ đại diện cho prompt/ảnh validation đã đo.
+
+### 5. Gradio UI
 
 ```bash
-export CAMERA_K="FX FY CX CY"
+export CAMERA_K="615.2 614.8 320.1 239.7"
 bash space.sh --host 0.0.0.0 --port 8080
 ```
 
-UI preload các model một lần rồi tái sử dụng cho mọi request.
+UI dùng dropdown prompt ID và gửi request tới cùng worker với CLI.
 
 ## Python API
 
@@ -231,7 +268,7 @@ P.load_models()
 
 result = P.pipeline(
     rgb,
-    prompt="the mug",
+    prompt_id="blue_cube",
     camera_K=K,
     top=5,
 )
@@ -250,6 +287,7 @@ Các test logic không yêu cầu GPU/model:
 python -m unittest \
   tests.test_architecture \
   tests.test_pipeline_guards \
+  tests.test_prompt_catalog \
   tests.test_environment -v
 
 python test_pipeline_mock.py

@@ -165,105 +165,94 @@ class RuntimeCleanupTests(unittest.TestCase):
 
 
 class YoloeInputTests(unittest.TestCase):
-    def test_rgb_pipeline_input_is_converted_to_bgr_for_ultralytics(self):
+    class Tensor:
+        def __init__(self, value):
+            self.value = np.asarray(value)
+
+        def detach(self):
+            return self
+
+        def cpu(self):
+            return self
+
+        def numpy(self):
+            return self.value
+
+        def __len__(self):
+            return len(self.value)
+
+    class Catalog:
+        def __init__(self):
+            self.prompts = [{
+                "id": "blue_cube",
+                "text": "the blue cube",
+                "class_index": 0,
+            }]
+            self.by_id = {"blue_cube": self.prompts[0]}
+            self.manifest = {"engine": {"imgsz": 640}}
+            self.artifact_dir = "/tmp/fake-yoloe"
+
+        def require(self, prompt_id):
+            if prompt_id not in self.by_id:
+                raise ValueError("unknown prompt ID")
+            return self.by_id[prompt_id]
+
+    def test_rgb_is_converted_and_only_selected_fixed_prompt_is_returned(self):
         captured = {}
 
-        class FakeModel:
-            def set_classes(self, classes):
-                captured["classes"] = list(classes)
+        class Boxes:
+            cls = YoloeInputTests.Tensor([0, 1])
+            conf = YoloeInputTests.Tensor([0.7, 0.9])
+            xyxy = YoloeInputTests.Tensor([
+                [1, 2, 11, 12],
+                [20, 20, 30, 30],
+            ])
 
+            def __len__(self):
+                return 2
+
+        class FakeModel:
             def predict(self, **kwargs):
                 captured["kwargs"] = dict(kwargs)
                 captured["source"] = kwargs["source"].copy()
-                return [SimpleNamespace(boxes=[])]
-
-        adapter = Yoloe26sVision(device="cpu")
-        adapter._model = FakeModel()
-        rgb = np.array(
-            [[[10, 20, 30], [40, 50, 60]]],
-            dtype=np.uint8,
-        )
-
-        result = adapter.predict(rgb, "cube")
-
-        np.testing.assert_array_equal(
-            captured["source"],
-            np.array(
-                [[[30, 20, 10], [60, 50, 40]]],
-                dtype=np.uint8,
-            ),
-        )
-        self.assertEqual(captured["classes"], ["cube"])
-        self.assertEqual(captured["kwargs"]["device"], "cpu")
-        self.assertNotIn("quantize", captured["kwargs"])
-        self.assertNotIn("half", captured["kwargs"])
-        self.assertEqual(len(result.detection.boxes), 0)
-
-    def test_default_device_and_precision_are_left_to_ultralytics(self):
-        captured = {}
-
-        class FakeModel:
-            def set_classes(self, classes):
-                pass
-
-            def predict(self, **kwargs):
-                captured.update(kwargs)
-                return [SimpleNamespace(boxes=[])]
+                masks = np.zeros((2, 1, 2), np.float32)
+                masks[0, 0, 0] = 1
+                masks[1, 0, 1] = 1
+                return [SimpleNamespace(
+                    boxes=Boxes(),
+                    masks=SimpleNamespace(
+                        data=YoloeInputTests.Tensor(masks)),
+                )]
 
         adapter = Yoloe26sVision()
         adapter._model = FakeModel()
-        adapter.predict(
-            np.zeros((2, 2, 3), np.uint8),
-            "cube",
+        adapter._catalog = self.Catalog()
+        rgb = np.array([[[10, 20, 30], [40, 50, 60]]], dtype=np.uint8)
+        result = adapter.predict(rgb, "blue_cube")
+
+        np.testing.assert_array_equal(
+            captured["source"],
+            np.array([[[30, 20, 10], [60, 50, 40]]], dtype=np.uint8),
         )
+        self.assertEqual(captured["kwargs"]["device"], 0)
+        self.assertEqual(captured["kwargs"]["imgsz"], 640)
+        self.assertTrue(captured["kwargs"]["retina_masks"])
+        self.assertEqual(result.detection.labels, ["the blue cube"])
+        np.testing.assert_array_equal(
+            result.detection.boxes, np.array([[1, 2, 11, 12]], np.float32))
+        self.assertEqual(result.segmentation.mask.shape, (1, 2))
+        self.assertTrue(result.segmentation.mask[0, 0])
 
-        self.assertIsNone(adapter.device)
-        self.assertNotIn("device", captured)
-        self.assertNotIn("quantize", captured)
-        self.assertNotIn("half", captured)
-
-    def test_cpu_device_never_enables_fp16(self):
-        captured = {}
-
+    def test_unknown_prompt_id_fails_before_model_prediction(self):
         class FakeModel:
-            def set_classes(self, classes):
-                pass
-
             def predict(self, **kwargs):
-                captured.update(kwargs)
-                return [SimpleNamespace(boxes=[])]
+                raise AssertionError("prediction must not run")
 
-        adapter = Yoloe26sVision(device="cpu", half=True)
+        adapter = Yoloe26sVision()
         adapter._model = FakeModel()
-        adapter.predict(
-            np.zeros((2, 2, 3), np.uint8),
-            "cube",
-        )
-
-        self.assertEqual(captured["device"], "cpu")
-        self.assertNotIn("quantize", captured)
-
-    def test_cuda_fp16_uses_official_quantize_flag(self):
-        captured = {}
-
-        class FakeModel:
-            def set_classes(self, classes):
-                pass
-
-            def predict(self, **kwargs):
-                captured.update(kwargs)
-                return [SimpleNamespace(boxes=[])]
-
-        adapter = Yoloe26sVision(device=0, half=True)
-        adapter._model = FakeModel()
-        adapter.predict(
-            np.zeros((2, 2, 3), np.uint8),
-            "cube",
-        )
-
-        self.assertEqual(captured["device"], 0)
-        self.assertEqual(captured["quantize"], 16)
-        self.assertNotIn("half", captured)
+        adapter._catalog = self.Catalog()
+        with self.assertRaisesRegex(ValueError, "unknown prompt ID"):
+            adapter.predict(np.zeros((2, 2, 3), np.uint8), "free text")
 
     def test_default_service_construction_does_not_import_torch(self):
         code = (
@@ -279,8 +268,7 @@ class YoloeInputTests(unittest.TestCase):
             capture_output=True,
         )
         self.assertEqual(
-            completed.returncode,
-            0,
+            completed.returncode, 0,
             msg=completed.stdout + completed.stderr,
         )
 
@@ -304,7 +292,7 @@ class FacadeInputGuardTests(unittest.TestCase):
                 ValueError, "input image must have shape"):
             service.infer(
                 np.zeros((10, 10), np.uint8),
-                prompt="object",
+                prompt_id="object",
             )
 
 

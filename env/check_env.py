@@ -276,7 +276,9 @@ def main():
         "mobileclip2_b.ts",
         "model/lite-mono/encoder.pth",
         "model/lite-mono/depth.pth",
+        "model/runtime/lite-mono/CURRENT",
         "model/vgn.engine",
+        "model/runtime/vgn.json",
     )
     for rel in artifacts:
         path = ROOT / rel
@@ -285,45 +287,36 @@ def main():
         if not ok:
             problems.append("missing artifact %s" % rel)
 
-    # Run YOLOE in a clean subprocess. The production service must be
-    # constructible before Torch is imported so Ultralytics owns the first
-    # framework/CUDA initialization, matching its official YOLOE flow.
-    # Use Ultralytics' bundled bus.jpg and require a real semantic detection;
-    # a blank-image smoke can succeed while silently returning zero boxes.
+    # Check the text encoder and closed-set export source during preparation.
+    # The live worker uses a separately validated TensorRT engine and never
+    # calls set_classes() or the text encoder.
     if not problems:
         yoloe_smoke = r"""
 import sys
-
-import numpy as np
-from PIL import Image
 
 from grasppose.facade import DEFAULT_SERVICE
 
 if "torch" in sys.modules:
     raise RuntimeError(
-        "Torch was imported before YOLOE load during service construction"
+        "Torch was imported before YOLOE initialization during service construction"
     )
 
-vision = DEFAULT_SERVICE.core._vision
-vision.load()
+from ultralytics import YOLOE, ASSETS
 
-from ultralytics import ASSETS
-
-image = np.array(
-    Image.open(ASSETS / "bus.jpg").convert("RGB")
-)
-result = vision.predict(image, "person")
-scores = np.asarray(result.detection.scores, np.float32)
-if len(result.detection.boxes) == 0:
+model = YOLOE("model/yoloe-26s-seg.pt")
+model.set_classes(["person"])
+result = model.predict(
+    source=str(ASSETS / "bus.jpg"),
+    imgsz=640,
+    conf=0.20,
+    device=0,
+    verbose=False,
+)[0]
+if result is None or result.boxes is None or len(result.boxes) == 0:
     raise RuntimeError(
         "YOLOE returned zero boxes for bundled bus.jpg/person smoke"
     )
-top = float(scores.max()) if scores.size else 0.0
-print(
-    "YOLOE semantic smoke: boxes=%d top_score=%.6f"
-    % (len(result.detection.boxes), top)
-)
-vision.close()
+print("YOLOE text-encoder preparation smoke: boxes=%d" % len(result.boxes))
 """
         completed = subprocess.run(
             [sys.executable, "-c", yoloe_smoke],
@@ -336,8 +329,7 @@ vision.close()
         if completed.returncode != 0:
             detail = completed.stderr.strip() or completed.stdout.strip()
             problems.append(
-                "YOLOE clean-process semantic smoke failed: %s"
-                % detail
+                "YOLOE clean-process text smoke failed: %s" % detail
             )
 
     if not problems:

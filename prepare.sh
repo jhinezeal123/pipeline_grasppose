@@ -122,15 +122,37 @@ PY
   trap - EXIT
 fi
 
-VGN_ENGINE_PATH="${VGN_ENGINE:-$ROOT/model/vgn.engine}"
-if [ ! -s "$VGN_ENGINE_PATH" ]; then
-  VGN_CHECKPOINT_PATH="${VGN_CHECKPOINT:-$ROOT/model/vgn_conv.pth}"
-  if [ ! -s "$VGN_CHECKPOINT_PATH" ]; then
-    TMP_VGN="$(mktemp -d)"
-    trap 'rm -rf "$TMP_VGN"' EXIT
-    echo "Downloading official ETH VGN data bundle ..."
-    "$PYTHON" -m gdown --fuzzy       'https://drive.google.com/file/d/1MysYHve3ooWiLq12b58Nm8FWiFBMH-bJ/view?usp=sharing'       -O "$TMP_VGN/data.zip"
-    "$PYTHON" - "$TMP_VGN/data.zip" "$VGN_CHECKPOINT_PATH" <<'PY'
+# Build static Lite-Mono TensorRT candidates and select the fastest one that
+# stays within the 2% p95 depth parity gate. This runs on the Xavier itself.
+echo "Exporting and validating Lite-Mono TensorRT engines ..."
+"$PYTHON" tools/export_litemono_trt.py
+
+VGN_ENGINE_PATH="$(printenv VGN_ENGINE || true)"
+[ -n "$VGN_ENGINE_PATH" ] || VGN_ENGINE_PATH="$ROOT/model/vgn.engine"
+VGN_CHECKPOINT_PATH="$(printenv VGN_CHECKPOINT || true)"
+[ -n "$VGN_CHECKPOINT_PATH" ] || VGN_CHECKPOINT_PATH="$ROOT/model/vgn_conv.pth"
+VGN_MANIFEST_PATH="$(printenv VGN_MANIFEST || true)"
+[ -n "$VGN_MANIFEST_PATH" ] || VGN_MANIFEST_PATH="$ROOT/model/runtime/vgn.json"
+
+VGN_REBUILD=0
+[ -s "$VGN_ENGINE_PATH" ] || VGN_REBUILD=1
+if [ "$VGN_REBUILD" -eq 0 ]; then
+  if ! "$PYTHON" tools/vgn_manifest.py check \
+      --checkpoint "$VGN_CHECKPOINT_PATH" \
+      --engine "$VGN_ENGINE_PATH" \
+      --manifest "$VGN_MANIFEST_PATH"; then
+    VGN_REBUILD=1
+  fi
+fi
+
+if [ ! -s "$VGN_CHECKPOINT_PATH" ]; then
+  TMP_VGN="$(mktemp -d)"
+  trap 'rm -rf "$TMP_VGN"' EXIT
+  echo "Downloading official ETH VGN data bundle ..."
+  "$PYTHON" -m gdown --fuzzy \
+    'https://drive.google.com/file/d/1MysYHve3ooWiLq12b58Nm8FWiFBMH-bJ/view?usp=sharing' \
+    -O "$TMP_VGN/data.zip"
+  "$PYTHON" - "$TMP_VGN/data.zip" "$VGN_CHECKPOINT_PATH" <<'PY'
 import pathlib
 import shutil
 import sys
@@ -149,10 +171,12 @@ with zipfile.ZipFile(archive) as zf:
         shutil.copyfileobj(src, out)
 print(dst)
 PY
-    rm -rf "$TMP_VGN"
-    trap - EXIT
-  fi
+  rm -rf "$TMP_VGN"
+  trap - EXIT
+  VGN_REBUILD=1
+fi
 
+if [ "$VGN_REBUILD" -eq 1 ]; then
   TRTEXEC="$(command -v trtexec || true)"
   if [ -z "$TRTEXEC" ] && [ -x /usr/src/tensorrt/bin/trtexec ]; then
     TRTEXEC=/usr/src/tensorrt/bin/trtexec
@@ -161,12 +185,26 @@ PY
     echo "trtexec is required to build VGN TensorRT engine" >&2
     exit 1
   fi
-
   mkdir -p "$(dirname "$VGN_ENGINE_PATH")"
   ONNX_PATH="$ROOT/model/vgn.onnx"
-  "$PYTHON" tools/export_vgn_onnx.py     --checkpoint "$VGN_CHECKPOINT_PATH"     --out "$ONNX_PATH"
-  "$TRTEXEC"     --onnx="$ONNX_PATH"     --saveEngine="$VGN_ENGINE_PATH"     --fp16
+  ENGINE_TMP="$VGN_ENGINE_PATH.tmp"
+  "$PYTHON" tools/export_vgn_onnx.py \
+    --checkpoint "$VGN_CHECKPOINT_PATH" \
+    --out "$ONNX_PATH"
+  "$TRTEXEC" \
+    --onnx="$ONNX_PATH" \
+    --saveEngine="$ENGINE_TMP" \
+    --fp16
+  mv "$ENGINE_TMP" "$VGN_ENGINE_PATH"
 fi
+
+export VGN_ENGINE="$VGN_ENGINE_PATH"
+export VGN_CHECKPOINT="$VGN_CHECKPOINT_PATH"
+export VGN_MANIFEST="$VGN_MANIFEST_PATH"
+"$PYTHON" tools/vgn_manifest.py write \
+  --checkpoint "$VGN_CHECKPOINT_PATH" \
+  --engine "$VGN_ENGINE_PATH" \
+  --manifest "$VGN_MANIFEST_PATH"
 
 "$PYTHON" env/check_env.py
 echo "Preparation complete."
