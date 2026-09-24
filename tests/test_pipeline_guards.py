@@ -193,6 +193,9 @@ class YoloeInputTests(unittest.TestCase):
         def numpy(self):
             return self.value
 
+        def __len__(self):
+            return len(self.value)
+
     def test_rgb_pipeline_input_is_converted_to_bgr_for_ultralytics(self):
         captured = {}
 
