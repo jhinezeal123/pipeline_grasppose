@@ -202,7 +202,7 @@ class EnvironmentTests(unittest.TestCase):
         for target in (
             '"blue cube"',
             '"yellow ball"',
-            '"blue cyclinder"',
+            '"blue cylinder"',
         ):
             self.assertIn(target, source)
         self.assertIn('format="engine"', source)
@@ -214,7 +214,7 @@ class EnvironmentTests(unittest.TestCase):
         source = (ROOT / "prepare.sh").read_text()
         self.assertIn("YOLOE_CLASSES_EXPECTED=$'blue cube", source)
         self.assertIn("yellow ball", source)
-        self.assertIn("blue cyclinder'", source)
+        self.assertIn("blue cylinder'", source)
         self.assertIn("tools/export_yoloe_trt.py", source)
         self.assertIn("model/yoloe-26s-seg.engine", source)
 
