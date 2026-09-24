@@ -271,22 +271,27 @@ def main():
             "less than 8 GiB free disk; model/build artifacts may fail"
         )
 
+    # prepare.sh can use a shared VGN engine outside this checkout. Check
+    # the same paths that it built and exported for the runtime.
+    vgn_engine_path = Path(
+        os.environ.get("VGN_ENGINE") or ROOT / "model/vgn.engine")
+    vgn_manifest_path = Path(
+        os.environ.get("VGN_MANIFEST") or ROOT / "model/runtime/vgn.json")
     artifacts = (
-        "model/yoloe-26s-seg.pt",
-        "mobileclip2_b.ts",
-        "model/lite-mono/encoder.pth",
-        "model/lite-mono/depth.pth",
-        "model/runtime/yoloe/CURRENT",
-        "model/runtime/lite-mono/CURRENT",
-        "model/vgn.engine",
-        "model/runtime/vgn.json",
+        ROOT / "model/yoloe-26s-seg.pt",
+        ROOT / "mobileclip2_b.ts",
+        ROOT / "model/lite-mono/encoder.pth",
+        ROOT / "model/lite-mono/depth.pth",
+        ROOT / "model/runtime/yoloe/CURRENT",
+        ROOT / "model/runtime/lite-mono/CURRENT",
+        vgn_engine_path,
+        vgn_manifest_path,
     )
-    for rel in artifacts:
-        path = ROOT / rel
+    for path in artifacts:
         ok = path.is_file() and path.stat().st_size > 0
-        print("[%s] %s" % ("OK" if ok else "--", rel))
+        print("[%s] %s" % ("OK" if ok else "--", path))
         if not ok:
-            problems.append("missing artifact %s" % rel)
+            problems.append("missing artifact %s" % path)
 
     if not problems:
         try:
@@ -386,7 +391,7 @@ print("YOLOE text-encoder preparation smoke: boxes=%d" % len(result.boxes))
             from grasppose.adapters.vgn_trt import VgnTensorRT
             from grasppose.domain.types import TSDFResult
 
-            smoke = VgnTensorRT(str(ROOT / "model/vgn.engine"))
+            smoke = VgnTensorRT(str(vgn_engine_path))
             smoke.load()
             tsdf = TSDFResult(
                 grid=np.full(
