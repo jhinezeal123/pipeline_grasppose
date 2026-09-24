@@ -19,12 +19,14 @@ jobs:
           'numpy==1.23.5'
           'scipy==1.10.1'
           'opencv-python==4.8.1.78'
+          'pillow==10.4.0'
       - if: matrix.python-version == '3.12'
         run: >-
           python -m pip install
           'numpy>=1.24,<3'
           'scipy>=1.10,<2'
           'opencv-python-headless>=4.8,<5'
+          'pillow>=10,<13'
       - run: python -m unittest tests.test_architecture tests.test_pipeline_guards tests.test_environment -v
       - run: python test_pipeline_mock.py
       - run: python test_app.py
