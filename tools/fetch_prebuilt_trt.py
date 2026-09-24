@@ -34,6 +34,7 @@ BUNDLES = {
 VGN_BUNDLE_NAME = "vgn-trt-xavier"
 VGN_FILES = {"manifest.json", "vgn.engine", "vgn_conv.pth"}
 HEX64 = re.compile(r"^[a-f0-9]{64}$")
+RELEASE_URL = "https://github.com/jhinezeal123/pipeline_grasppose/releases/download/jetson-xavier-trt-bundle-v2/"
 
 
 def read_dependencies(path):
@@ -69,7 +70,7 @@ def require_record(record, name):
         raise ValueError("%s has an invalid bundle kind or destination" % name)
     if record.get("PRECISION") != "fp32":
         raise ValueError("%s must use FP32" % name)
-    if not record["URL"].startswith("https://github.com/jhinezeal123/pipeline_grasppose/releases/download/"):
+    if not record["URL"].startswith(RELEASE_URL):
         raise ValueError("%s has an unexpected release URL" % name)
     if not HEX64.fullmatch(record["SHA256"]) or not HEX64.fullmatch(record["ARTIFACT_ID"]):
         raise ValueError("%s has an invalid SHA-256/artifact ID" % name)
@@ -85,8 +86,7 @@ def require_vgn_record(record):
         raise ValueError("VGN bundle has an invalid kind or destination")
     if record.get("PRECISION") != "fp16-enabled":
         raise ValueError("VGN bundle must declare its FP16-enabled build")
-    if not record["URL"].startswith(
-            "https://github.com/jhinezeal123/pipeline_grasppose/releases/download/jetson-xavier-vgn-trt-v1/"):
+    if not record["URL"].startswith(RELEASE_URL):
         raise ValueError("VGN bundle has an unexpected release URL")
     for field in ("SHA256", "ARTIFACT_ID", "ENGINE_SHA256", "CHECKPOINT_SHA256"):
         if not HEX64.fullmatch(record[field]):

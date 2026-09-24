@@ -15,6 +15,7 @@ from tools.fetch_prebuilt_trt import (
     require_record,
     require_vgn_record,
     VGN_BUNDLE_NAME,
+    RELEASE_URL,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,6 +29,11 @@ class PrebuiltTensorRTTests(unittest.TestCase):
             require_record(records[name], name)
             self.assertEqual(records[name]["TENSORRT"], "8.5.2.2")
             self.assertEqual(records[name]["L4T"], "R35.6.4")
+
+    def test_all_engine_bundles_use_one_release(self):
+        records = read_dependencies(ROOT / "dependencies")
+        for name in list(BUNDLES) + [VGN_BUNDLE_NAME]:
+            self.assertTrue(records[name]["URL"].startswith(RELEASE_URL))
 
     def test_bundle_rejects_unexpected_archive_entries(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -98,7 +104,7 @@ class PrebuiltTensorRTTests(unittest.TestCase):
                     archive.addfile(member, io.BytesIO(payload))
             record = {
                 "KIND": "tar.gz",
-                "URL": "https://github.com/jhinezeal123/pipeline_grasppose/releases/download/jetson-xavier-vgn-trt-v1/vgn.tar.gz",
+                "URL": "https://github.com/jhinezeal123/pipeline_grasppose/releases/download/jetson-xavier-trt-bundle-v2/vgn.tar.gz",
                 "SHA256": hashlib.sha256(archive_path.read_bytes()).hexdigest(),
                 "DEST": "model",
                 "ARTIFACT_ID": artifact_id,
