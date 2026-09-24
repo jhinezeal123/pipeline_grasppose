@@ -20,18 +20,29 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from grasppose.config import (
+    LITEMONO_ENGINE,
+    LITEMONO_ONNX,
+    LITEMONO_TRT_LIBRARY,
+    VGN_ENGINE,
+    YOLOE_MODEL,
+)
+
 ENV = ROOT / ".venv"
 
 
-def _env_artifact_path(name, default_rel):
-    raw = os.environ.get(name)
-    path = Path(raw) if raw else ROOT / default_rel
+def _artifact_path(value):
+    path = Path(value)
     if not path.is_absolute():
         path = ROOT / path
     return path
 
 
-VGN_ENGINE_PATH = _env_artifact_path("VGN_ENGINE", "model/vgn.engine")
+YOLOE_ENGINE_PATH = _artifact_path(YOLOE_MODEL)
+LITEMONO_ONNX_PATH = _artifact_path(LITEMONO_ONNX)
+LITEMONO_ENGINE_PATH = _artifact_path(LITEMONO_ENGINE)
+LITEMONO_TRT_LIBRARY_PATH = _artifact_path(LITEMONO_TRT_LIBRARY)
+VGN_ENGINE_PATH = _artifact_path(VGN_ENGINE)
 
 REQUIRED = (
     "numpy", "scipy", "torch", "torchvision", "cv2", "PIL",
@@ -283,12 +294,12 @@ def main():
         )
 
     artifacts = (
-        ("model/yoloe-26s-seg.engine", ROOT / "model/yoloe-26s-seg.engine"),
+        (YOLOE_MODEL, YOLOE_ENGINE_PATH),
         ("model/yoloe-26s-seg.classes.txt", ROOT / "model/yoloe-26s-seg.classes.txt"),
-        ("model/lite-mono-tiny_192x640_op11.onnx", ROOT / "model/lite-mono-tiny_192x640_op11.onnx"),
-        ("model/lite-mono-tiny_192x640_op11_fp16.engine", ROOT / "model/lite-mono-tiny_192x640_op11_fp16.engine"),
-        ("build/litemono_trt/liblitemono_trt.so", ROOT / "build/litemono_trt/liblitemono_trt.so"),
-        (os.environ.get("VGN_ENGINE", "model/vgn.engine"), VGN_ENGINE_PATH),
+        (LITEMONO_ONNX, LITEMONO_ONNX_PATH),
+        (LITEMONO_ENGINE, LITEMONO_ENGINE_PATH),
+        (LITEMONO_TRT_LIBRARY, LITEMONO_TRT_LIBRARY_PATH),
+        (VGN_ENGINE, VGN_ENGINE_PATH),
     )
     for label, path in artifacts:
         ok = path.is_file() and path.stat().st_size > 0
