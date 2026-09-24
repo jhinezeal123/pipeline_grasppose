@@ -207,6 +207,7 @@ class EnvironmentTests(unittest.TestCase):
             self.assertIn(target, source)
         self.assertIn('format="engine"', source)
         self.assertIn("quantize=16", source)
+        self.assertIn("simplify=False", source)
         self.assertIn("model.set_classes(list(FIXED_CLASSES))", source)
 
     def test_prepare_builds_yoloe_engine_only_for_pinned_class_stamp(self):
