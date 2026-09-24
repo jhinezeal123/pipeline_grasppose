@@ -28,7 +28,7 @@ export ULTRALYTICS_SKIP_REQUIREMENTS_CHECKS=1
 YOLOE_ENGINE_PATH="${YOLOE_MODEL:-$ROOT/model/yoloe-26s-seg.engine}"
 YOLOE_SOURCE_PATH="${YOLOE_SOURCE_MODEL:-$ROOT/model/yoloe-26s-seg.pt}"
 YOLOE_CLASSES_STAMP="$ROOT/model/yoloe-26s-seg.classes.txt"
-YOLOE_CLASSES_EXPECTED=$'blue cube\nyellow ball\nblue cyclinder'
+YOLOE_CLASSES_EXPECTED=$'blue cube\nyellow ball\nblue cylinder'
 
 YOLOE_NEEDS_EXPORT=0
 if [ ! -s "$YOLOE_ENGINE_PATH" ]; then
