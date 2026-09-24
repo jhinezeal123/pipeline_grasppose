@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import numpy as np
 
+from grasppose.adapters.lite_mono import _disp_to_depth
 from grasppose.adapters.vgn_trt import classify_vgn_outputs
 from grasppose.adapters.yoloe import Yoloe26sVision
 from grasppose.domain.geometry import (
@@ -53,6 +54,20 @@ class GeometryTests(unittest.TestCase):
                 None, 60.0, 640, 480).shape,
             (3, 3),
         )
+
+
+class LiteMonoTensorRTTests(unittest.TestCase):
+    def test_disp_to_depth_matches_litemono_conversion(self):
+        disparity = np.array([0.0, 1.0], dtype=np.float32)
+        depth = _disp_to_depth(disparity)
+        self.assertAlmostEqual(float(depth[0]), 100.0, places=4)
+        self.assertAlmostEqual(float(depth[1]), 0.1, places=5)
+
+    def test_adapter_has_no_pytorch_runtime_dependency(self):
+        source = (ROOT / "grasppose/adapters/lite_mono.py").read_text()
+        self.assertNotIn("import torch", source)
+        self.assertIn("litemono_infer", source)
+        self.assertIn("LITEMONO_TRT_LIBRARY", source)
 
 
 class TSDFTests(unittest.TestCase):
