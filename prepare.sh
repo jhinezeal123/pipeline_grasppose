@@ -22,66 +22,74 @@ command -v curl >/dev/null || { echo "curl is required" >&2; exit 1; }
 command -v cmake >/dev/null || { echo "cmake is required" >&2; exit 1; }
 command -v c++ >/dev/null || { echo "a C++ compiler is required" >&2; exit 1; }
 
-# YOLOE text prompting lazily installs CLIP and downloads MobileCLIP on first
-# set_classes(). Do both here under the JetPack constraints so inference never
-# mutates the environment at runtime.
-CLIP_REV="a13192f8cb767260d7dfd98c843b0716593169e7"
-CLIP_STAMP="$ROOT/.venv/ultralytics-clip-revision.txt"
-if [ ! -s "$CLIP_STAMP" ] || [ "$(cat "$CLIP_STAMP")" != "$CLIP_REV" ]; then
-  "$PYTHON" -m pip install \
-    -c "$ROOT/.venv/host-constraints.txt" \
-    "git+https://github.com/ultralytics/CLIP.git@$CLIP_REV"
-  printf '%s\n' "$CLIP_REV" > "$CLIP_STAMP"
+# Build one static YOLOE-26s TensorRT engine with the three runtime targets
+# baked into the weights. Text prompting/CLIP is build-time only.
+export ULTRALYTICS_SKIP_REQUIREMENTS_CHECKS=1
+YOLOE_ENGINE_PATH="${YOLOE_MODEL:-$ROOT/model/yoloe-26s-seg.engine}"
+YOLOE_SOURCE_PATH="${YOLOE_SOURCE_MODEL:-$ROOT/model/yoloe-26s-seg.pt}"
+YOLOE_CLASSES_STAMP="$ROOT/model/yoloe-26s-seg.classes.txt"
+YOLOE_CLASSES_EXPECTED=$'blue cube\nyellow ball\nblue cyclinder'
+
+YOLOE_NEEDS_EXPORT=0
+if [ ! -s "$YOLOE_ENGINE_PATH" ]; then
+  YOLOE_NEEDS_EXPORT=1
+elif [ ! -s "$YOLOE_CLASSES_STAMP" ]; then
+  YOLOE_NEEDS_EXPORT=1
+elif [ "$(cat "$YOLOE_CLASSES_STAMP")" != "$YOLOE_CLASSES_EXPECTED" ]; then
+  YOLOE_NEEDS_EXPORT=1
 fi
 
+if [ "$YOLOE_NEEDS_EXPORT" -eq 1 ]; then
+  CLIP_REV="a13192f8cb767260d7dfd98c843b0716593169e7"
+  CLIP_STAMP="$ROOT/.venv/ultralytics-clip-revision.txt"
+  if [ ! -s "$CLIP_STAMP" ] || [ "$(cat "$CLIP_STAMP")" != "$CLIP_REV" ]; then
+    "$PYTHON" -m pip install \
+      -c "$ROOT/.venv/host-constraints.txt" \
+      "git+https://github.com/ultralytics/CLIP.git@$CLIP_REV"
+    printf '%s\n' "$CLIP_REV" > "$CLIP_STAMP"
+  fi
 
-if [ ! -s model/yoloe-26s-seg.pt ]; then
-  "$PYTHON" - <<'PY'
+  if [ ! -s "$YOLOE_SOURCE_PATH" ]; then
+    YOLOE_SOURCE_PATH="$YOLOE_SOURCE_PATH" "$PYTHON" - <<'PY'
 from pathlib import Path
+import os
 import shutil
 from ultralytics import YOLOE
 
+dst = Path(os.environ["YOLOE_SOURCE_PATH"])
+dst.parent.mkdir(parents=True, exist_ok=True)
 model = YOLOE("yoloe-26s-seg.pt")
 src = Path(str(getattr(model, "ckpt_path", "yoloe-26s-seg.pt")))
-dst = Path("model/yoloe-26s-seg.pt")
 if not src.exists():
     raise SystemExit("Ultralytics did not resolve yoloe-26s-seg.pt")
 if src.resolve() != dst.resolve():
     shutil.copy2(src, dst)
 print(dst)
 PY
+  fi
+
+  MOBILECLIP="$ROOT/mobileclip2_b.ts"
+  MOBILECLIP_SHA256="35d7f213e4d75f38514e4656ad3cb91158bd33e3805d8ac349f23b186f66982f"
+  if [ ! -s "$MOBILECLIP" ]; then
+    TMP_CLIP="$(mktemp)"
+    trap 'rm -f "$TMP_CLIP"' EXIT
+    echo "Downloading YOLOE-26 MobileCLIP2 for one-time prompt baking ..."
+    curl -L --fail --retry 3 \
+      'https://github.com/ultralytics/assets/releases/download/v8.4.0/mobileclip2_b.ts' \
+      -o "$TMP_CLIP"
+    printf '%s  %s\n' "$MOBILECLIP_SHA256" "$TMP_CLIP" | sha256sum -c -
+    mv "$TMP_CLIP" "$MOBILECLIP"
+    trap - EXIT
+  fi
+
+  echo "Exporting YOLOE-26s FP16 TensorRT with fixed classes ..."
+  "$PYTHON" tools/export_yoloe_trt.py \
+    --model "$YOLOE_SOURCE_PATH" \
+    --out "$YOLOE_ENGINE_PATH" \
+    --imgsz "${YOLOE_IMGSZ:-640}" \
+    --workspace "${YOLOE_WORKSPACE_GB:-2}"
+  printf '%s\n' "$YOLOE_CLASSES_EXPECTED" > "$YOLOE_CLASSES_STAMP"
 fi
-
-MOBILECLIP="$ROOT/mobileclip2_b.ts"
-MOBILECLIP_SHA256="35d7f213e4d75f38514e4656ad3cb91158bd33e3805d8ac349f23b186f66982f"
-if [ ! -s "$MOBILECLIP" ]; then
-  TMP_CLIP="$(mktemp)"
-  trap 'rm -f "$TMP_CLIP"' EXIT
-  echo "Downloading YOLOE-26 MobileCLIP2 text encoder ..."
-  curl -L --fail --retry 3 \
-    'https://github.com/ultralytics/assets/releases/download/v8.4.0/mobileclip2_b.ts' \
-    -o "$TMP_CLIP"
-  printf '%s  %s\n' "$MOBILECLIP_SHA256" "$TMP_CLIP" | sha256sum -c -
-  mv "$TMP_CLIP" "$MOBILECLIP"
-  trap - EXIT
-fi
-
-# From here onward all lazy YOLOE dependencies are already installed. Refuse
-# runtime auto-upgrades that could replace the JetPack Torch/NumPy stack.
-export ULTRALYTICS_SKIP_REQUIREMENTS_CHECKS=1
-
-echo "Validating YOLOE text-prompt path with JetPack Torch ..."
-"$PYTHON" - <<'PY'
-from pathlib import Path
-from ultralytics import YOLOE
-
-asset = Path("mobileclip2_b.ts")
-if not asset.is_file():
-    raise SystemExit("mobileclip2_b.ts is missing")
-model = YOLOE("model/yoloe-26s-seg.pt")
-model.set_classes(["object"])
-print("YOLOE text prompt ready:", asset)
-PY
 
 # Pin the exact community-exported Lite-Mono Tiny artifact used by the
 # depth-detect Jetson TensorRT benchmark. Opset 11 is intentionally selected
