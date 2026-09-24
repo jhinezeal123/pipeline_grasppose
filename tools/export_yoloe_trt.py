@@ -11,7 +11,7 @@ from ultralytics import YOLOE
 FIXED_CLASSES = (
     "blue cube",
     "yellow ball",
-    "blue cyclinder",
+    "blue cylinder",
 )
 
 
