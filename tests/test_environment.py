@@ -212,8 +212,11 @@ class EnvironmentTests(unittest.TestCase):
 
     def test_prepare_builds_yoloe_engine_only_for_pinned_class_stamp(self):
         source = (ROOT / "prepare.sh").read_text()
-        self.assertIn(
-            "YOLOE_CLASSES_EXPECTED=
+        self.assertIn("YOLOE_CLASSES_EXPECTED=$'blue cube", source)
+        self.assertIn("yellow ball", source)
+        self.assertIn("blue cyclinder'", source)
+        self.assertIn("tools/export_yoloe_trt.py", source)
+        self.assertIn("model/yoloe-26s-seg.engine", source)
 
     def test_prepare_pins_litemono_tiny_onnx_for_xavier_trt(self):
         source = (ROOT / "prepare.sh").read_text()
