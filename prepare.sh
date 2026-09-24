@@ -19,6 +19,8 @@ export PATH="$ROOT/.venv/bin:/usr/src/tensorrt/bin:/usr/local/cuda/bin:$PATH"
 # env/check_env.py preflight below validates the packages this pipeline uses.
 command -v git >/dev/null || { echo "git is required" >&2; exit 1; }
 command -v curl >/dev/null || { echo "curl is required" >&2; exit 1; }
+command -v cmake >/dev/null || { echo "cmake is required" >&2; exit 1; }
+command -v c++ >/dev/null || { echo "a C++ compiler is required" >&2; exit 1; }
 
 # YOLOE text prompting lazily installs CLIP and downloads MobileCLIP on first
 # set_classes(). Do both here under the JetPack constraints so inference never
@@ -32,12 +34,6 @@ if [ ! -s "$CLIP_STAMP" ] || [ "$(cat "$CLIP_STAMP")" != "$CLIP_REV" ]; then
   printf '%s\n' "$CLIP_REV" > "$CLIP_STAMP"
 fi
 
-LITEMONO_REV="4874b35df8ed4da16159ce8be8c697028b72bf76"
-if [ ! -d model/Lite-Mono/.git ]; then
-  git clone https://github.com/noahzn/Lite-Mono.git model/Lite-Mono
-fi
-git -C model/Lite-Mono fetch --depth 1 origin "$LITEMONO_REV"
-git -C model/Lite-Mono checkout --detach "$LITEMONO_REV"
 
 if [ ! -s model/yoloe-26s-seg.pt ]; then
   "$PYTHON" - <<'PY'
@@ -87,39 +83,49 @@ model.set_classes(["object"])
 print("YOLOE text prompt ready:", asset)
 PY
 
-if [ ! -s model/lite-mono/encoder.pth ] || [ ! -s model/lite-mono/depth.pth ]; then
-  TMP="$(mktemp -d)"
-  trap 'rm -rf "$TMP"' EXIT
-  echo "Downloading Lite-Mono weights ..."
-  curl -L --fail --retry 3     'https://surfdrive.surf.nl/files/index.php/s/CUjiK221EFLyXDY/download'     -o "$TMP/lite-mono.bin"
-  mkdir -p "$TMP/x" model/lite-mono
-  "$PYTHON" - "$TMP/lite-mono.bin" "$TMP/x" <<'PY'
-import pathlib
-import sys
-import tarfile
-import zipfile
+# Pin the exact community-exported Lite-Mono Tiny artifact used by the
+# depth-detect Jetson TensorRT benchmark. Opset 11 is intentionally selected
+# for the TensorRT 8.5.x stack on JetPack 5 / Xavier.
+LITEMONO_MODEL_REV="520ab0e5aaabf705c25b4f23b3316ae2c5a7bd3a"
+LITEMONO_ONNX_BLOB_SHA="cbfaf3c2a0e6619d8d0ce554a35a009473d08faa"
+LITEMONO_ONNX_PATH="${LITEMONO_ONNX:-$ROOT/model/lite-mono-tiny_192x640_op11.onnx}"
+LITEMONO_ENGINE_PATH="${LITEMONO_ENGINE:-$ROOT/model/lite-mono-tiny_192x640_op11_fp16.engine}"
 
-src, out = map(pathlib.Path, sys.argv[1:])
-try:
-    with zipfile.ZipFile(src) as zf:
-        zf.extractall(out)
-except zipfile.BadZipFile:
-    try:
-        with tarfile.open(src) as tf:
-            tf.extractall(out)
-    except tarfile.TarError as exc:
-        raise SystemExit("Lite-Mono download is not an archive: %s" % exc)
-PY
-  ENC="$(find "$TMP/x" -name encoder.pth -type f | head -1 || true)"
-  DEP="$(find "$TMP/x" -name depth.pth -type f | head -1 || true)"
-  if [ -z "$ENC" ] || [ -z "$DEP" ]; then
-    echo "Lite-Mono archive did not contain encoder.pth + depth.pth" >&2
+if [ ! -s "$LITEMONO_ONNX_PATH" ] || \
+   [ "$(git hash-object "$LITEMONO_ONNX_PATH" 2>/dev/null || true)" != "$LITEMONO_ONNX_BLOB_SHA" ]; then
+  TMP_LITEMONO="$(mktemp)"
+  trap 'rm -f "$TMP_LITEMONO"' EXIT
+  echo "Downloading pinned Lite-Mono Tiny ONNX (192x640, opset 11) ..."
+  curl -L --fail --retry 3 \
+    "https://raw.githubusercontent.com/yzfzzz/depth-detect-model/$LITEMONO_MODEL_REV/onnx/lite-mono-tiny/lite-mono-tiny_192x640_op11.onnx" \
+    -o "$TMP_LITEMONO"
+  ACTUAL_BLOB_SHA="$(git hash-object "$TMP_LITEMONO")"
+  if [ "$ACTUAL_BLOB_SHA" != "$LITEMONO_ONNX_BLOB_SHA" ]; then
+    echo "Lite-Mono ONNX Git blob mismatch: expected=$LITEMONO_ONNX_BLOB_SHA actual=$ACTUAL_BLOB_SHA" >&2
     exit 1
   fi
-  cp "$ENC" model/lite-mono/encoder.pth
-  cp "$DEP" model/lite-mono/depth.pth
-  rm -rf "$TMP"
+  mkdir -p "$(dirname "$LITEMONO_ONNX_PATH")"
+  mv "$TMP_LITEMONO" "$LITEMONO_ONNX_PATH"
   trap - EXIT
+fi
+
+TRTEXEC="$(command -v trtexec || true)"
+if [ -z "$TRTEXEC" ] && [ -x /usr/src/tensorrt/bin/trtexec ]; then
+  TRTEXEC=/usr/src/tensorrt/bin/trtexec
+fi
+if [ -z "$TRTEXEC" ]; then
+  echo "trtexec is required to build TensorRT engines" >&2
+  exit 1
+fi
+
+if [ ! -s "$LITEMONO_ENGINE_PATH" ]; then
+  mkdir -p "$(dirname "$LITEMONO_ENGINE_PATH")"
+  echo "Building Lite-Mono Tiny FP16 TensorRT engine on this Xavier ..."
+  "$TRTEXEC" \
+    --onnx="$LITEMONO_ONNX_PATH" \
+    --saveEngine="$LITEMONO_ENGINE_PATH" \
+    --fp16 \
+    --workspace=2048
 fi
 
 VGN_ENGINE_PATH="${VGN_ENGINE:-$ROOT/model/vgn.engine}"
@@ -153,20 +159,16 @@ PY
     trap - EXIT
   fi
 
-  TRTEXEC="$(command -v trtexec || true)"
-  if [ -z "$TRTEXEC" ] && [ -x /usr/src/tensorrt/bin/trtexec ]; then
-    TRTEXEC=/usr/src/tensorrt/bin/trtexec
-  fi
-  if [ -z "$TRTEXEC" ]; then
-    echo "trtexec is required to build VGN TensorRT engine" >&2
-    exit 1
-  fi
-
   mkdir -p "$(dirname "$VGN_ENGINE_PATH")"
   ONNX_PATH="$ROOT/model/vgn.onnx"
   "$PYTHON" tools/export_vgn_onnx.py     --checkpoint "$VGN_CHECKPOINT_PATH"     --out "$ONNX_PATH"
   "$TRTEXEC"     --onnx="$ONNX_PATH"     --saveEngine="$VGN_ENGINE_PATH"     --fp16
 fi
+
+echo "Building minimal Lite-Mono TensorRT C++ runtime ..."
+cmake -S "$ROOT/native/litemono_trt" -B "$ROOT/build/litemono_trt" \
+  -DCMAKE_BUILD_TYPE=Release
+cmake --build "$ROOT/build/litemono_trt" -- -j"${BUILD_JOBS:-2}"
 
 "$PYTHON" env/check_env.py
 echo "Preparation complete."
