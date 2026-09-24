@@ -214,7 +214,8 @@ def install_bundle(name, record, install_root=ROOT, source_root=ROOT,
             bundle = Path(archive_path) if archive_path else temporary / "bundle.tar.gz"
             if archive_path is None:
                 subprocess.run([
-                    "curl", "--location", "--fail", "--retry", "3",
+                    "curl", "--silent", "--show-error", "--location",
+                    "--fail", "--retry", "3",
                     "--connect-timeout", "20", "--max-time", "600",
                     record["URL"], "--output", str(bundle),
                 ], check=True)
