@@ -5,13 +5,13 @@ Runtime:
 ```text
 RGB
  └─ YOLOE-26s-seg -> bbox + instance mask
-     └─ Lite-Mono -> depth map
+     └─ Lite-Mono Tiny TensorRT -> depth map
          └─ depth + camera K + mask -> point cloud
              └─ projective TSDF 0.30 m / 40^3
                  └─ VGN TensorRT -> 6-DoF grasp poses
 ```
 
-YOLOE, Lite-Mono và VGN TensorRT được nạp một lần và giữ resident trong suốt process. Mỗi frame chỉ chạy inference; model chỉ được giải phóng khi gọi `close_models()` hoặc service kết thúc.
+YOLOE, Lite-Mono Tiny TensorRT và VGN TensorRT được nạp một lần và giữ resident trong suốt process. Mỗi frame chỉ chạy inference; model chỉ được giải phóng khi gọi `close_models()` hoặc service kết thúc.
 
 
 ## Hardware target
@@ -39,19 +39,28 @@ Ultralytics chọn device ở bước predict, và để precision unset cho FP3
 `quantize=16` (cờ `half` upstream đã deprecated). Khi chọn
 `device="cpu"`, adapter không bật FP16.
 
-Điều này cũng áp dụng cho composition root: constructor Lite-Mono không còn
-gọi `torch.cuda.is_available()`. Nhờ vậy import `grasppose.facade` chỉ tạo
-object graph, chưa import Torch; lần framework import đầu tiên trong production
-path là khi `Yoloe26sVision.load()` import `ultralytics.YOLOE`.
+Điều này cũng áp dụng cho composition root: constructor Lite-Mono chỉ lưu
+đường dẫn TensorRT artifact, chưa deserialize engine và không import Torch.
+Nhờ vậy import `grasppose.facade` chỉ tạo object graph; engine Lite-Mono được
+deserialize đúng một lần trong `LiteMonoDepth.load()` và giữ resident qua các
+frame.
 
 YOLOE-26 text prompting cần thêm `mobileclip2_b.ts`. `prepare.sh` tải artifact
 này, kiểm tra SHA-256, cài Ultralytics CLIP ở revision đã pin và chạy
 `set_classes(["object"])` một lần. Vì vậy `infer.sh` / `space.sh` không cần
 tự cài package hay tải text encoder ở request đầu tiên.
 
+Lite-Mono dùng community export cố định
+`lite-mono-tiny_192x640_op11.onnx` từ `yzfzzz/depth-detect-model`, pin tại
+commit `520ab0e5aaabf705c25b4f23b3316ae2c5a7bd3a` và Git blob
+`cbfaf3c2a0e6619d8d0ce554a35a009473d08faa`. Đây không phải ONNX artifact
+chính thức của repo Lite-Mono; `prepare.sh` tải đúng file đã pin, kiểm tra blob
+rồi build engine FP16 bằng TensorRT 8.5.x ngay trên Xavier. Bản opset 11 được
+chọn vì chính deployment/benchmark Jetson của depth-detect dùng artifact này.
+
 VGN ONNX được export bằng `onnx==1.14.1` trên Python 3.8 và TensorRT engine
-được build bằng `trtexec` ngay trên Xavier. Không reuse engine build trên T4
-(sm_75) hay máy TensorRT khác.
+cũng được build bằng `trtexec` ngay trên Xavier. Không reuse bất kỳ engine nào
+build trên T4, TX2, Orin hoặc máy/TensorRT khác.
 
 `env/check_env.py` kiểm tra thêm:
 
@@ -61,7 +70,7 @@ VGN ONNX được export bằng `onnx==1.14.1` trên Python 3.8 và TensorRT eng
 - TensorRT >= 8.5 và `trtexec` có mặt;
 - artifact YOLOE/MobileCLIP/Lite-Mono/VGN đầy đủ;
 - chạy YOLOE semantic smoke trong subprocess sạch theo đúng import order production, dùng `ultralytics/assets/bus.jpg` + prompt `person` và bắt buộc có ít nhất một box;
-- chạy Lite-Mono CUDA inference thật;
+- deserialize và chạy Lite-Mono Tiny TensorRT inference thật;
 - deserialize và chạy một VGN TensorRT dummy inference thật.
 
 Lưu ý: venv dùng wheel `opencv-python==4.8.1.78` vì Ultralytics yêu cầu
@@ -88,7 +97,7 @@ ports/ + domain/
     │
 adapters/
   ├─ yoloe.py
-  ├─ lite_mono.py
+  ├─ lite_mono.py          # ctypes -> native/litemono_trt resident engine
   └─ vgn_trt.py
 ```
 
@@ -120,7 +129,7 @@ grasppose/
 └── runtime.py
 ```
 
-Các adapter chỉ giữ resource persistent như weights, encoder/decoder hoặc TensorRT engine. Dữ liệu theo frame không được lưu trong object; mỗi frame đi qua `predict(...)` và typed dataclass trong `domain/types.py`.
+Các adapter chỉ giữ resource persistent như YOLOE weights hoặc TensorRT engine. Dữ liệu theo frame không được lưu trong object; mỗi frame đi qua `predict(...)` và typed dataclass trong `domain/types.py`.
 
 Các implementation Grounding-DINO, SAM, MoGe và GraspNess/MinkowskiEngine cũ đã được loại khỏi source tree để repository chỉ có một runtime architecture canonical.
 
@@ -172,7 +181,7 @@ bash prepare.sh
 - bootstrap `pip==25.0.1` trước khi resolve dependencies; đây là bản cuối hỗ trợ Python 3.8 trong dòng pip 25.0 và nhận diện các wheel tag ARM64/manylinux mới hơn tốt hơn pip cũ đi kèm Ubuntu 20.04;
 - cài Python dependencies mà không thay Torch/CUDA của JetPack;
 - tải YOLOE;
-- clone Lite-Mono và tải weights;
+- tải đúng Lite-Mono Tiny ONNX 192x640 opset 11 đã pin, kiểm tra Git blob SHA, build FP16 TensorRT engine và C++ runtime tối giản;
 - tải checkpoint VGN chính thức nếu thiếu;
 - export ONNX và build `model/vgn.engine` bằng TensorRT trên chính Jetson;
 - chạy `env/check_env.py`.
@@ -182,6 +191,23 @@ Có thể override checkpoint VGN:
 ```bash
 VGN_CHECKPOINT=/path/to/vgn_conv.pth bash prepare.sh
 ```
+
+
+Lite-Mono mặc định tạo hai artifact local (đều bị `.gitignore` bỏ qua):
+
+```text
+model/lite-mono-tiny_192x640_op11.onnx
+model/lite-mono-tiny_192x640_op11_fp16.engine
+```
+
+C++ shim được build thành:
+
+```text
+build/litemono_trt/liblitemono_trt.so
+```
+
+Có thể override đường dẫn runtime bằng `LITEMONO_ONNX`, `LITEMONO_ENGINE`
+và `LITEMONO_TRT_LIBRARY`. Không copy file `.engine` từ máy khác sang Xavier.
 
 ### 2. Inference một ảnh
 
