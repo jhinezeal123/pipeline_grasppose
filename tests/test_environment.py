@@ -163,20 +163,73 @@ class EnvironmentTests(unittest.TestCase):
             source,
         )
 
-    def test_check_env_honors_vgn_engine_override(self):
+    def test_prepare_persists_runtime_artifact_paths(self):
+        source = (ROOT / "prepare.sh").read_text()
+        self.assertIn(
+            'RUNTIME_CONFIG="$ROOT/.venv/runtime.json"',
+            source,
+        )
+        for name in (
+            "YOLOE_MODEL",
+            "LITEMONO_ONNX",
+            "LITEMONO_ENGINE",
+            "LITEMONO_TRT_LIBRARY",
+            "VGN_ENGINE",
+        ):
+            self.assertIn('"%s"' % name, source)
+        self.assertIn("tmp.replace(dst)", source)
+
+    def test_runtime_config_prefers_environment_over_persisted_paths(self):
+        from grasppose import config as runtime_config
+
+        with patch.object(
+                runtime_config,
+                "_RUNTIME_DEFAULTS",
+                {"VGN_ENGINE": "/persisted/vgn.engine"}):
+            with patch.dict(runtime_config.os.environ, {}, clear=True):
+                self.assertEqual(
+                    runtime_config._runtime_path(
+                        "VGN_ENGINE", "/default/vgn.engine"),
+                    "/persisted/vgn.engine",
+                )
+            with patch.dict(
+                    runtime_config.os.environ,
+                    {"VGN_ENGINE": "/explicit/vgn.engine"},
+                    clear=True):
+                self.assertEqual(
+                    runtime_config._runtime_path(
+                        "VGN_ENGINE", "/default/vgn.engine"),
+                    "/explicit/vgn.engine",
+                )
+
+    def test_runtime_config_loads_persisted_json(self):
+        from grasppose import config as runtime_config
+
+        with tempfile.TemporaryDirectory() as temp:
+            runtime_path = Path(temp) / "runtime.json"
+            runtime_path.write_text(
+                '{"VGN_ENGINE": "/persisted/vgn.engine"}'
+            )
+            with patch.object(
+                    runtime_config, "RUNTIME_CONFIG", str(runtime_path)):
+                self.assertEqual(
+                    runtime_config._load_runtime_defaults(),
+                    {"VGN_ENGINE": "/persisted/vgn.engine"},
+                )
+
+    def test_check_env_uses_runtime_config_artifact_paths(self):
         source = (ROOT / "env" / "check_env.py").read_text()
-        self.assertIn(
-            'VGN_ENGINE_PATH = _env_artifact_path("VGN_ENGINE", "model/vgn.engine")',
-            source,
-        )
-        self.assertIn(
-            '(os.environ.get("VGN_ENGINE", "model/vgn.engine"), VGN_ENGINE_PATH)',
-            source,
-        )
-        self.assertIn(
-            'VgnTensorRT(str(VGN_ENGINE_PATH))',
-            source,
-        )
+        self.assertIn("from grasppose.config import (", source)
+        for line in (
+            "YOLOE_ENGINE_PATH = _artifact_path(YOLOE_MODEL)",
+            "LITEMONO_ONNX_PATH = _artifact_path(LITEMONO_ONNX)",
+            "LITEMONO_ENGINE_PATH = _artifact_path(LITEMONO_ENGINE)",
+            "LITEMONO_TRT_LIBRARY_PATH = _artifact_path(LITEMONO_TRT_LIBRARY)",
+            "VGN_ENGINE_PATH = _artifact_path(VGN_ENGINE)",
+            "(VGN_ENGINE, VGN_ENGINE_PATH)",
+            "VgnTensorRT(str(VGN_ENGINE_PATH))",
+        ):
+            self.assertIn(line, source)
         self.assertNotIn(
             'VgnTensorRT(str(ROOT / "model/vgn.engine"))',
             source,
