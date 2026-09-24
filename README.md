@@ -153,7 +153,7 @@ Ví dụ:
 
 ```bash
 bash infer.sh img/frame.png \
-  --prompt "the mug" \
+  --prompt "blue cube" \
   --camera-k 615.2 614.8 320.1 239.7
 ```
 
