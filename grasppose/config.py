@@ -16,7 +16,7 @@ YOLOE_MODEL = os.environ.get(
 YOLOE_CLASSES = (
     "blue cube",
     "yellow ball",
-    "blue cyclinder",
+    "blue cylinder",
 )
 YOLOE_IMGSZ = int(os.environ.get("YOLOE_IMGSZ", "640"))
 YOLOE_CONF = float(os.environ.get("YOLOE_CONF", "0.20"))
