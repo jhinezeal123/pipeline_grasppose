@@ -11,6 +11,7 @@ import numpy as np
 from grasppose.config import (
     DEFAULT_PROMPT,
     GRIP_MAX_OPEN_M,
+    YOLOE_CLASSES,
 )
 from grasppose.domain.geometry import fov_x_from_fovy
 from grasppose.facade import DEFAULT_SERVICE
@@ -71,7 +72,12 @@ def main():
     )
     parser.add_argument("--img", required=True)
     parser.add_argument("--out", default=DEFAULT_OUTPUT_DIR)
-    parser.add_argument("--prompt", default=DEFAULT_PROMPT)
+    parser.add_argument(
+        "--prompt",
+        default=DEFAULT_PROMPT,
+        choices=YOLOE_CLASSES,
+        help="target class baked into the YOLOE TensorRT engine",
+    )
     parser.add_argument(
         "--camera-k",
         nargs=4,
