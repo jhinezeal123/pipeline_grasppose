@@ -4,7 +4,7 @@
 import argparse
 import sys
 
-from grasppose.config import DEFAULT_PROMPT
+from grasppose.config import DEFAULT_PROMPT, YOLOE_CLASSES
 from grasppose.facade import DEFAULT_SERVICE
 
 TOP_GRASPS = 5
@@ -58,7 +58,7 @@ def build_ui():
 
     with gr.Blocks(title="Jetson grasp pipeline") as demo:
         gr.Markdown(
-            "# YOLOE-26s → Lite-Mono → TSDF → VGN TensorRT\n"
+            "# YOLOE-26s TensorRT → Lite-Mono TensorRT → TSDF → VGN TensorRT\n"
             "Dat `CAMERA_K=\"fx fy cx cy\"` va hieu chuan "
             "`LITEMONO_DEPTH_SCALE` truoc khi dung depth/grasp "
             "theo don vi met."
@@ -67,8 +67,11 @@ def build_ui():
             with gr.Column():
                 input_image = gr.Image(
                     type="numpy", label="Anh dau vao")
-                input_prompt = gr.Textbox(
-                    value=DEFAULT_PROMPT, label="Prompt")
+                input_prompt = gr.Dropdown(
+                    choices=list(YOLOE_CLASSES),
+                    value=DEFAULT_PROMPT,
+                    label="Target",
+                )
                 submit = gr.Button(
                     "Submit", variant="primary")
             with gr.Column():
