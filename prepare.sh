@@ -178,5 +178,38 @@ cmake -S "$ROOT/native/litemono_trt" -B "$ROOT/build/litemono_trt" \
   -DCMAKE_BUILD_TYPE=Release
 cmake --build "$ROOT/build/litemono_trt" -- -j"${BUILD_JOBS:-2}"
 
+# Persist the exact runtime artifacts selected/built by this preparation run.
+# Runtime environment variables still override these values when explicitly set.
+RUNTIME_CONFIG="$ROOT/.venv/runtime.json"
+YOLOE_MODEL="$YOLOE_ENGINE_PATH" \
+LITEMONO_ONNX="$LITEMONO_ONNX_PATH" \
+LITEMONO_ENGINE="$LITEMONO_ENGINE_PATH" \
+LITEMONO_TRT_LIBRARY="$ROOT/build/litemono_trt/liblitemono_trt.so" \
+VGN_ENGINE="$VGN_ENGINE_PATH" \
+"$PYTHON" - "$RUNTIME_CONFIG" <<'PY'
+import json
+import os
+from pathlib import Path
+import sys
+
+dst = Path(sys.argv[1])
+keys = (
+    "YOLOE_MODEL",
+    "LITEMONO_ONNX",
+    "LITEMONO_ENGINE",
+    "LITEMONO_TRT_LIBRARY",
+    "VGN_ENGINE",
+)
+runtime = {
+    key: str(Path(os.environ[key]).expanduser().resolve())
+    for key in keys
+}
+dst.parent.mkdir(parents=True, exist_ok=True)
+tmp = dst.with_name(dst.name + ".tmp")
+tmp.write_text(json.dumps(runtime, indent=2, sort_keys=True) + "\n")
+tmp.replace(dst)
+print("Runtime config:", dst)
+PY
+
 "$PYTHON" env/check_env.py
 echo "Preparation complete."
