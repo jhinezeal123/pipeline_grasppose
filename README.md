@@ -4,14 +4,14 @@ Runtime:
 
 ```text
 RGB
- └─ YOLOE-26s-seg -> bbox + instance mask
+ └─ YOLOE-26s TensorRT (3 baked classes) -> bbox + instance mask
      └─ Lite-Mono Tiny TensorRT -> depth map
          └─ depth + camera K + mask -> point cloud
              └─ projective TSDF 0.30 m / 40^3
                  └─ VGN TensorRT -> 6-DoF grasp poses
 ```
 
-YOLOE, Lite-Mono Tiny TensorRT và VGN TensorRT được nạp một lần và giữ resident trong suốt process. Mỗi frame chỉ chạy inference; model chỉ được giải phóng khi gọi `close_models()` hoặc service kết thúc.
+YOLOE-26s TensorRT, Lite-Mono Tiny TensorRT và VGN TensorRT được nạp một lần và giữ resident trong suốt process. Mỗi frame chỉ chạy inference; model chỉ được giải phóng khi gọi `close_models()` hoặc service kết thúc.
 
 
 ## Hardware target
@@ -32,12 +32,18 @@ Lưu ý versioning NVIDIA: JetPack 5.1.4 gốc đi với L4T 35.6.0; target th�
 `--system-site-packages` + constraints. Python 3.8 dependencies có pin riêng
 để tránh pip chọn wheel mới không còn hỗ trợ focal/aarch64.
 
-YOLOE-26 mặc định chạy FP32 trên Xavier. Adapter đi theo flow chính thức của
-Ultralytics: không probe Torch/CUDA trong constructor, để `device=None` cho
-Ultralytics chọn device ở bước predict, và để precision unset cho FP32 mặc
-định. FP16 chỉ là opt-in bằng `YOLOE_HALF=1`, được truyền bằng
-`quantize=16` (cờ `half` upstream đã deprecated). Khi chọn
-`device="cpu"`, adapter không bật FP16.
+YOLOE-26s được export thành TensorRT FP16 ngay trên Xavier. Ba class được
+bake cố định vào engine theo đúng thứ tự:
+
+```text
+blue cube
+yellow ball
+blue cyclinder
+```
+
+`prompt` runtime chỉ được dùng để chọn/filter một trong ba class này; adapter
+không gọi `set_classes()` và không thay vocabulary khi inference. Nếu truyền
+prompt khác, pipeline trả lỗi rõ ràng. Một engine duy nhất xử lý cả ba class.
 
 Điều này cũng áp dụng cho composition root: constructor Lite-Mono chỉ lưu
 đường dẫn TensorRT artifact, chưa deserialize engine và không import Torch.
@@ -45,10 +51,10 @@ Nhờ vậy import `grasppose.facade` chỉ tạo object graph; engine Lite-Mono
 deserialize đúng một lần trong `LiteMonoDepth.load()` và giữ resident qua các
 frame.
 
-YOLOE-26 text prompting cần thêm `mobileclip2_b.ts`. `prepare.sh` tải artifact
-này, kiểm tra SHA-256, cài Ultralytics CLIP ở revision đã pin và chạy
-`set_classes(["object"])` một lần. Vì vậy `infer.sh` / `space.sh` không cần
-tự cài package hay tải text encoder ở request đầu tiên.
+Trong bước prepare, `mobileclip2_b.ts` và Ultralytics CLIP chỉ được dùng một
+lần để tạo embeddings cho ba prompt trên trước khi export. Sau khi
+`model/yoloe-26s-seg.engine` được tạo, runtime chỉ load TensorRT engine;
+MobileCLIP không tham gia inference.
 
 Lite-Mono dùng community export cố định
 `lite-mono-tiny_192x640_op11.onnx` từ `yzfzzz/depth-detect-model`, pin tại
@@ -68,8 +74,8 @@ build trên T4, TX2, Orin hoặc máy/TensorRT khác.
 - Torch/torchvision/NumPy/SciPy trong venv không bị thay khỏi host versions;
 - CUDA torchvision NMS hoạt động;
 - TensorRT >= 8.5 và `trtexec` có mặt;
-- artifact YOLOE/MobileCLIP/Lite-Mono/VGN đầy đủ;
-- chạy YOLOE semantic smoke trong subprocess sạch theo đúng import order production, dùng `ultralytics/assets/bus.jpg` + prompt `person` và bắt buộc có ít nhất một box;
+- artifact YOLOE TensorRT + class stamp / Lite-Mono TensorRT / VGN đầy đủ;
+- deserialize và chạy YOLOE-26s TensorRT smoke cho cả ba class đã bake; đồng thời xác nhận prompt ngoài vocabulary bị từ chối;
 - deserialize và chạy Lite-Mono Tiny TensorRT inference thật;
 - deserialize và chạy một VGN TensorRT dummy inference thật.
 
@@ -96,7 +102,7 @@ ports/ + domain/
     │ implemented by
     │
 adapters/
-  ├─ yoloe.py
+  ├─ yoloe.py              # static YOLOE-26s TensorRT, 3 baked classes
   ├─ lite_mono.py          # ctypes -> native/litemono_trt resident engine
   └─ vgn_trt.py
 ```
@@ -180,7 +186,7 @@ bash prepare.sh
 - tạo `.venv` với `--system-site-packages`;
 - bootstrap `pip==25.0.1` trước khi resolve dependencies; đây là bản cuối hỗ trợ Python 3.8 trong dòng pip 25.0 và nhận diện các wheel tag ARM64/manylinux mới hơn tốt hơn pip cũ đi kèm Ubuntu 20.04;
 - cài Python dependencies mà không thay Torch/CUDA của JetPack;
-- tải YOLOE;
+- tải checkpoint YOLOE-26s khi cần, bake 3 prompt cố định và export `model/yoloe-26s-seg.engine` FP16 ngay trên Xavier;
 - tải đúng Lite-Mono Tiny ONNX 192x640 opset 11 đã pin, kiểm tra Git blob SHA, build FP16 TensorRT engine và C++ runtime tối giản;
 - tải checkpoint VGN chính thức nếu thiếu;
 - export ONNX và build `model/vgn.engine` bằng TensorRT trên chính Jetson;
@@ -192,6 +198,16 @@ Có thể override checkpoint VGN:
 VGN_CHECKPOINT=/path/to/vgn_conv.pth bash prepare.sh
 ```
 
+
+YOLOE tạo artifact runtime local:
+
+```text
+model/yoloe-26s-seg.engine
+model/yoloe-26s-seg.classes.txt
+```
+
+File `.pt`, MobileCLIP và CLIP chỉ phục vụ bước export/rebuild. Nếu thay đổi
+ba class thì phải rebuild engine; runtime không hỗ trợ `set_classes()`.
 
 Lite-Mono mặc định tạo hai artifact local (đều bị `.gitignore` bỏ qua):
 
@@ -214,7 +230,7 @@ và `LITEMONO_TRT_LIBRARY`. Không copy file `.engine` từ máy khác sang Xavi
 ```bash
 bash infer.sh img/frame.png \
   --camera-k FX FY CX CY \
-  --prompt "the object"
+  --prompt "blue cube"
 ```
 
 `infer.sh` không cài dependency. Mặc định nó ghi đúng một bộ vào thư mục `output/` trong repo (được `prepare.sh` tạo, nên user Jetson thông thường có quyền ghi):
@@ -255,9 +271,12 @@ K = np.array([
 
 P.load_models()
 
+# Allowed runtime targets:
+# "blue cube", "yellow ball", "blue cyclinder"
+
 result = P.pipeline(
     rgb,
-    prompt="the mug",
+    prompt="blue cube",
     camera_K=K,
     top=5,
 )
