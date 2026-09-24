@@ -13,9 +13,18 @@ YOLOE_HALF = (
     in {"1", "true", "yes", "on"}
 )
 
-LITEMONO_HOME = os.environ.get("LITEMONO_HOME", os.path.join(MODEL_DIR, "Lite-Mono"))
-LITEMONO_WEIGHTS = os.environ.get("LITEMONO_WEIGHTS", os.path.join(MODEL_DIR, "lite-mono"))
-LITEMONO_MODEL = os.environ.get("LITEMONO_MODEL", "lite-mono")
+LITEMONO_ONNX = os.environ.get(
+    "LITEMONO_ONNX",
+    os.path.join(MODEL_DIR, "lite-mono-tiny_192x640_op11.onnx"),
+)
+LITEMONO_ENGINE = os.environ.get(
+    "LITEMONO_ENGINE",
+    os.path.join(MODEL_DIR, "lite-mono-tiny_192x640_op11_fp16.engine"),
+)
+LITEMONO_TRT_LIBRARY = os.environ.get(
+    "LITEMONO_TRT_LIBRARY",
+    os.path.join(HERE, "build", "litemono_trt", "liblitemono_trt.so"),
+)
 LITEMONO_DEPTH_SCALE = float(os.environ.get("LITEMONO_DEPTH_SCALE", "1.0"))
 
 TSDF_SIZE_M = float(os.environ.get("TSDF_SIZE_M", "0.30"))
