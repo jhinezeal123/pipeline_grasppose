@@ -32,6 +32,20 @@ def main():
     check("gradio is lazy-imported", "gradio" not in sys.modules)
     check("run_one exists", callable(A.run_one))
     check("build_ui exists", callable(A.build_ui))
+    with patch.object(A, "request_worker", return_value={
+        "prompts": [
+            {"id": "cube", "text": "cube"},
+            {"id": "blue_cube", "text": "blue cube"},
+        ],
+    }) as status_request:
+        choices = A.prompt_choices()
+    check("dropdown follows worker prompts", choices == [
+        ("cube  [cube]", "cube"),
+        ("blue cube  [blue_cube]", "blue_cube"),
+    ])
+    check("dropdown requests worker status", status_request.call_args[0][0] == {
+        "op": "status",
+    })
 
     with tempfile.TemporaryDirectory() as temp:
         temp_path = Path(temp)

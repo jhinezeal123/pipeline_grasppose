@@ -245,7 +245,9 @@ export CAMERA_K="615.2 614.8 320.1 239.7"
 bash space.sh --host 0.0.0.0 --port 8080
 ```
 
-UI dùng dropdown prompt ID và gửi request tới cùng worker với CLI.
+UI dùng dropdown prompt ID và gửi request tới cùng worker với CLI. Khi đổi bộ
+prompt rồi `cold.sh restart`, tải lại trang hoặc nhấn `Lam moi prompts` để lấy
+danh sách ID từ worker mới mà không cần khởi động lại Gradio.
 
 ## Python API
 

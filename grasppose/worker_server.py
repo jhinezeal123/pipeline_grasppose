@@ -48,6 +48,11 @@ class Handler(socketserver.StreamRequestHandler):
                         list(self.server.catalog.by_id)
                         if self.server.catalog else []
                     ),
+                    "prompts": (
+                        [{"id": item["id"], "text": item["text"]}
+                         for item in self.server.catalog.prompts]
+                        if self.server.catalog else []
+                    ),
                     "error": self.server.error,
                 })
                 return

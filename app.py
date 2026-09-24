@@ -10,8 +10,7 @@ import numpy as np
 from PIL import Image
 
 from grasppose.config import RUNTIME_DIR
-from grasppose.prompt_catalog import PromptCatalog
-from grasppose.worker_client import WorkerError, infer_image
+from grasppose.worker_client import infer_image, request_worker
 
 TOP_GRASPS = 5
 PORT_DEFAULT = 8080
@@ -27,6 +26,17 @@ def _camera_k():
         raise ValueError("CAMERA_K must contain FX FY CX CY")
     fx, fy, cx, cy = map(float, values)
     return [fx, fy, cx, cy]
+
+
+def prompt_choices():
+    status = request_worker({"op": "status"}, timeout=2)
+    prompts = status.get("prompts", [])
+    if not prompts:
+        raise RuntimeError("worker has no prepared prompts")
+    return [
+        ("%s  [%s]" % (item["text"], item["id"]), item["id"])
+        for item in prompts
+    ]
 
 
 def run_one(image, prompt_id):
@@ -74,11 +84,11 @@ def run_one(image, prompt_id):
 def build_ui():
     import gradio as gr
 
-    catalog = PromptCatalog.load(verify_engine=False)
-    choices = [
-        ("%s  [%s]" % (item["text"], item["id"]), item["id"])
-        for item in catalog.prompts
-    ]
+    choices = prompt_choices()
+
+    def refresh_prompt_dropdown():
+        current = prompt_choices()
+        return gr.update(choices=current, value=current[0][1])
     with gr.Blocks(title="Jetson grasp pipeline") as demo:
         gr.Markdown(
             "# YOLOE TensorRT → Lite-Mono TensorRT → TSDF → VGN TensorRT\n"
@@ -89,9 +99,10 @@ def build_ui():
                 input_image = gr.Image(type="numpy", label="Anh dau vao")
                 input_prompt = gr.Dropdown(
                     choices=choices,
-                    value=catalog.prompts[0]["id"],
+                    value=choices[0][1],
                     label="Prompt ID",
                 )
+                refresh = gr.Button("Lam moi prompts")
                 submit = gr.Button("Submit", variant="primary")
             with gr.Column():
                 output_depth = gr.Number(
@@ -106,6 +117,8 @@ def build_ui():
                 label="3. Lite-Mono depth", interactive=False)
             output_grasp = gr.Image(label="4. VGN grasp", interactive=False)
 
+        demo.load(refresh_prompt_dropdown, outputs=input_prompt)
+        refresh.click(refresh_prompt_dropdown, outputs=input_prompt)
         submit.click(
             run_one,
             inputs=[input_image, input_prompt],
