@@ -122,10 +122,11 @@ PY
   trap - EXIT
 fi
 
-# Build static Lite-Mono TensorRT candidates and select the fastest one that
-# stays within the 2% p95 depth parity gate. This runs on the Xavier itself.
-echo "Exporting and validating Lite-Mono TensorRT engines ..."
-"$PYTHON" tools/export_litemono_trt.py
+# Fetch the prevalidated FP32 YOLOE/cube and Lite-Mono engines for this exact
+# Xavier/L4T/TensorRT stack. The installer checks archive, engine, source
+# weights, profile and manifest hashes before activating either artifact.
+echo "Downloading and validating prebuilt FP32 TensorRT engines ..."
+"$PYTHON" tools/fetch_prebuilt_trt.py
 
 VGN_ENGINE_PATH="$(printenv VGN_ENGINE || true)"
 [ -n "$VGN_ENGINE_PATH" ] || VGN_ENGINE_PATH="$ROOT/model/vgn.engine"

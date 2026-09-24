@@ -12,7 +12,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: bash -n prepare.sh preprocess_prompt.sh cold.sh infer.sh space.sh
-      - run: python -m py_compile env/setup_env.py env/check_env.py tools/validate_yoloe_fp32.py tools/validate_trt_parity.py grasppose/worker_server.py
+      - run: python -m py_compile env/setup_env.py env/check_env.py tools/validate_yoloe_fp32.py tools/validate_trt_parity.py tools/fetch_prebuilt_trt.py grasppose/worker_server.py
       - if: matrix.python-version == '3.8'
         run: >-
           python -m pip install

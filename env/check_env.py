@@ -276,6 +276,7 @@ def main():
         "mobileclip2_b.ts",
         "model/lite-mono/encoder.pth",
         "model/lite-mono/depth.pth",
+        "model/runtime/yoloe/CURRENT",
         "model/runtime/lite-mono/CURRENT",
         "model/vgn.engine",
         "model/runtime/vgn.json",
@@ -286,6 +287,19 @@ def main():
         print("[%s] %s" % ("OK" if ok else "--", rel))
         if not ok:
             problems.append("missing artifact %s" % rel)
+
+    if not problems:
+        try:
+            from grasppose.prompt_catalog import PromptCatalog
+            catalog = PromptCatalog.load(
+                verify_engine=True, require_full_pipeline=True)
+            print("[OK] YOLOE FP32 artifact | prompt IDs:",
+                  ", ".join(catalog.by_id))
+        except Exception as exc:
+            problems.append(
+                "YOLOE FP32 artifact validation failed: %s: %s"
+                % (type(exc).__name__, exc)
+            )
 
     # Check the text encoder and closed-set export source during preparation.
     # The live worker uses a separately validated TensorRT engine and never

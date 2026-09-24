@@ -40,10 +40,12 @@ của từng prompt. Model YOLOE, MobileCLIP, prompt profile và engine được
 bằng checksum trong manifest. Worker từ chối mọi manifest YOLOE không chỉ định
 FP32 hoặc thiếu bản ghi full-pipeline parity đạt ngưỡng.
 
-Lite-Mono cũng dùng TensorRT engine tĩnh 192x640 gồm encoder và decoder.
-Exporter so sánh FP32/FP16 với checkpoint PyTorch và chỉ nhận ứng viên có
-p95 relative depth error <= 2%. Torch vẫn được dùng để chuyển CUDA buffer và
-hậu xử lý depth; không có PyTorch model fallback khi runtime thiếu engine.
+Lite-Mono dùng TensorRT FP32 engine tĩnh 192x640 gồm encoder và decoder.
+`prepare.sh` tải YOLOE `cube` và Lite-Mono FP32 đã build trên AGX Xavier
+L4T R35.6.4 / TensorRT 8.5.2.2 từ các URL cùng SHA-256 trong `dependencies`.
+Nó kiểm tra checksum weights, profile, engine và manifest trước khi kích hoạt;
+không export lại hai engine này khi chạy chuẩn bị. Torch vẫn được dùng để
+chuyển CUDA buffer và hậu xử lý depth.
 
 Composition root không probe Torch/CUDA trong constructor. Worker nạp các
 engine một lần sau khi kiểm tra manifest, chạy warmup rồi giữ chúng trong process
@@ -155,13 +157,19 @@ bash prepare.sh
 ```
 
 Script tạo `.venv`, cài dependency tương thích JetPack, tải YOLOE/MobileCLIP
-và Lite-Mono weights, rồi export + build Lite-Mono và VGN TensorRT ngay trên
-Xavier. Nó chạy các preflight inference ở cuối. Không xóa hoặc thay Torch,
-CUDA hay package hệ thống của JetPack.
+và Lite-Mono weights, rồi tải các bundle TensorRT FP32 đã kiểm tra từ GitHub
+Release theo URL/SHA-256 trong `dependencies`. Bundle YOLOE chứa đúng prompt
+ID/text `cube`/`cube`; Lite-Mono chứa encoder + decoder 192x640. Script chỉ
+còn build VGN trên Xavier và chạy các preflight inference ở cuối. Không xóa
+hoặc thay Torch, CUDA hay package hệ thống của JetPack. Bundle chỉ dùng được
+trên AGX Xavier L4T R35.6.4 / TensorRT 8.5.2.2; môi trường khác cần build
+engine riêng trên thiết bị đích.
 
 ### 2. Đóng bộ prompt thành YOLOE engine
 
-Tạo `prompts.json` với 1–16 prompt có thứ tự:
+`prepare.sh` đã cài sẵn engine FP32 cho prompt `cube`, nên có thể chạy ngay
+`cold.sh` và `infer.sh --prompt-id cube`. Với bộ prompt khác, tạo `prompts.json`
+gồm 1–16 prompt có thứ tự:
 
 ```json
 {

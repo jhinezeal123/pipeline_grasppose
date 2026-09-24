@@ -38,3 +38,30 @@ NAME = vgn-official-data
 KIND = url
 URL = https://drive.google.com/file/d/1MysYHve3ooWiLq12b58Nm8FWiFBMH-bJ/view?usp=sharing
 DEST = model/vgn_conv.pth
+---
+# Prebuilt YOLOE TensorRT FP32 for fixed prompt ID/text: cube/cube.
+# Compatible only with AGX Xavier 32 GB, L4T R35.6.4, TensorRT 8.5.2.2.
+NAME = yoloe-26s-cube-trt-fp32
+KIND = tar.gz
+URL = https://github.com/jhinezeal123/pipeline_grasppose/releases/download/jetson-xavier-fp32-bundle-v1/yoloe-26s-cube-fp32-xavier-r35.6.4-trt8.5.2.2.tar.gz
+SHA256 = db5b2acd62dea35dc151ad30232e978248acb7cfa29e816201260d39f836201e
+DEST = model/runtime/yoloe
+ARTIFACT_ID = b57432fa2f9ef349aabfd4046b6b4654efd0d047502a7da4d9a222f853280aa9
+TENSORRT = 8.5.2.2
+L4T = R35.6.4
+GPU = tegra194
+PRECISION = fp32
+PROMPT_IDS = cube
+---
+# Prebuilt Lite-Mono TensorRT FP32 encoder+decoder graph, 192x640.
+NAME = lite-mono-trt-fp32
+KIND = tar.gz
+URL = https://github.com/jhinezeal123/pipeline_grasppose/releases/download/jetson-xavier-fp32-bundle-v1/lite-mono-fp32-xavier-r35.6.4-trt8.5.2.2.tar.gz
+SHA256 = 474680aa950db11ce18adfd687144e55b5d9f4b29fe4128f0a7c3cb448024a50
+DEST = model/runtime/lite-mono
+ARTIFACT_ID = 05d881bb9150ab1597697e519ee2395a24d312bea0e200be6c9518741551fbde
+TENSORRT = 8.5.2.2
+L4T = R35.6.4
+GPU = tegra194
+PRECISION = fp32
+SOURCE_REVISION = 4874b35df8ed4da16159ce8be8c697028b72bf76
