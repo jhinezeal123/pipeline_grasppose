@@ -39,7 +39,7 @@ if [ -f "$CURRENT_FILE" ]; then
 fi
 
 "$PYTHON" tools/preprocess_yoloe.py "$1"
-if "$PYTHON" tools/select_yoloe_precision.py "$1" \
+if "$PYTHON" tools/validate_yoloe_fp32.py "$1" \
     --camera-k "${CAMERA_K_VALUES[@]}"; then
   exit 0
 fi
@@ -49,5 +49,5 @@ if [ -n "$OLD_CURRENT" ]; then
 else
   rm -f "$CURRENT_FILE"
 fi
-echo "Full-pipeline parity failed; previous prompt artifact restored." >&2
+echo "YOLOE FP32 full-pipeline parity failed; previous prompt artifact restored." >&2
 exit 1

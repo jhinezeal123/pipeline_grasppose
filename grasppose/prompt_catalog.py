@@ -125,6 +125,12 @@ class PromptCatalog:
         engine_name = engine.get("file")
         if not isinstance(engine_name, str) or os.path.basename(engine_name) != engine_name:
             raise RuntimeError("invalid YOLOE engine path in manifest")
+        if (
+            manifest.get("precision_policy") != "fp32_only"
+            or engine.get("precision") != "fp32"
+            or engine_name != "yoloe_fp32.engine"
+        ):
+            raise RuntimeError("YOLOE TensorRT runtime requires the FP32 engine")
         if verify_engine:
             verify_sha256(
                 os.path.join(artifact_dir, engine_name),

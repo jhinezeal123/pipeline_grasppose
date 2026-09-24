@@ -86,7 +86,7 @@ class PromptCatalogTests(unittest.TestCase):
         artifact_dir = root / artifact_id
         artifact_dir.mkdir()
         profile = artifact_dir / "prompts.npz"
-        engine = artifact_dir / "yoloe.engine"
+        engine = artifact_dir / "yoloe_fp32.engine"
         profile.write_bytes(b"prompt embeddings")
         engine.write_bytes(b"tensorrt engine")
         manifest = {
@@ -106,7 +106,9 @@ class PromptCatalogTests(unittest.TestCase):
             "imgsz": 640,
             "conf": 0.20,
             "build": build,
+            "precision_policy": "fp32_only",
             "engine": {
+                "precision": "fp32",
                 "file": engine.name,
                 "imgsz": 640,
                 "sha256": digest(engine),
@@ -165,7 +167,7 @@ class PromptCatalogTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "unknown prompt ID"):
                 catalog.require("cube")
 
-    def test_worker_requires_parity_for_selected_engine(self):
+    def test_worker_requires_parity_for_fp32_engine(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             artifact_id, artifact_dir, checkpoint, _, current = (
@@ -196,6 +198,19 @@ class PromptCatalogTests(unittest.TestCase):
                     PromptCatalog.load(
                         verify_engine=True, require_full_pipeline=True
                     )
+
+    def test_load_rejects_fp16_engine(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _, artifact_dir, checkpoint, _, current = self.make_artifact(root)
+            manifest_path = artifact_dir / "manifest.json"
+            manifest = json.loads(manifest_path.read_text())
+            manifest["engine"]["precision"] = "fp16"
+            manifest_path.write_text(json.dumps(manifest))
+            contexts = self.patched_catalog_paths(root, checkpoint, current)
+            with contexts[0], contexts[1], contexts[2]:
+                with self.assertRaisesRegex(RuntimeError, "requires the FP32 engine"):
+                    PromptCatalog.load(verify_engine=True)
 
     def test_load_rejects_changed_checkpoint(self):
         with tempfile.TemporaryDirectory() as temporary:

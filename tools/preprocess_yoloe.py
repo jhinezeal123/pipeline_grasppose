@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bake a closed prompt set into static YOLOE FP32/FP16 TensorRT engines."""
+"""Bake a closed prompt set into one static YOLOE FP32 TensorRT engine."""
 
 import argparse
 import gc
@@ -146,7 +146,7 @@ def load_yoloe_api():
     return YOLO, YOLOE, torch
 
 
-def export_candidate(checkpoint_copy, embeddings_path, staging, precision):
+def export_fp32_engine(checkpoint_copy, embeddings_path, staging):
     _, YOLOE, torch = load_yoloe_api()
 
     model = YOLOE(str(checkpoint_copy))
@@ -160,25 +160,23 @@ def export_candidate(checkpoint_copy, embeddings_path, staging, precision):
         "nms": False,
         "workspace": 4,
     }
-    if precision == "fp16":
-        kwargs["quantize"] = 16
     exported = Path(model.export(**kwargs)).resolve()
-    candidate = staging / ("yoloe_%s.engine" % precision)
+    engine_path = staging / "yoloe_fp32.engine"
     if not exported.is_file():
         raise RuntimeError("Ultralytics export did not produce an engine")
-    shutil.copy2(str(exported), str(candidate))
+    shutil.copy2(str(exported), str(engine_path))
     del model
     gc.collect()
     torch.cuda.empty_cache()
     try:
-        if exported.parent == staging and exported != candidate:
+        if exported.parent == staging and exported != engine_path:
             exported.unlink()
     except OSError:
         pass
-    return candidate
+    return engine_path
 
 
-def validate_candidate(engine_path, prompts, validation, references):
+def validate_engine(engine_path, prompts, validation, references):
     YOLO, _, torch = load_yoloe_api()
 
     model = YOLO(str(engine_path))
@@ -283,16 +281,18 @@ def main(argv=None):
             source = manifest.get("source", {})
             profile = source.get("profile", {})
             engine_meta = manifest.get("engine", {})
+            fp32_meta = engine_meta if (
+                engine_meta.get("precision") == "fp32"
+            ) else next((
+                item for item in manifest.get("candidates", [])
+                if item.get("precision") == "fp32" and item.get("passed")
+            ), None)
             profile_name = profile.get("file")
-            engine_name = engine_meta.get("file")
             profile_path = target / profile_name if (
                 isinstance(profile_name, str)
                 and Path(profile_name).name == profile_name
             ) else None
-            engine_path = target / engine_name if (
-                isinstance(engine_name, str)
-                and Path(engine_name).name == engine_name
-            ) else None
+            fp32_path = target / "yoloe_fp32.engine"
             if (
                 manifest.get("artifact_id") == artifact_id
                 and manifest.get("conf") == YOLOE_CONF
@@ -305,17 +305,33 @@ def main(argv=None):
                 and profile_path is not None
                 and profile_path.is_file()
                 and sha256_file(str(profile_path)) == profile.get("sha256")
-                and engine_path is not None
-                and engine_path.is_file()
-                and sha256_file(str(engine_path)) == engine_meta.get("sha256")
+                and isinstance(fp32_meta, dict)
+                and fp32_path.is_file()
+                and sha256_file(str(fp32_path)) == fp32_meta.get("sha256")
             ):
+                fp32_hash = fp32_meta["sha256"]
+                if engine_meta.get("sha256") != fp32_hash:
+                    manifest.pop("full_pipeline_validation", None)
+                manifest["precision_policy"] = "fp32_only"
+                manifest["engine"] = {
+                    "precision": "fp32",
+                    "file": fp32_path.name,
+                    "sha256": fp32_hash,
+                    "imgsz": YOLOE_IMGSZ,
+                }
+                manifest.pop("candidates", None)
+                manifest.pop("selection_reason", None)
+                atomic_write_json(str(manifest_path), manifest)
+                legacy_fp16 = target / "yoloe_fp16.engine"
+                if legacy_fp16.is_file():
+                    legacy_fp16.unlink()
                 temporary = current_path.with_suffix(".tmp")
                 temporary.write_text(artifact_id + "\n", encoding="ascii")
                 os.replace(str(temporary), str(current_path))
-                print("YOLOE artifacts already prepared:", artifact_id)
+                print("YOLOE FP32 artifact already prepared:", artifact_id)
                 return 0
         raise RuntimeError(
-            "existing YOLOE artifact is incomplete/checksum-mismatched: %s"
+            "existing YOLOE artifact lacks a verified FP32 engine: %s"
             % target
         )
 
@@ -351,36 +367,18 @@ def main(argv=None):
                     % item["id"]
                 )
             references[item["id"]] = reference
-        results = []
-        for precision in ("fp32", "fp16"):
-            candidate = export_candidate(
-                checkpoint_copy, embeddings_path, staging, precision)
-            minimum_iou, median_ms, per_prompt_ious = validate_candidate(
-                candidate, prompts, validation, references)
-            passed = all(value >= 0.99 for value in per_prompt_ious)
-            print(
-                "%s: min mask IoU=%.5f, median=%.2f ms, gate=%s"
-                % (precision, minimum_iou, median_ms,
-                   "PASS" if passed else "FAIL")
-            )
-            results.append({
-                "precision": precision,
-                "file": candidate.name,
-                "sha256": sha256_file(str(candidate)),
-                "median_predict_ms": median_ms,
-                "per_prompt_mask_iou": {
-                    item["id"]: score
-                    for item, score in zip(prompts, per_prompt_ious)
-                },
-                "passed": passed,
-            })
-        passing = [item for item in results if item["passed"]]
-        if not passing:
+        engine_path = export_fp32_engine(
+            checkpoint_copy, embeddings_path, staging)
+        minimum_iou, median_ms, per_prompt_ious = validate_engine(
+            engine_path, prompts, validation, references)
+        if any(value < 0.99 for value in per_prompt_ious):
             raise RuntimeError(
-                "no YOLOE TensorRT candidate met mask IoU >= 0.99 "
-                "for every prompt"
+                "YOLOE TensorRT FP32 failed mask IoU >= 0.99 "
+                "for every prompt (minimum %.5f)" % minimum_iou
             )
-        selected = min(passing, key=lambda item: item["median_predict_ms"])
+        print("YOLOE FP32: min mask IoU=%.5f, median=%.2f ms, gate=PASS"
+              % (minimum_iou, median_ms))
+        engine_hash = sha256_file(str(engine_path))
         manifest = {
             "schema_version": 1,
             "artifact_id": artifact_id,
@@ -403,14 +401,21 @@ def main(argv=None):
                 "tensorrt": tensorrt_version,
             },
             "class_order": [item["id"] for item in prompts],
-            "candidates": results,
+            "precision_policy": "fp32_only",
             "engine": {
-                "precision": selected["precision"],
-                "file": selected["file"],
-                "sha256": selected["sha256"],
+                "precision": "fp32",
+                "file": engine_path.name,
+                "sha256": engine_hash,
                 "imgsz": YOLOE_IMGSZ,
             },
             "accuracy_gate": {"mask_iou_min": 0.99},
+            "mask_parity": {
+                "median_predict_ms": median_ms,
+                "per_prompt_iou": {
+                    item["id"]: score
+                    for item, score in zip(prompts, per_prompt_ious)
+                },
+            },
         }
         checkpoint_copy.unlink()
         atomic_write_json(str(staging / "manifest.json"), manifest)
@@ -418,8 +423,8 @@ def main(argv=None):
         temporary = current_path.with_suffix(".tmp")
         temporary.write_text(artifact_id + "\n", encoding="ascii")
         os.replace(str(temporary), str(current_path))
-        print("Selected YOLOE TensorRT %s: %s"
-              % (selected["precision"], target / selected["file"]))
+        print("Prepared YOLOE TensorRT FP32: %s"
+              % (target / engine_path.name))
     except Exception:
         shutil.rmtree(str(staging), ignore_errors=True)
         raise
