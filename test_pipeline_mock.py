@@ -122,7 +122,11 @@ def main():
     assert set(result) == {
         "box", "mask", "depthmap",
         "grasp", "depth_m",
+        "detection_count", "mask_pixels", "grasp_count",
     }
+    assert result["detection_count"] == 1
+    assert result["mask_pixels"] == 4800
+    assert result["grasp_count"] == 1
     assert all(
         result[key].shape == image.shape
         for key in (
