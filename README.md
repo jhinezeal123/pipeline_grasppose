@@ -30,6 +30,9 @@ bash cold.sh
 bash infer.sh img/frame.png \
   --prompt "blue cube" \
   --camera-k FX FY CX CY
+# Copy RUN_ID from the inference response:
+bash get_output.sh RUN_ID
+bash get_output.sh wait RUN_ID
 ```
 
 `prepare.sh` creates `.venv` while retaining the JetPack Torch, torchvision,
@@ -48,11 +51,20 @@ bash cold.sh stop
 bash cold.sh restart
 ```
 
-Each `infer.sh` call reuses that process and prints the four image paths plus
-client and worker time. Outputs are written to `output/<image-stem>_{box,mask,
-depthmap,grasp}.png`; set `OUTPUT_DIR` to change the directory. An unknown
-prompt or an absent worker produces an error. Inference does not load a text
-encoder or call `set_classes()`.
+Each `infer.sh` call reuses that process and immediately returns a `RUN_ID`,
+detection/depth metadata, selected grasp poses and client/worker time. It does
+not draw or save images. `get_output.sh RUN_ID` launches a separate renderer
+and returns immediately. Use `get_output.sh status RUN_ID` or `wait RUN_ID` to
+see when `output/RUN_ID/{box,mask,depthmap,grasp}.png` is ready. The output
+renderer does not load any model. `OUTPUT_DIR` can override the repo's `output/`
+directory for a different deployment. An unknown prompt, expired `RUN_ID` or absent worker produces a
+clear error. Inference does not load a text encoder or call `set_classes()`.
+Use `get_output.sh retry RUN_ID` after a failed render job while its snapshot
+is still cached.
+
+The worker keeps up to eight recent frame snapshots in RAM, capped at 128 MiB
+and ten minutes. Gradio's **Xem bon anh** button uses the same on-demand
+renderer. Restarting the worker clears its snapshot cache.
 
 The camera matrix must describe the input image:
 
@@ -73,23 +85,33 @@ bash space.sh --host 0.0.0.0 --port 8080
 ```
 
 Gradio uses the same local worker as `infer.sh` and offers only the three
-classes baked into the engine. `space.sh` starts the worker if necessary.
+classes baked into the engine. It displays the grasp metadata first and
+generates the four diagnostic images only when requested. `space.sh` starts
+the worker if necessary.
 
 ## Timing
 
 `cold.sh` pays model loading and first-use initialization once. The `TOTAL`
 printed by `infer.sh` starts when the client sends a request and includes
-worker communication, image decoding, the full pipeline and writing four PNGs.
+worker communication, image decoding and the full grasp pipeline. Rendering
+and writing four PNGs are measured separately by `get_output.sh`.
 Compare runs on the same image and prompt after `cold.sh` reports ready;
 zero-detection images skip depth and grasp and do not represent full-pipeline
 latency.
 
-On `ktmt` (AGX Xavier, 2026-09-25), 20 consecutive warm runs on the same
-`cam2.jpg` with `--prompt "blue cube"` and calibrated K all returned 2 boxes
-and a 100,449-pixel mask. Full `infer.sh` process wall time was 1,563 ms
-median / 1,655 ms P95; the client-reported time from request to four saved
-images was 1,242 ms median / 1,334 ms P95. The sub-second target has not
-been reached on this image.
+Before on-demand rendering, on `ktmt` (AGX Xavier, 2026-09-25), 20 consecutive
+warm runs on the same `cam2.jpg` with `--prompt "blue cube"` and calibrated K
+all returned 2 boxes and a 100,449-pixel mask. Full `infer.sh` process wall
+time was 1,563 ms median / 1,655 ms P95.
+
+With on-demand rendering and the faster geometry/client path, 30 warm runs on
+the same image returned 2 boxes, a 100,449-pixel mask and 6 grasps every time.
+The full `infer.sh` process wall time was 695 ms median / 749 ms P95; the
+slowest of those 30 calls took 1,026 ms. When an output renderer was active
+concurrently, 10 additional infer calls measured 744 ms median / 784 ms P95.
+All four on-demand PNGs matched the old files byte-for-byte on the reference
+image. The image renderer finished in about 1.2 seconds separately from
+inference.
 
 The Python `pipeline.py` API remains available for direct in-process use and
 does not send requests to the worker. Use `infer.sh` or `space.sh` for the

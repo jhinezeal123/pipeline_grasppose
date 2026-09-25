@@ -145,16 +145,12 @@ class EnvironmentTests(unittest.TestCase):
             source,
         )
 
-    def test_infer_defaults_to_repo_local_output(self):
+    def test_infer_defers_output_to_explicit_renderer(self):
         source = (ROOT / "infer.sh").read_text()
-        self.assertIn(
-            'OUT="${OUTPUT_DIR:-$ROOT/output}"',
-            source,
-        )
-        self.assertNotIn(
-            "\nOUT=/output\n",
-            source,
-        )
+        self.assertNotIn("OUTPUT_DIR", source)
+        self.assertIn('exec "$PYTHON" -S tools/infer_client.py', source)
+        renderer = (ROOT / "tools" / "output_control.py").read_text()
+        self.assertIn('os.path.join(ROOT, "output")', renderer)
 
     def test_prepare_does_not_run_global_pip_check(self):
         source = (ROOT / "prepare.sh").read_text()

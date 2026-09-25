@@ -1,167 +1,71 @@
 #!/usr/bin/env python3
-"""Smoke-test app.py without Gradio or real models."""
+"""Smoke-test the on-demand Gradio flow without models or Gradio import."""
 
 import sys
-import traceback
 
 import numpy as np
 
 import app as A
 
 
-FAIL = []
-H, W = 60, 80
-IMG = np.zeros((H, W, 3), np.uint8)
-
-
-def check(name, condition, detail=""):
-    print("  [%s] %s%s" % (
-        "PASS" if condition else "FAIL",
-        name,
-        (" - " + detail) if detail else "",
-    ))
-    if not condition:
-        FAIL.append(name)
-
-
-def fake_result(depth_m=0.4712):
-    return {
-        "box": np.full((H, W, 3), 10, np.uint8),
-        "mask": np.full((H, W, 3), 20, np.uint8),
-        "depthmap": np.full((H, W, 3), 30, np.uint8),
-        "grasp": np.full((H, W, 3), 40, np.uint8),
-        "depth_m": depth_m,
-    }
-
-
-class FakeService:
-    def __init__(self, fn):
-        self.fn = fn
-
-    def infer(self, image, **kwargs):
-        return self.fn(image, **kwargs)
-
-
 def main():
-    check(
-        "gradio is lazy-imported",
-        "gradio" not in sys.modules,
-    )
-    check("run_one exists", callable(A.run_one))
-    check("build_ui exists", callable(A.build_ui))
+    assert "gradio" not in sys.modules
+    assert callable(A.run_one) and callable(A.show_output)
+
+    class FakeService:
+        def __init__(self):
+            self.calls = []
+
+        def infer(self, image, **kwargs):
+            self.calls.append((image, kwargs))
+            return {
+                "run_id": "a" * 32,
+                "depth_m": 0.4712,
+                "detection_count": 2,
+                "grasp_count": 1,
+                "grasps": [{"score": 0.95}],
+            }
+
+        def output(self, run_id):
+            assert run_id == "a" * 32
+            return [np.full((5, 6, 3), n, np.uint8)
+                    for n in (10, 20, 30, 40)]
 
     original = A.SERVICE
     try:
-        seen = {}
+        fake = FakeService()
+        A.SERVICE = fake
+        result = A.run_one("/tmp/input.png", "blue cube")
+        assert len(result) == 9
+        assert result[0] == "a" * 32 and result[1] == "a" * 32
+        assert abs(result[2] - 0.4712) < 1e-9
+        assert "0.95" in result[3]
+        assert "2 box" in result[4]
+        assert result[5:] == (None, None, None, None)
+        assert fake.calls[0][1]["top"] == A.TOP_GRASPS
 
-        def success(image, prompt=None, top=None, **kwargs):
-            seen["prompt"] = prompt
-            seen["top"] = top
-            seen["shape"] = np.asarray(image).shape
-            return fake_result(0.4712)
+        images = A.show_output(result[0])
+        assert len(images) == 5
+        assert [int(image[0, 0, 0]) for image in images[:4]] == [
+            10, 20, 30, 40,
+        ]
+        assert "output" in images[4]
 
-        A.SERVICE = FakeService(success)
-        output = A.run_one(IMG, "a little bag")
-        check("six UI outputs", len(output) == 6)
-        box, mask, depth, grasp, depth_m, status = output
+        assert A.run_one(None, "blue cube")[0] is None
+        assert A.show_output(None)[0] is None
+        A.run_one("/tmp/input.png", "   ")
+        assert fake.calls[-1][1]["prompt"] == A.DEFAULT_PROMPT
 
-        for name, array, value in (
-            ("box", box, 10),
-            ("mask", mask, 20),
-            ("depthmap", depth, 30),
-            ("grasp", grasp, 40),
-        ):
-            check(
-                "%s output" % name,
-                isinstance(array, np.ndarray)
-                and array.shape == (H, W, 3)
-                and int(array[0, 0, 0]) == value,
-            )
+        def fail(*_args, **_kwargs):
+            raise RuntimeError("synthetic failure")
 
-        check(
-            "depth value",
-            isinstance(depth_m, float)
-            and abs(depth_m - 0.4712) < 1e-9,
-        )
-        check(
-            "prompt forwarded",
-            seen.get("prompt") == "a little bag",
-        )
-        check(
-            "top grasps forwarded",
-            seen.get("top") == A.TOP_GRASPS,
-        )
-        check("status contains metric depth", "0.471" in status)
-
-        output = A.run_one(None, "object")
-        check("None image returns six outputs", len(output) == 6)
-        check(
-            "None image has no renderings",
-            all(value is None for value in output[:5]),
-        )
-
-        def failure(image, **kwargs):
-            raise RuntimeError("synthetic pipeline failure")
-
-        A.SERVICE = FakeService(failure)
-        try:
-            output = A.run_one(IMG, "object")
-            check("service errors do not escape", True)
-            check(
-                "error status preserved",
-                "RuntimeError" in output[5]
-                and "synthetic pipeline failure" in output[5],
-            )
-        except Exception:
-            traceback.print_exc()
-            check("service errors do not escape", False)
-
-        A.SERVICE = FakeService(
-            lambda image, **kwargs: fake_result(None))
-        output = A.run_one(IMG, "unknown object")
-        check(
-            "no-depth frame still returns four images",
-            all(isinstance(value, np.ndarray)
-                for value in output[:4]),
-        )
-        check("no-depth value is None", output[4] is None)
-
-        seen.clear()
-        A.SERVICE = FakeService(success)
-        for prompt in ("", "   ", None):
-            A.run_one(IMG, prompt)
-            check(
-                "empty prompt uses default",
-                seen.get("prompt") == A.DEFAULT_PROMPT,
-            )
-
-        A.SERVICE = FakeService(failure)
-        for name, image, prompt in (
-            ("1x1 image", np.zeros((1, 1, 3), np.uint8), "x"),
-            ("empty image", np.zeros((0, 0, 3), np.uint8), "x"),
-            ("numeric prompt", IMG, 12345),
-            ("list prompt", IMG, ["a"]),
-        ):
-            try:
-                A.run_one(image, prompt)
-                check("%s does not raise" % name, True)
-            except Exception as exc:
-                check(
-                    "%s does not raise" % name,
-                    False,
-                    "%s: %s" % (
-                        type(exc).__name__, exc),
-                )
+        fake.infer = fail
+        assert "synthetic failure" in A.run_one("/tmp/x", "x")[4]
+        fake.output = fail
+        assert "synthetic failure" in A.show_output("a" * 32)[4]
     finally:
         A.SERVICE = original
-
-    if FAIL:
-        print("%d TESTS FAILED" % len(FAIL))
-        for name in FAIL:
-            print(" -", name)
-        return 1
-
-    print("TAT CA MUC DEU PASS")
+    print("On-demand Gradio flow PASS")
     return 0
 
 
