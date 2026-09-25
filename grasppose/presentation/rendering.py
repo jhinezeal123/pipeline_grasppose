@@ -143,11 +143,12 @@ def draw_grasp(image, grasp_result, K,
         depth = max(float(grasp[3]), 0.03)
         rotation = grasp[4:13].reshape(3, 3)
         translation = grasp[13:16]
+        # VGN frame: jaw width is local Y, fingers reach along local +Z.
         local = np.array([
-            [-depth, -width / 2, 0.0],
-            [-depth, width / 2, 0.0],
-            [depth, -width / 2, 0.0],
-            [depth, width / 2, 0.0],
+            [0.0, -width / 2, 0.0],
+            [0.0, width / 2, 0.0],
+            [0.0, -width / 2, depth],
+            [0.0, width / 2, depth],
         ])
         projected = _project(
             local @ rotation.T + translation, K)
@@ -158,15 +159,28 @@ def draw_grasp(image, grasp_result, K,
             tuple(map(int, point))
             for point in projected
         ]
+        # Draw a parallel-jaw gripper as a readable U: the palm is the
+        # crossbar and the two fingers extend toward the open end. A dark
+        # outline keeps the silhouette visible over both the object and mask.
+        fingers = ((p0, p2), (p1, p3))
+        for start, end in ((p0, p1),) + fingers:
+            cv2.line(
+                output, start, end,
+                (18, 18, 18), 10, cv2.LINE_AA)
         cv2.line(
             output, p0, p1,
-            (255, 80, 255), 2, cv2.LINE_AA)
-        cv2.line(
-            output, p0, p2,
-            (255, 80, 255), 2, cv2.LINE_AA)
-        cv2.line(
-            output, p1, p3,
-            (255, 80, 255), 2, cv2.LINE_AA)
+            (60, 235, 255), 6, cv2.LINE_AA)
+        for start, end in fingers:
+            cv2.line(
+                output, start, end,
+                (255, 60, 230), 5, cv2.LINE_AA)
+        for tip in (p2, p3):
+            cv2.circle(
+                output, tip, 7,
+                (18, 18, 18), -1, cv2.LINE_AA)
+            cv2.circle(
+                output, tip, 3,
+                (255, 255, 255), -1, cv2.LINE_AA)
 
         center = _project(
             translation[None], K)

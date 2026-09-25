@@ -122,51 +122,21 @@ PY
   trap - EXIT
 fi
 
-VGN_ENGINE_PATH="${VGN_ENGINE:-$ROOT/model/vgn.engine}"
-if [ ! -s "$VGN_ENGINE_PATH" ]; then
-  VGN_CHECKPOINT_PATH="${VGN_CHECKPOINT:-$ROOT/model/vgn_conv.pth}"
-  if [ ! -s "$VGN_CHECKPOINT_PATH" ]; then
-    TMP_VGN="$(mktemp -d)"
-    trap 'rm -rf "$TMP_VGN"' EXIT
-    echo "Downloading official ETH VGN data bundle ..."
-    "$PYTHON" -m gdown --fuzzy       'https://drive.google.com/file/d/1MysYHve3ooWiLq12b58Nm8FWiFBMH-bJ/view?usp=sharing'       -O "$TMP_VGN/data.zip"
-    "$PYTHON" - "$TMP_VGN/data.zip" "$VGN_CHECKPOINT_PATH" <<'PY'
-import pathlib
-import shutil
-import sys
-import zipfile
+# Fetch the prevalidated YOLOE/Lite-Mono FP32 and VGN TensorRT bundles for
+# this Xavier/L4T/TensorRT stack. The installer verifies each release archive
+# and its weights/engine checksums before activating checkout-local artifacts.
+echo "Downloading and validating checkout-local TensorRT engines ..."
+"$PYTHON" tools/fetch_prebuilt_trt.py
 
-archive = pathlib.Path(sys.argv[1])
-dst = pathlib.Path(sys.argv[2])
-with zipfile.ZipFile(archive) as zf:
-    matches = [n for n in zf.namelist() if n.endswith("/models/vgn_conv.pth") or n == "data/models/vgn_conv.pth"]
-    if not matches:
-        matches = [n for n in zf.namelist() if pathlib.PurePosixPath(n).name == "vgn_conv.pth"]
-    if not matches:
-        raise SystemExit("Official VGN data bundle did not contain vgn_conv.pth")
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    with zf.open(matches[0]) as src, dst.open("wb") as out:
-        shutil.copyfileobj(src, out)
-print(dst)
-PY
-    rm -rf "$TMP_VGN"
-    trap - EXIT
-  fi
-
-  TRTEXEC="$(command -v trtexec || true)"
-  if [ -z "$TRTEXEC" ] && [ -x /usr/src/tensorrt/bin/trtexec ]; then
-    TRTEXEC=/usr/src/tensorrt/bin/trtexec
-  fi
-  if [ -z "$TRTEXEC" ]; then
-    echo "trtexec is required to build VGN TensorRT engine" >&2
-    exit 1
-  fi
-
-  mkdir -p "$(dirname "$VGN_ENGINE_PATH")"
-  ONNX_PATH="$ROOT/model/vgn.onnx"
-  "$PYTHON" tools/export_vgn_onnx.py     --checkpoint "$VGN_CHECKPOINT_PATH"     --out "$ONNX_PATH"
-  "$TRTEXEC"     --onnx="$ONNX_PATH"     --saveEngine="$VGN_ENGINE_PATH"     --fp16
-fi
+# Always validate the VGN files installed in this checkout. An inherited
+# VGN_ENGINE path must not silently reuse an engine from another checkout.
+export VGN_ENGINE="$ROOT/model/vgn.engine"
+export VGN_CHECKPOINT="$ROOT/model/vgn_conv.pth"
+export VGN_MANIFEST="$ROOT/model/runtime/vgn.json"
+"$PYTHON" tools/vgn_manifest.py check \
+  --checkpoint "$VGN_CHECKPOINT" \
+  --engine "$VGN_ENGINE" \
+  --manifest "$VGN_MANIFEST"
 
 "$PYTHON" env/check_env.py
 echo "Preparation complete."

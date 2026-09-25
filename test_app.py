@@ -2,9 +2,13 @@
 """Smoke-test app.py without Gradio or real models."""
 
 import sys
+import tempfile
 import traceback
+from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
+from PIL import Image
 
 import app as A
 
@@ -24,52 +28,57 @@ def check(name, condition, detail=""):
         FAIL.append(name)
 
 
-def fake_result(depth_m=0.4712):
-    return {
-        "box": np.full((H, W, 3), 10, np.uint8),
-        "mask": np.full((H, W, 3), 20, np.uint8),
-        "depthmap": np.full((H, W, 3), 30, np.uint8),
-        "grasp": np.full((H, W, 3), 40, np.uint8),
-        "depth_m": depth_m,
-    }
-
-
-class FakeService:
-    def __init__(self, fn):
-        self.fn = fn
-
-    def infer(self, image, **kwargs):
-        return self.fn(image, **kwargs)
-
-
 def main():
-    check(
-        "gradio is lazy-imported",
-        "gradio" not in sys.modules,
-    )
+    check("gradio is lazy-imported", "gradio" not in sys.modules)
     check("run_one exists", callable(A.run_one))
     check("build_ui exists", callable(A.build_ui))
+    with patch.object(A, "request_worker", return_value={
+        "prompts": [
+            {"id": "cube", "text": "cube"},
+            {"id": "blue_cube", "text": "blue cube"},
+        ],
+    }) as status_request:
+        choices = A.prompt_choices()
+    check("dropdown follows worker prompts", choices == [
+        ("cube  [cube]", "cube"),
+        ("blue cube  [blue_cube]", "blue_cube"),
+    ])
+    check("dropdown requests worker status", status_request.call_args[0][0] == {
+        "op": "status",
+    })
 
-    original = A.SERVICE
-    try:
+    with tempfile.TemporaryDirectory() as temp:
+        temp_path = Path(temp)
+        paths = []
+        for name, value in (
+            ("box", 10), ("mask", 20), ("depthmap", 30), ("grasp", 40),
+        ):
+            path = temp_path / (name + ".png")
+            Image.fromarray(np.full((H, W, 3), value, np.uint8)).save(path)
+            paths.append(str(path))
+
         seen = {}
 
-        def success(image, prompt=None, top=None, **kwargs):
-            seen["prompt"] = prompt
-            seen["top"] = top
-            seen["shape"] = np.asarray(image).shape
-            return fake_result(0.4712)
+        def success(image_path, prompt_id, **kwargs):
+            seen["image_path"] = image_path
+            seen["image_exists_at_call"] = Path(image_path).is_file()
+            seen["prompt_id"] = prompt_id
+            seen.update(kwargs)
+            return {
+                "files": paths,
+                "depth_m": 0.4712,
+                "server_ms": 57.2,
+            }
 
-        A.SERVICE = FakeService(success)
-        output = A.run_one(IMG, "a little bag")
+        with patch.object(A, "OUTPUT_DIR", temp), \
+                patch.object(A, "infer_image", side_effect=success):
+            output = A.run_one(IMG, "blue_cube")
+
         check("six UI outputs", len(output) == 6)
         box, mask, depth, grasp, depth_m, status = output
-
         for name, array, value in (
-            ("box", box, 10),
-            ("mask", mask, 20),
-            ("depthmap", depth, 30),
-            ("grasp", grasp, 40),
+            ("box", box, 10), ("mask", mask, 20),
+            ("depthmap", depth, 30), ("grasp", grasp, 40),
         ):
             check(
                 "%s output" % name,
@@ -77,83 +86,47 @@ def main():
                 and array.shape == (H, W, 3)
                 and int(array[0, 0, 0]) == value,
             )
-
         check(
-            "depth value",
-            isinstance(depth_m, float)
-            and abs(depth_m - 0.4712) < 1e-9,
+            "prompt ID forwarded",
+            seen.get("prompt_id") == "blue_cube",
         )
         check(
-            "prompt forwarded",
-            seen.get("prompt") == "a little bag",
+            "image sent by local path",
+            isinstance(seen.get("image_path"), str)
+            and seen.get("image_exists_at_call") is True,
+        )
+        check(
+            "no prompt text sent to worker",
+            "the blue cube" not in repr(seen),
         )
         check(
             "top grasps forwarded",
             seen.get("top") == A.TOP_GRASPS,
         )
-        check("status contains metric depth", "0.471" in status)
+        check("depth value", abs(depth_m - 0.4712) < 1e-9)
+        check("status has timing", "57.2 ms" in status)
 
-        output = A.run_one(None, "object")
-        check("None image returns six outputs", len(output) == 6)
+        none_output = A.run_one(None, "blue_cube")
+        check("None image returns six outputs", len(none_output) == 6)
         check(
             "None image has no renderings",
-            all(value is None for value in output[:5]),
+            all(value is None for value in none_output[:5]),
         )
 
-        def failure(image, **kwargs):
-            raise RuntimeError("synthetic pipeline failure")
+        def failure(*args, **kwargs):
+            raise RuntimeError("synthetic worker failure")
 
-        A.SERVICE = FakeService(failure)
-        try:
-            output = A.run_one(IMG, "object")
-            check("service errors do not escape", True)
-            check(
-                "error status preserved",
-                "RuntimeError" in output[5]
-                and "synthetic pipeline failure" in output[5],
-            )
-        except Exception:
-            traceback.print_exc()
-            check("service errors do not escape", False)
-
-        A.SERVICE = FakeService(
-            lambda image, **kwargs: fake_result(None))
-        output = A.run_one(IMG, "unknown object")
+        with patch.object(A, "OUTPUT_DIR", temp), \
+                patch.object(A, "infer_image", side_effect=failure):
+            failed = A.run_one(IMG, "blue_cube")
         check(
-            "no-depth frame still returns four images",
-            all(isinstance(value, np.ndarray)
-                for value in output[:4]),
+            "worker errors are displayed",
+            "RuntimeError" in failed[5]
+            and "synthetic worker failure" in failed[5],
         )
-        check("no-depth value is None", output[4] is None)
 
-        seen.clear()
-        A.SERVICE = FakeService(success)
-        for prompt in ("", "   ", None):
-            A.run_one(IMG, prompt)
-            check(
-                "empty prompt uses default",
-                seen.get("prompt") == A.DEFAULT_PROMPT,
-            )
-
-        A.SERVICE = FakeService(failure)
-        for name, image, prompt in (
-            ("1x1 image", np.zeros((1, 1, 3), np.uint8), "x"),
-            ("empty image", np.zeros((0, 0, 3), np.uint8), "x"),
-            ("numeric prompt", IMG, 12345),
-            ("list prompt", IMG, ["a"]),
-        ):
-            try:
-                A.run_one(image, prompt)
-                check("%s does not raise" % name, True)
-            except Exception as exc:
-                check(
-                    "%s does not raise" % name,
-                    False,
-                    "%s: %s" % (
-                        type(exc).__name__, exc),
-                )
-    finally:
-        A.SERVICE = original
+        empty = A.run_one(IMG, "")
+        check("empty ID is rejected", "chon prompt id" in empty[5].lower())
 
     if FAIL:
         print("%d TESTS FAILED" % len(FAIL))

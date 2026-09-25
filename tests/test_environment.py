@@ -145,16 +145,19 @@ class EnvironmentTests(unittest.TestCase):
             source,
         )
 
-    def test_infer_defaults_to_repo_local_output(self):
+    def test_infer_uses_worker_and_fixed_prompt_ids(self):
         source = (ROOT / "infer.sh").read_text()
-        self.assertIn(
-            'OUT="${OUTPUT_DIR:-$ROOT/output}"',
-            source,
-        )
-        self.assertNotIn(
-            "\nOUT=/output\n",
-            source,
-        )
+        self.assertIn("tools/infer_client.py", source)
+        self.assertIn("--prompt-id", source)
+        worker = (ROOT / "cold.sh").read_text()
+        for command in ("start)", "status)", "stop)", "restart)"):
+            self.assertIn(command, worker)
+        app_source = (ROOT / "app.py").read_text()
+        self.assertIn("gr.Dropdown", app_source)
+        self.assertNotIn("input_prompt = gr.Textbox(", app_source)
+        self.assertIn("infer_image(", app_source)
+        adapter = (ROOT / "grasppose/adapters/yoloe.py").read_text()
+        self.assertNotIn(".set_classes(", adapter)
 
     def test_prepare_does_not_run_global_pip_check(self):
         source = (ROOT / "prepare.sh").read_text()
@@ -178,24 +181,16 @@ class EnvironmentTests(unittest.TestCase):
             source,
         )
 
-    def test_check_env_uses_clean_semantic_yoloe_smoke(self):
+    def test_check_env_preflights_text_export_and_tensor_rt_artifacts(self):
         source = (ROOT / "env" / "check_env.py").read_text()
         self.assertIn(
-            '"Torch was imported before YOLOE load during service construction"',
+            '"Torch was imported before YOLOE initialization during service construction"',
             source,
         )
-        self.assertIn(
-            'ASSETS / "bus.jpg"',
-            source,
-        )
-        self.assertIn(
-            'vision.predict(image, "person")',
-            source,
-        )
-        self.assertIn(
-            '"YOLOE returned zero boxes for bundled bus.jpg/person smoke"',
-            source,
-        )
+        self.assertIn('YOLOE("model/yoloe-26s-seg.pt")', source)
+        self.assertIn('model.set_classes(["person"])', source)
+        self.assertIn("model/runtime/lite-mono/CURRENT", source)
+        self.assertIn("model/runtime/vgn.json", source)
 
 
 if __name__ == "__main__":

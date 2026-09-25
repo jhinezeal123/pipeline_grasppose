@@ -1,11 +1,13 @@
 """TensorRT VGN adapter implementing the grasp port."""
 
+import json
 import os
 import time
 
 import numpy as np
 
-from ..config import VGN_ENGINE, VGN_QUAL_THRESHOLD
+from ..artifacts import verify_sha256
+from ..config import VGN_CHECKPOINT, VGN_ENGINE, VGN_MANIFEST, VGN_QUAL_THRESHOLD
 from ..domain.types import GraspResult
 from ..domain.vgn import vgn_to_graspgroup
 from ..ports.grasp import GraspPort
@@ -36,6 +38,24 @@ class VgnTensorRT(GraspPort):
                 "VGN TensorRT engine not found at %r; "
                 "run prepare.sh on this Jetson" % self.model_path
             )
+
+        if not os.path.isfile(VGN_MANIFEST):
+            raise RuntimeError(
+                "VGN checksum manifest missing; run prepare.sh")
+        with open(VGN_MANIFEST, "r", encoding="utf-8") as handle:
+            manifest = json.load(handle)
+        if manifest.get("schema_version") != 1:
+            raise RuntimeError("unsupported VGN artifact manifest schema")
+        verify_sha256(
+            VGN_CHECKPOINT,
+            manifest.get("checkpoint_sha256"),
+            "VGN checkpoint",
+        )
+        verify_sha256(
+            self.model_path,
+            manifest.get("engine_sha256"),
+            "VGN TensorRT engine",
+        )
 
         started = time.time()
         logger = trt.Logger(trt.Logger.WARNING)
@@ -76,6 +96,11 @@ class VgnTensorRT(GraspPort):
             threshold=self.threshold,
         )
         return GraspResult(graspgroup=graspgroup)
+
+    def warmup(self):
+        self.load()
+        outputs = self._execute(np.zeros((1, 1, 40, 40, 40), np.float32))
+        classify_vgn_outputs(outputs)
 
     def _execute(self, input_array):
         import torch

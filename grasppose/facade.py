@@ -1,15 +1,19 @@
 """Stable outer API shared by CLI and UI."""
 
+import os
+import time
+
 import numpy as np
 
 from .bootstrap import build_default_pipeline
-from .config import DEFAULT_PROMPT, GRIP_MAX_OPEN_M
+from .config import GRIP_MAX_OPEN_M
 from .presentation.rendering import (
     draw_box,
     draw_depth,
     draw_grasp,
     draw_mask,
 )
+from .runtime import log
 
 
 class GraspService:
@@ -29,7 +33,7 @@ class GraspService:
     def close(self):
         self._core.close()
 
-    def infer(self, image, prompt=DEFAULT_PROMPT,
+    def infer(self, image, prompt_id,
               camera_K=None, fov_x=None, T_cam_volume=None,
               max_width=GRIP_MAX_OPEN_M, top=1):
         if isinstance(image, str):
@@ -43,26 +47,40 @@ class GraspService:
                 "input image must have shape (H,W,3+)")
         image = image[:, :, :3]
 
+        profile = os.environ.get("GRASP_PROFILE_INFER") == "1"
+        started = time.perf_counter()
         result = self._core.run(
             image,
-            prompt,
+            prompt_id,
             camera_K=camera_K,
             fov_x=fov_x,
             T_cam_volume=T_cam_volume,
         )
+        if profile:
+            log("profile service core %.3f s" % (time.perf_counter() - started))
+        renderers = (
+            ("box", lambda: draw_box(image, result.vision.detection)),
+            ("mask", lambda: draw_mask(image, result.vision.segmentation)),
+            ("depthmap", lambda: draw_depth(result.depth)),
+            ("grasp", lambda: draw_grasp(
+                image, result.grasp, result.camera_K,
+                max_width=max_width, top=top)),
+        )
+        rendered = {}
+        for name, render in renderers:
+            started = time.perf_counter()
+            rendered[name] = render()
+            if profile:
+                log("profile render %s %.3f s" % (
+                    name, time.perf_counter() - started))
         return {
-            "box": draw_box(
-                image, result.vision.detection),
-            "mask": draw_mask(
-                image, result.vision.segmentation),
-            "depthmap": draw_depth(result.depth),
-            "grasp": draw_grasp(
-                image,
-                result.grasp,
-                result.camera_K,
-                max_width=max_width,
-                top=top,
-            ),
+            "detection_count": int(len(result.vision.detection.boxes)),
+            "mask_pixels": int(np.asarray(result.vision.segmentation.mask, bool).sum()),
+            "grasp_count": int(len(result.grasp.graspgroup)),
+            "box": rendered["box"],
+            "mask": rendered["mask"],
+            "depthmap": rendered["depthmap"],
+            "grasp": rendered["grasp"],
             "depth_m": result.depth_m,
         }
 

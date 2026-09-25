@@ -1,174 +1,112 @@
-"""Lite-Mono adapter implementing the depth port."""
+"""Lite-Mono TensorRT adapter with the checkpoint's fixed input shape."""
 
-import importlib
+import json
 import os
-import sys
-import time
+import re
 
 import numpy as np
+from PIL import Image
 
+from ..artifacts import verify_sha256
 from ..config import (
+    LITEMONO_ARTIFACT_ROOT,
+    LITEMONO_CURRENT_FILE,
     LITEMONO_DEPTH_SCALE,
-    LITEMONO_HOME,
     LITEMONO_MODEL,
     LITEMONO_WEIGHTS,
 )
 from ..domain.geometry import resolve_camera_intrinsics
 from ..domain.types import DepthResult
 from ..ports.depth import DepthPort
-from ..runtime import log, release_attributes
+from ..runtime import log
+from ..trt_engine import TensorRTEngine
 
 
 class LiteMonoDepth(DepthPort):
-    """Monocular depth with an explicit metric scale calibration."""
+    """Static TensorRT encoder+decoder graph; no Torch model fallback."""
 
-    def __init__(self, weights=None, home=None, model_name=None,
-                 device=None, depth_scale=None):
-        self.model_path = weights or LITEMONO_WEIGHTS
-        self.home = home or LITEMONO_HOME
-        self.model_name = model_name or LITEMONO_MODEL
-        # Resolve the default device lazily in load(). This keeps construction
-        # of the full service from importing/probing Torch before YOLOE gets
-        # the first framework import, matching the validated Xavier order.
-        self.device = device
+    def __init__(self, engine_path=None, depth_scale=None):
+        self.engine_path = engine_path
         self.depth_scale = (
-            LITEMONO_DEPTH_SCALE if depth_scale is None
-            else float(depth_scale)
+            LITEMONO_DEPTH_SCALE if depth_scale is None else float(depth_scale)
         )
-        self._scale_is_default = (
-            depth_scale is None and
-            "LITEMONO_DEPTH_SCALE" not in os.environ
-        )
-        self._encoder = None
-        self._decoder = None
-        self._layers = None
+        self._engine = None
         self._feed_hw = None
+        self._manifest = None
 
     def load(self):
-        if self._encoder is not None:
+        if self._engine is not None:
             return self
-
-        import torch
-
-        if self.device is None:
-            self.device = (
-                "cuda" if torch.cuda.is_available() else "cpu")
-
-        if not os.path.isdir(self.home):
+        if not os.path.isfile(LITEMONO_CURRENT_FILE):
             raise RuntimeError(
-                "Lite-Mono source not found at %r" % self.home)
-        encoder_path = os.path.join(
-            self.model_path, "encoder.pth")
-        decoder_path = os.path.join(
-            self.model_path, "depth.pth")
-        if not (os.path.isfile(encoder_path) and
-                os.path.isfile(decoder_path)):
-            raise RuntimeError(
-                "Lite-Mono weights need encoder.pth + depth.pth in %r"
-                % self.model_path
-            )
-
-        if self.home not in sys.path:
-            sys.path.insert(0, self.home)
-
-        networks = importlib.import_module("networks")
-        layers = importlib.import_module("layers")
-        encoder_checkpoint = _torch_load(torch, encoder_path)
-        decoder_checkpoint = _torch_load(torch, decoder_path)
-        feed_h = int(encoder_checkpoint["height"])
-        feed_w = int(encoder_checkpoint["width"])
-
-        started = time.time()
-        encoder = networks.LiteMono(
-            model=self.model_name, height=feed_h, width=feed_w)
-        encoder_state = encoder.state_dict()
-        encoder_weights = {
-            key: value
-            for key, value in encoder_checkpoint.items()
-            if key in encoder_state
-        }
-        # Explicit strict=True guarantees that every model parameter is
-        # present after filtering checkpoint metadata such as height/width.
-        encoder.load_state_dict(
-            encoder_weights, strict=True)
-
-        decoder = networks.DepthDecoder(
-            encoder.num_ch_enc, scales=range(3))
-        decoder_state = decoder.state_dict()
-        decoder_weights = {
-            key: value
-            for key, value in decoder_checkpoint.items()
-            if key in decoder_state
-        }
-        decoder.load_state_dict(
-            decoder_weights, strict=True)
-
-        # Keep Lite-Mono in FP32. Its upstream positional encoding creates
-        # explicit float32 tensors before Conv2d; blindly calling .half() on
-        # the module can cause input/weight dtype mismatches on CUDA.
-        encoder.to(self.device).eval()
-        decoder.to(self.device).eval()
-
-        self._encoder = encoder
-        self._decoder = decoder
-        self._layers = layers
-        self._feed_hw = (feed_h, feed_w)
-        log("Lite-Mono loaded in %.1fs (%s)" % (
-            time.time() - started, self.device))
-        if self._scale_is_default:
-            log(
-                "WARNING: Lite-Mono is monocular/scale-ambiguous; "
-                "calibrate LITEMONO_DEPTH_SCALE before metric TSDF/VGN use"
-            )
+                "Lite-Mono TensorRT artifacts missing; run prepare.sh")
+        with open(LITEMONO_CURRENT_FILE, "r", encoding="utf-8") as handle:
+            artifact_id = handle.read().strip()
+        if not re.fullmatch(r"[a-f0-9]{64}", artifact_id):
+            raise RuntimeError("invalid Lite-Mono CURRENT artifact pointer")
+        artifact_dir = os.path.join(LITEMONO_ARTIFACT_ROOT, artifact_id)
+        manifest_path = os.path.join(artifact_dir, "manifest.json")
+        if not os.path.isfile(manifest_path):
+            raise RuntimeError("Lite-Mono manifest missing: %s" % manifest_path)
+        with open(manifest_path, "r", encoding="utf-8") as handle:
+            manifest = json.load(handle)
+        if manifest.get("artifact_id") != artifact_id:
+            raise RuntimeError("Lite-Mono artifact ID does not match manifest")
+        if manifest.get("schema_version") != 1:
+            raise RuntimeError("unsupported Lite-Mono artifact manifest schema")
+        if manifest.get("model", {}).get("name") != LITEMONO_MODEL:
+            raise RuntimeError("Lite-Mono model name does not match artifact")
+        weights_dir = LITEMONO_WEIGHTS
+        for name in ("encoder.pth", "depth.pth"):
+            expected = manifest.get("weights", {}).get(name)
+            verify_sha256(os.path.join(weights_dir, name), expected, "Lite-Mono weight")
+        engine = manifest.get("engine", {})
+        engine_name = engine.get("file")
+        if not isinstance(engine_name, str) or os.path.basename(engine_name) != engine_name:
+            raise RuntimeError("invalid Lite-Mono engine path in manifest")
+        engine_path = self.engine_path or os.path.join(
+            artifact_dir, engine_name)
+        self._engine = TensorRTEngine(
+            engine_path,
+            expected_sha256=engine.get("sha256"),
+            label="Lite-Mono TensorRT",
+        ).load()
+        self._feed_hw = tuple(int(x) for x in manifest["input"]["hw"])
+        self._manifest = manifest
+        log("Lite-Mono TensorRT precision: %s" % engine["precision"])
         return self
 
     def predict(self, image, camera_K=None, fov_x=None):
-        from PIL import Image
-        from torchvision import transforms
+        self.load()
         import torch
         import torch.nn.functional as F
 
-        self.load()
         rgb = np.asarray(image)[:, :, :3]
         height, width = rgb.shape[:2]
-        K = resolve_camera_intrinsics(
-            camera_K, fov_x, width, height)
-
+        K = resolve_camera_intrinsics(camera_K, fov_x, width, height)
         feed_h, feed_w = self._feed_hw
-        pil = Image.fromarray(
-            rgb.astype(np.uint8)).resize(
-                (feed_w, feed_h), Image.LANCZOS)
-        tensor = (
-            transforms.ToTensor()(pil)
-            .unsqueeze(0)
-            .to(self.device)
+        resized = Image.fromarray(rgb.astype(np.uint8)).resize(
+            (feed_w, feed_h), Image.LANCZOS)
+        input_array = np.asarray(resized, dtype=np.float32).transpose(2, 0, 1)
+        input_array = np.ascontiguousarray(input_array[None] / 255.0)
+        disparity = self._engine.infer_cuda(input_array)["disp"].float()
+        disparity = F.interpolate(
+            disparity,
+            (height, width),
+            mode="bilinear",
+            align_corners=False,
         )
-
-        with torch.inference_mode():
-            disparity = self._decoder(
-                self._encoder(tensor))[("disp", 0)].float()
-            disparity = F.interpolate(
-                disparity,
-                (height, width),
-                mode="bilinear",
-                align_corners=False,
-            )
-            _, depth = self._layers.disp_to_depth(
-                disparity, 0.1, 100.0)
-            depth = (
-                depth.squeeze().cpu().numpy()
-                .astype(np.float32)
-            )
-
+        min_disp = float(self._manifest["depth"]["min_disp"])
+        max_disp = float(self._manifest["depth"]["max_disp"])
+        depth = 1.0 / (min_disp + (max_disp - min_disp) * disparity)
+        depth = depth.squeeze().detach().cpu().numpy().astype(np.float32)
         depth *= self.depth_scale
-        depth = np.nan_to_num(
-            depth, nan=0.0, posinf=0.0, neginf=0.0)
+        depth = np.nan_to_num(depth, nan=0.0, posinf=0.0, neginf=0.0)
         depth[(depth < 0.05) | (depth > 10.0)] = 0.0
 
         fx = float(K[0, 0])
         fov_x_deg = float(2.0 * np.degrees(np.arctan(
-            width / (2.0 * max(fx, 1e-6))
-        )))
+            width / (2.0 * max(fx, 1e-6)))))
         return DepthResult(
             depth=depth,
             intrinsics=K.astype(np.float32),
@@ -176,15 +114,14 @@ class LiteMonoDepth(DepthPort):
             scale=float(self.depth_scale),
         )
 
+    def warmup(self):
+        self.load()
+        feed_h, feed_w = self._feed_hw
+        self._engine.warmup((1, 3, feed_h, feed_w))
+
     def close(self):
-        release_attributes(self, "_encoder", "_decoder")
-        self._layers = None
+        if self._engine is not None:
+            self._engine.close()
+        self._engine = None
         self._feed_hw = None
-
-
-def _torch_load(torch_module, path):
-    try:
-        return torch_module.load(
-            path, map_location="cpu", weights_only=False)
-    except TypeError:
-        return torch_module.load(path, map_location="cpu")
+        self._manifest = None

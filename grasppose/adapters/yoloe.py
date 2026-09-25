@@ -1,118 +1,97 @@
-"""Ultralytics YOLOE adapter implementing the vision port."""
+"""Static-prompt YOLOE TensorRT adapter."""
 
 import time
 
 import numpy as np
 
-from ..config import (
-    YOLOE_CONF,
-    YOLOE_HALF,
-    YOLOE_IMGSZ,
-    YOLOE_MODEL,
-)
-from ..domain.types import (
-    DetectionResult,
-    SegmentationResult,
-    VisionResult,
-)
+from ..config import YOLOE_ARTIFACT_ROOT, YOLOE_CONF, YOLOE_IMGSZ, YOLOE_MODEL
+from ..domain.types import DetectionResult, SegmentationResult, VisionResult
 from ..ports.vision import VisionPort
+from ..prompt_catalog import PromptCatalog
 from ..runtime import log, release_attributes
 
 
-def _is_explicit_cpu_device(device):
-    """Return whether the caller explicitly selected CPU inference."""
-    return str(device).strip().lower() == "cpu"
-
-
 class Yoloe26sVision(VisionPort):
-    """Open-vocabulary detection + segmentation in a single model."""
+    """Run a fixed YOLOE prompt profile exported to a TensorRT engine."""
 
-    def __init__(self, model_path=None, device=None, conf=None, imgsz=None,
-                 half=None):
-        self.model_path = model_path or YOLOE_MODEL
-        # Match the official Ultralytics predict flow: do not probe Torch/CUDA
-        # before YOLOE is imported and constructed. device=None lets
-        # Ultralytics select CUDA:0 when available, otherwise CPU.
-        self.device = device
+    def __init__(self, engine_path=None, conf=None, imgsz=None):
         self.conf = YOLOE_CONF if conf is None else float(conf)
         self.imgsz = YOLOE_IMGSZ if imgsz is None else int(imgsz)
-        self.half = YOLOE_HALF if half is None else bool(half)
+        self.engine_path = engine_path
         self._model = None
-        self._classes_prompt = None
+        self._catalog = None
 
     def load(self):
-        if self._model is None:
-            from ultralytics import YOLOE
-            started = time.time()
-            self._model = YOLOE(self.model_path)
-            log("YOLOE-26s loaded in %.1fs" % (
-                time.time() - started))
+        if self._model is not None:
+            return self
+        self._catalog = PromptCatalog.load(verify_engine=True)
+        engine = self._catalog.manifest["engine"]
+        if self.imgsz != int(engine.get("imgsz", -1)):
+            raise RuntimeError(
+                "YOLOE engine is fixed at imgsz=%s; runtime requested %s"
+                % (engine.get("imgsz"), self.imgsz)
+            )
+        if self.conf != float(self._catalog.manifest.get("conf", -1.0)):
+            raise RuntimeError(
+                "YOLOE confidence does not match artifact validation"
+            )
+        path = self.engine_path or (
+            self._catalog.artifact_dir + "/" + engine["file"])
+        started = time.time()
+        # Ultralytics documents exported prompted files as standard YOLO
+        # models; this path does not load CLIP or call set_classes().
+        from ultralytics import YOLO
+        self._model = YOLO(path)
+        log("YOLOE TensorRT engine loaded in %.2fs" % (
+            time.time() - started))
         return self
 
-    def predict(self, image, prompt):
+    def predict(self, image, prompt_id):
         self.load()
+        prompt = self._catalog.require(prompt_id)
         rgb = np.asarray(image)[:, :, :3]
         height, width = rgb.shape[:2]
-        # Ultralytics treats NumPy HWC inputs as OpenCV-style BGR and flips
-        # them to RGB in predictor.preprocess(). The pipeline contract is RGB,
-        # so convert here exactly once before handing the array to Ultralytics.
         bgr = np.ascontiguousarray(rgb[:, :, ::-1])
-        prompt = str(prompt).strip() or "object"
-
-        if self._classes_prompt != prompt:
-            self._model.set_classes([prompt])
-            self._classes_prompt = prompt
-
-        predict_kwargs = {
-            "source": bgr,
-            "conf": self.conf,
-            "imgsz": self.imgsz,
-            "retina_masks": True,
-            "verbose": False,
-        }
-        if self.device is not None:
-            predict_kwargs["device"] = self.device
-        # Ultralytics 8.4.x uses quantize=16 for FP16; the legacy half flag
-        # is deprecated. Leave precision unset for the official FP32 default.
-        if self.half and not _is_explicit_cpu_device(self.device):
-            predict_kwargs["quantize"] = 16
-
-        result = self._model.predict(**predict_kwargs)[0]
-
+        result = self._model.predict(
+            source=bgr,
+            imgsz=self.imgsz,
+            conf=self.conf,
+            device=0,
+            retina_masks=True,
+            verbose=False,
+        )[0]
         if result is None or result.boxes is None or len(result.boxes) == 0:
-            reason = "YOLOE did not find an object for prompt %r" % prompt
+            reason = "YOLOE found no object for prompt ID %r" % prompt_id
             return VisionResult(
                 detection=DetectionResult.empty(reason),
-                segmentation=SegmentationResult.empty(
-                    height, width, reason),
+                segmentation=SegmentationResult.empty(height, width, reason),
             )
 
-        boxes = (
-            result.boxes.xyxy.detach().cpu().numpy()
-            .astype(np.float32)
-        )
-        scores = (
-            result.boxes.conf.detach().cpu().numpy()
-            .astype(np.float32)
-        )
-        order = np.argsort(-scores)
-        boxes, scores = boxes[order], scores[order]
+        classes = result.boxes.cls.detach().cpu().numpy().astype(np.int32)
+        scores_all = result.boxes.conf.detach().cpu().numpy().astype(np.float32)
+        keep = np.flatnonzero(classes == int(prompt["class_index"]))
+        if not len(keep):
+            reason = "YOLOE found no object for prompt ID %r" % prompt_id
+            return VisionResult(
+                detection=DetectionResult.empty(reason),
+                segmentation=SegmentationResult.empty(height, width, reason),
+            )
+        boxes_all = result.boxes.xyxy.detach().cpu().numpy().astype(np.float32)
+        order = keep[np.argsort(-scores_all[keep])]
+        boxes = boxes_all[order]
+        scores = scores_all[order]
         detection = DetectionResult(
             boxes=boxes,
             scores=scores,
-            labels=[prompt for _ in order],
+            labels=[prompt["text"] for _ in order],
         )
-
-        if (result.masks is None or result.masks.data is None or
-                len(result.masks.data) == 0):
+        if result.masks is None or result.masks.data is None or len(result.masks.data) == 0:
             return VisionResult(
                 detection=detection,
                 segmentation=SegmentationResult.empty(
-                    height, width,
-                    "YOLOE returned boxes but no instance mask",
+                    height, width, "YOLOE returned boxes but no instance mask"
                 ),
             )
-
         masks = result.masks.data.detach().cpu().numpy()[order]
         if masks.shape[-2:] != (height, width):
             import cv2
@@ -124,18 +103,21 @@ class Yoloe26sVision(VisionPort):
                 )
                 for mask in masks
             ])
-
-        segmentation = SegmentationResult(
-            mask=masks[0] > 0.5,
-            scores=scores.copy(),
-            best_index=0,
-            candidate_count=int(len(masks)),
-        )
         return VisionResult(
             detection=detection,
-            segmentation=segmentation,
+            segmentation=SegmentationResult(
+                mask=masks[0] > 0.5,
+                scores=scores.copy(),
+                best_index=0,
+                candidate_count=int(len(masks)),
+            ),
         )
+
+    def warmup(self):
+        self.load()
+        item = self._catalog.prompts[0]
+        self.predict(np.zeros((640, 640, 3), np.uint8), item["id"])
 
     def close(self):
         release_attributes(self, "_model")
-        self._classes_prompt = None
+        self._catalog = None

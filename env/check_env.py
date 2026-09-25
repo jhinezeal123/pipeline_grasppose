@@ -252,9 +252,9 @@ def main():
             else None
         )
     )
-    print("trtexec:", trtexec or "not found")
-    if not trtexec:
-        problems.append("trtexec is required to build VGN engine")
+    # Preparation installs pinned engines; trtexec is needed only for a
+    # manual rebuild after changing the hardware or model weights.
+    print("trtexec:", trtexec or "not found (manual rebuild only)")
 
     total_gib = _mem_total_gib()
     if total_gib is not None:
@@ -271,59 +271,71 @@ def main():
             "less than 8 GiB free disk; model/build artifacts may fail"
         )
 
+    # prepare.sh can use a shared VGN engine outside this checkout. Check
+    # the same paths that it built and exported for the runtime.
+    vgn_engine_path = Path(
+        os.environ.get("VGN_ENGINE") or ROOT / "model/vgn.engine")
+    vgn_manifest_path = Path(
+        os.environ.get("VGN_MANIFEST") or ROOT / "model/runtime/vgn.json")
     artifacts = (
-        "model/yoloe-26s-seg.pt",
-        "mobileclip2_b.ts",
-        "model/lite-mono/encoder.pth",
-        "model/lite-mono/depth.pth",
-        "model/vgn.engine",
+        ROOT / "model/yoloe-26s-seg.pt",
+        ROOT / "mobileclip2_b.ts",
+        ROOT / "model/lite-mono/encoder.pth",
+        ROOT / "model/lite-mono/depth.pth",
+        ROOT / "model/runtime/yoloe/CURRENT",
+        ROOT / "model/runtime/lite-mono/CURRENT",
+        vgn_engine_path,
+        vgn_manifest_path,
     )
-    for rel in artifacts:
-        path = ROOT / rel
+    for path in artifacts:
         ok = path.is_file() and path.stat().st_size > 0
-        print("[%s] %s" % ("OK" if ok else "--", rel))
+        print("[%s] %s" % ("OK" if ok else "--", path))
         if not ok:
-            problems.append("missing artifact %s" % rel)
+            problems.append("missing artifact %s" % path)
 
-    # Run YOLOE in a clean subprocess. The production service must be
-    # constructible before Torch is imported so Ultralytics owns the first
-    # framework/CUDA initialization, matching its official YOLOE flow.
-    # Use Ultralytics' bundled bus.jpg and require a real semantic detection;
-    # a blank-image smoke can succeed while silently returning zero boxes.
+    if not problems:
+        try:
+            from grasppose.prompt_catalog import PromptCatalog
+            catalog = PromptCatalog.load(
+                verify_engine=True, require_full_pipeline=True)
+            print("[OK] YOLOE FP32 artifact | prompt IDs:",
+                  ", ".join(catalog.by_id))
+        except Exception as exc:
+            problems.append(
+                "YOLOE FP32 artifact validation failed: %s: %s"
+                % (type(exc).__name__, exc)
+            )
+
+    # Check the text encoder and closed-set export source during preparation.
+    # The live worker uses a separately validated TensorRT engine and never
+    # calls set_classes() or the text encoder.
     if not problems:
         yoloe_smoke = r"""
 import sys
-
-import numpy as np
-from PIL import Image
 
 from grasppose.facade import DEFAULT_SERVICE
 
 if "torch" in sys.modules:
     raise RuntimeError(
-        "Torch was imported before YOLOE load during service construction"
+        "Torch was imported before YOLOE initialization during service construction"
     )
 
-vision = DEFAULT_SERVICE.core._vision
-vision.load()
+from ultralytics import YOLOE, ASSETS
 
-from ultralytics import ASSETS
-
-image = np.array(
-    Image.open(ASSETS / "bus.jpg").convert("RGB")
-)
-result = vision.predict(image, "person")
-scores = np.asarray(result.detection.scores, np.float32)
-if len(result.detection.boxes) == 0:
+model = YOLOE("model/yoloe-26s-seg.pt")
+model.set_classes(["person"])
+result = model.predict(
+    source=str(ASSETS / "bus.jpg"),
+    imgsz=640,
+    conf=0.20,
+    device=0,
+    verbose=False,
+)[0]
+if result is None or result.boxes is None or len(result.boxes) == 0:
     raise RuntimeError(
         "YOLOE returned zero boxes for bundled bus.jpg/person smoke"
     )
-top = float(scores.max()) if scores.size else 0.0
-print(
-    "YOLOE semantic smoke: boxes=%d top_score=%.6f"
-    % (len(result.detection.boxes), top)
-)
-vision.close()
+print("YOLOE text-encoder preparation smoke: boxes=%d" % len(result.boxes))
 """
         completed = subprocess.run(
             [sys.executable, "-c", yoloe_smoke],
@@ -336,8 +348,7 @@ vision.close()
         if completed.returncode != 0:
             detail = completed.stderr.strip() or completed.stdout.strip()
             problems.append(
-                "YOLOE clean-process semantic smoke failed: %s"
-                % detail
+                "YOLOE clean-process text smoke failed: %s" % detail
             )
 
     if not problems:
@@ -380,7 +391,7 @@ vision.close()
             from grasppose.adapters.vgn_trt import VgnTensorRT
             from grasppose.domain.types import TSDFResult
 
-            smoke = VgnTensorRT(str(ROOT / "model/vgn.engine"))
+            smoke = VgnTensorRT(str(vgn_engine_path))
             smoke.load()
             tsdf = TSDFResult(
                 grid=np.full(

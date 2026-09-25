@@ -29,6 +29,7 @@ class GraspPipeline:
         self._tsdf_builder = tsdf_builder
         self._grasper = grasper
         self._loaded = False
+        self._warmed_up = False
         self._lock = threading.Lock()
 
     @property
@@ -57,6 +58,25 @@ class GraspPipeline:
         log("Persistent models ready in %.2fs" % (
             time.time() - started))
 
+    def warmup(self):
+        """Run one representative frame through each loaded accelerator."""
+        with self._lock:
+            self._load_unlocked()
+            if self._warmed_up:
+                return self
+            for name, resource in (
+                ("vision", self._vision),
+                ("depth", self._depth),
+                ("grasp", self._grasper),
+            ):
+                warmup = getattr(resource, "warmup", None)
+                if warmup is not None:
+                    started = time.time()
+                    warmup()
+                    log("%s warmup %.3fs" % (name, time.time() - started))
+            self._warmed_up = True
+        return self
+
     def close(self):
         """Release every resource, even if one adapter fails to close."""
         with self._lock:
@@ -75,6 +95,7 @@ class GraspPipeline:
                             name, type(exc).__name__, exc)
                     )
             self._loaded = False
+            self._warmed_up = False
             log_vram(" after pipeline close")
             if failures:
                 details = "; ".join(
@@ -86,20 +107,20 @@ class GraspPipeline:
                     "pipeline close failed: %s" % details
                 ) from failures[0][1]
 
-    def run(self, image, prompt, camera_K=None, fov_x=None,
+    def run(self, image, prompt_id, camera_K=None, fov_x=None,
             T_cam_volume=None):
         """Run one frame using the already resident model objects."""
         with self._lock:
             self._load_unlocked()
             return self._run_frame(
                 image=image,
-                prompt=prompt,
+                prompt_id=prompt_id,
                 camera_K=camera_K,
                 fov_x=fov_x,
                 T_cam_volume=T_cam_volume,
             )
 
-    def _run_frame(self, image, prompt, camera_K, fov_x,
+    def _run_frame(self, image, prompt_id, camera_K, fov_x,
                    T_cam_volume):
         image = np.asarray(image)
         if image.ndim != 3 or image.shape[2] < 3:
@@ -110,7 +131,7 @@ class GraspPipeline:
             raise ValueError("input image is empty")
 
         started = time.time()
-        vision = self._vision.predict(image, prompt)
+        vision = self._vision.predict(image, prompt_id)
         mask = np.asarray(vision.segmentation.mask, bool)
         log("YOLOE: %d boxes | mask=%d px | %.3fs" % (
             len(vision.detection.boxes),
