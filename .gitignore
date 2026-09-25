@@ -1,9 +1,10 @@
-# Model weights / TensorRT engines are downloaded or built locally.
+# TensorRT release bundles are installed locally by prepare.sh.
 model/*
 !model/.gitkeep
 mobileclip2_b.ts
 
 .venv/
+.runtime/
 build/
 env/lib/
 env/bin/

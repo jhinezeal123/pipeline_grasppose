@@ -32,6 +32,7 @@ class Yoloe26sVision(VisionPort):
             name: index for index, name in enumerate(self.classes)
         }
         self._model = None
+        self._classes_checked = False
 
     def load(self):
         if self._model is None:
@@ -41,24 +42,29 @@ class Yoloe26sVision(VisionPort):
             # The engine was exported from YOLOE after set_classes(), so it
             # behaves like a normal static Ultralytics segmentation model.
             self._model = YOLO(self.model_path, task="segment")
-            names = self._model.names
-            if isinstance(names, dict):
-                actual_classes = tuple(
-                    names[index] for index in sorted(names))
-            else:
-                actual_classes = tuple(names)
-            if actual_classes != self.classes:
-                release_attributes(self, "_model")
-                raise RuntimeError(
-                    "YOLOE TensorRT class metadata mismatch: "
-                    "expected=%r actual=%r"
-                    % (self.classes, actual_classes)
-                )
-            log("YOLOE-26s TensorRT loaded in %.1fs | classes=%r" % (
+            # Reading .names before predict() makes Ultralytics construct a
+            # throwaway TensorRT predictor. Check names after first predict.
+            log("YOLOE-26s TensorRT wrapper loaded in %.1fs | classes=%r" % (
                 time.time() - started,
                 self.classes,
             ))
         return self
+
+    def _validate_classes(self):
+        if self._classes_checked:
+            return
+        names = self._model.names
+        if isinstance(names, dict):
+            actual = tuple(names[index] for index in sorted(names))
+        else:
+            actual = tuple(names)
+        if actual != self.classes:
+            release_attributes(self, "_model")
+            raise RuntimeError(
+                "YOLOE TensorRT class metadata mismatch: "
+                "expected=%r actual=%r" % (self.classes, actual)
+            )
+        self._classes_checked = True
 
     def _target_id(self, prompt):
         target = str(prompt).strip()
@@ -91,6 +97,7 @@ class Yoloe26sVision(VisionPort):
             predict_kwargs["device"] = self.device
 
         result = self._model.predict(**predict_kwargs)[0]
+        self._validate_classes()
 
         if result is None or result.boxes is None or len(result.boxes) == 0:
             reason = "YOLOE TensorRT did not find %r" % target
@@ -166,5 +173,12 @@ class Yoloe26sVision(VisionPort):
             segmentation=segmentation,
         )
 
+    def warmup(self):
+        self.predict(
+            np.zeros((self.imgsz, self.imgsz, 3), dtype=np.uint8),
+            self.classes[0],
+        )
+
     def close(self):
         release_attributes(self, "_model")
+        self._classes_checked = False

@@ -29,6 +29,7 @@ class GraspPipeline:
         self._tsdf_builder = tsdf_builder
         self._grasper = grasper
         self._loaded = False
+        self._warmed_up = False
         self._lock = threading.Lock()
 
     @property
@@ -57,6 +58,25 @@ class GraspPipeline:
         log("Persistent models ready in %.2fs" % (
             time.time() - started))
 
+    def warmup(self):
+        """Initialize the three inference paths before accepting requests."""
+        with self._lock:
+            self._load_unlocked()
+            if self._warmed_up:
+                return self
+            for name, resource in (
+                ("vision", self._vision),
+                ("depth", self._depth),
+                ("grasp", self._grasper),
+            ):
+                warmup = getattr(resource, "warmup", None)
+                if warmup is not None:
+                    started = time.time()
+                    warmup()
+                    log("%s warmup %.3fs" % (name, time.time() - started))
+            self._warmed_up = True
+        return self
+
     def close(self):
         """Release every resource, even if one adapter fails to close."""
         with self._lock:
@@ -75,6 +95,7 @@ class GraspPipeline:
                             name, type(exc).__name__, exc)
                     )
             self._loaded = False
+            self._warmed_up = False
             log_vram(" after pipeline close")
             if failures:
                 details = "; ".join(

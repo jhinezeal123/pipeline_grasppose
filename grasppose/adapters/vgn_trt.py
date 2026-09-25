@@ -77,6 +77,11 @@ class VgnTensorRT(GraspPort):
         )
         return GraspResult(graspgroup=graspgroup)
 
+    def warmup(self):
+        self.load()
+        outputs = self._execute(np.zeros((1, 1, 40, 40, 40), np.float32))
+        classify_vgn_outputs(outputs)
+
     def _execute(self, input_array):
         import torch
 

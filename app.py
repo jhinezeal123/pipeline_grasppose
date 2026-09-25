@@ -2,14 +2,67 @@
 """Gradio UI over the shared grasp service."""
 
 import argparse
+import os
 import sys
+import tempfile
 
-from grasppose.config import DEFAULT_PROMPT, YOLOE_CLASSES
-from grasppose.facade import DEFAULT_SERVICE
+import numpy as np
+from PIL import Image
+
+from grasppose.config import DEFAULT_PROMPT, RUNTIME_DIR, YOLOE_CLASSES
+from grasppose.worker_client import infer_image, request_worker
 
 TOP_GRASPS = 5
 PORT_DEFAULT = 8080
-SERVICE = DEFAULT_SERVICE
+ROOT = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_DIR = os.environ.get("OUTPUT_DIR", os.path.join(ROOT, "output"))
+
+
+class WorkerService:
+    """Keep Gradio light: the model instances live in cold.sh's worker."""
+
+    def load(self):
+        status = request_worker({"op": "status"}, timeout=2)
+        if not status.get("ok"):
+            raise RuntimeError("inference worker is not ready; run cold.sh")
+        return self
+
+    def infer(self, image, prompt, top):
+        incoming = os.path.join(RUNTIME_DIR, "incoming")
+        os.makedirs(incoming, exist_ok=True)
+        fd, image_path = tempfile.mkstemp(
+            prefix="gradio-", suffix=".png", dir=incoming)
+        os.close(fd)
+        try:
+            rgb = np.asarray(image)[:, :, :3].astype(np.uint8)
+            Image.fromarray(rgb).save(image_path, format="PNG")
+            camera_k = os.environ.get("CAMERA_K", "").split()
+            if camera_k and len(camera_k) != 4:
+                raise ValueError("CAMERA_K must contain FX FY CX CY")
+            response = infer_image(
+                image_path,
+                prompt,
+                camera_k=[float(value) for value in camera_k]
+                if camera_k else None,
+                output_dir=OUTPUT_DIR,
+                top=top,
+            )
+            images = []
+            for path in response["files"]:
+                with Image.open(path) as rendered:
+                    images.append(np.asarray(rendered.convert("RGB")))
+            return dict(zip(
+                ("box", "mask", "depthmap", "grasp"), images),
+                depth_m=response.get("depth_m"),
+            )
+        finally:
+            try:
+                os.unlink(image_path)
+            except OSError:
+                pass
+
+
+SERVICE = WorkerService()
 
 
 def run_one(image, prompt):

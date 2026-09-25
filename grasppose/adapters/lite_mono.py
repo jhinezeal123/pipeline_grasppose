@@ -184,6 +184,12 @@ class LiteMonoDepth(DepthPort):
             )
         return output
 
+    def warmup(self):
+        self.load()
+        height, width = self._feed_hw
+        self._infer_disparity(
+            np.zeros((1, 3, height, width), dtype=np.float32))
+
     def predict(self, image, camera_K=None, fov_x=None):
         from PIL import Image
         import cv2

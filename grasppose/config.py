@@ -6,6 +6,11 @@ import os
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODEL_DIR = os.path.join(HERE, "model")
 RUNTIME_CONFIG = os.path.join(HERE, ".venv", "runtime.json")
+RUNTIME_DIR = os.environ.get("GRASP_RUNTIME_DIR", os.path.join(HERE, ".runtime"))
+WORKER_SOCKET = os.environ.get(
+    "GRASP_WORKER_SOCKET", os.path.join(RUNTIME_DIR, "worker.sock"))
+WORKER_PID = os.path.join(RUNTIME_DIR, "worker.pid")
+WORKER_LOG = os.path.join(RUNTIME_DIR, "worker.log")
 
 
 def _load_runtime_defaults():

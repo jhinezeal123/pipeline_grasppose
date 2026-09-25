@@ -1,302 +1,89 @@
-# Jetson Xavier grasp-pose pipeline
+# Jetson Xavier grasp pipeline (PR7 FP16)
 
-Runtime:
+Pipeline: YOLOE-26s TensorRT segmentation → Lite-Mono Tiny TensorRT depth →
+TSDF → VGN TensorRT grasp poses. The YOLOE engine contains three fixed classes
+in this order: `blue cube`, `yellow ball`, `blue cylinder`.
 
-```text
-RGB
- └─ YOLOE-26s TensorRT (3 baked classes) -> bbox + instance mask
-     └─ Lite-Mono Tiny TensorRT -> depth map
-         └─ depth + camera K + mask -> point cloud
-             └─ projective TSDF 0.30 m / 40^3
-                 └─ VGN TensorRT -> 6-DoF grasp poses
-```
+## Target hardware and artifacts
 
-YOLOE-26s TensorRT, Lite-Mono Tiny TensorRT và VGN TensorRT được nạp một lần và giữ resident trong suốt process. Mỗi frame chỉ chạy inference; model chỉ được giải phóng khi gọi `close_models()` hoặc service kết thúc.
+This checkout targets AGX Xavier (`tegra194`), L4T R35.6.4, Python 3.8 and
+TensorRT 8.5.2.2. TensorRT engines are tied to this software and device
+profile. The three archives in
+[the PR7 FP16 release](https://github.com/jhinezeal123/pipeline_grasppose/releases/tag/jetson-xavier-pr7-fp16-bundle-v1)
+contain:
 
+- YOLOE-26s FP16 engine at 640×640, batch 1, and its class-order stamp;
+- Lite-Mono Tiny FP16 engine at 192×640 and its pinned opset-11 ONNX source;
+- the VGN FP16-enabled engine, checkpoint and manifest copied unchanged from
+  the [PR8 release](https://github.com/jhinezeal123/pipeline_grasppose/releases/tag/jetson-xavier-trt-bundle-v2).
 
-## Hardware target
+`dependencies` pins each release URL, the archive SHA-256 and extracted engine
+hashes. `prepare.sh` checks the Xavier/TensorRT profile, verifies those hashes,
+and reuses files already present with the expected hashes. It builds only the
+small Lite-Mono C++ runtime shim. It does not export or build TensorRT engines.
 
-Nhánh này được khóa cho Jetson AGX Xavier 32 GB / L4T R35.6.4 (JetPack 5.1.6):
-
-- Ubuntu 20.04 / L4T R35.6.4;
-- aarch64 + Carmel CPU;
-- Volta GPU compute capability 7.2 (`sm_72`);
-- CUDA 11.4, cuDNN 8.6, TensorRT 8.5.x;
-- Python 3.8;
-- NVIDIA Torch 2.1.0a0 + torchvision 0.16.x;
-- NumPy 1.23.5 / SciPy 1.10.1 từ host JetPack.
-
-Lưu ý versioning NVIDIA: JetPack 5.1.4 gốc đi với L4T 35.6.0; target thực tế ở đây là L4T 35.6.4, tương ứng JetPack 5.1.6. Compute stack vẫn là CUDA 11.4 / cuDNN 8.6 / TensorRT 8.5.x.
-
-`prepare.sh` giữ nguyên Torch/torchvision/NumPy/SciPy của host bằng
-`--system-site-packages` + constraints. Python 3.8 dependencies có pin riêng
-để tránh pip chọn wheel mới không còn hỗ trợ focal/aarch64.
-
-YOLOE-26s được export thành TensorRT FP16 ngay trên Xavier. Ba class được
-bake cố định vào engine theo đúng thứ tự:
-
-```text
-blue cube
-yellow ball
-blue cylinder
-```
-
-`prompt` runtime chỉ được dùng để chọn/filter một trong ba class này; adapter
-không gọi `set_classes()` và không thay vocabulary khi inference. Nếu truyền
-prompt khác, pipeline trả lỗi rõ ràng. Một engine duy nhất xử lý cả ba class.
-
-Điều này cũng áp dụng cho composition root: constructor Lite-Mono chỉ lưu
-đường dẫn TensorRT artifact, chưa deserialize engine và không import Torch.
-Nhờ vậy import `grasppose.facade` chỉ tạo object graph; engine Lite-Mono được
-deserialize đúng một lần trong `LiteMonoDepth.load()` và giữ resident qua các
-frame.
-
-Trong bước prepare, `mobileclip2_b.ts` và Ultralytics CLIP chỉ được dùng một
-lần để tạo embeddings cho ba prompt trên trước khi export. Sau khi
-`model/yoloe-26s-seg.engine` được tạo, runtime chỉ load TensorRT engine;
-MobileCLIP không tham gia inference.
-
-Lite-Mono dùng community export cố định
-`lite-mono-tiny_192x640_op11.onnx` từ `yzfzzz/depth-detect-model`, pin tại
-commit `520ab0e5aaabf705c25b4f23b3316ae2c5a7bd3a` và Git blob
-`cbfaf3c2a0e6619d8d0ce554a35a009473d08faa`. Đây không phải ONNX artifact
-chính thức của repo Lite-Mono; `prepare.sh` tải đúng file đã pin, kiểm tra blob
-rồi build engine FP16 bằng TensorRT 8.5.x ngay trên Xavier. Bản opset 11 được
-chọn vì chính deployment/benchmark Jetson của depth-detect dùng artifact này.
-
-VGN ONNX được export bằng `onnx==1.14.1` trên Python 3.8 và TensorRT engine
-cũng được build bằng `trtexec` ngay trên Xavier. Không reuse bất kỳ engine nào
-build trên T4, TX2, Orin hoặc máy/TensorRT khác.
-
-`env/check_env.py` kiểm tra thêm:
-
-- đúng aarch64 / Python 3.8 / CUDA 11.4 / `sm_72`;
-- Torch/torchvision/NumPy/SciPy trong venv không bị thay khỏi host versions;
-- CUDA torchvision NMS hoạt động;
-- TensorRT >= 8.5 và `trtexec` có mặt;
-- artifact YOLOE TensorRT + class stamp / Lite-Mono TensorRT / VGN đầy đủ;
-- deserialize và chạy YOLOE-26s TensorRT smoke cho cả ba class đã bake; đồng thời xác nhận prompt ngoài vocabulary bị từ chối;
-- deserialize và chạy Lite-Mono Tiny TensorRT inference thật;
-- deserialize và chạy một VGN TensorRT dummy inference thật.
-
-Lưu ý: venv dùng wheel `opencv-python==4.8.1.78` vì Ultralytics yêu cầu
-distribution này. OpenCV hệ thống 4.5.4 có GStreamer vẫn còn nguyên trên OS,
-nhưng code chạy trong venv sẽ import bản pip; pipeline hiện nhận ảnh file/Gradio
-nên không phụ thuộc GStreamer. Nếu sau này đọc camera qua GStreamer thì cần tách
-camera I/O khỏi venv hoặc đổi chiến lược OpenCV.
-
-## Kiến trúc OOP
-
-```text
-CLI / Gradio
-    │
-    ▼
-facade.py
-    │
-    ▼
-application/
-    │ depends only on
-    ▼
-ports/ + domain/
-    ▲
-    │ implemented by
-    │
-adapters/
-  ├─ yoloe.py              # static YOLOE-26s TensorRT, 3 baked classes
-  ├─ lite_mono.py          # ctypes -> native/litemono_trt resident engine
-  └─ vgn_trt.py
-```
-
-Cấu trúc chính:
-
-```text
-grasppose/
-├── adapters/                 # code phụ thuộc framework/model
-│   ├── yoloe.py
-│   ├── lite_mono.py
-│   └── vgn_trt.py
-├── application/
-│   └── grasp_pipeline.py     # orchestration/use-case
-├── domain/                   # numpy/scipy, không biết model framework
-│   ├── geometry.py
-│   ├── tsdf.py
-│   ├── types.py
-│   └── vgn.py
-├── ports/                    # interface/contract
-│   ├── vision.py
-│   ├── depth.py
-│   ├── tsdf.py
-│   └── grasp.py
-├── presentation/
-│   └── rendering.py
-├── bootstrap.py              # composition root
-├── facade.py                 # API chung cho CLI/UI
-├── config.py
-└── runtime.py
-```
-
-Các adapter chỉ giữ resource persistent như YOLOE weights hoặc TensorRT engine. Dữ liệu theo frame không được lưu trong object; mỗi frame đi qua `predict(...)` và typed dataclass trong `domain/types.py`.
-
-Các implementation Grounding-DINO, SAM, MoGe và GraspNess/MinkowskiEngine cũ đã được loại khỏi source tree để repository chỉ có một runtime architecture canonical.
-
-## Calibration bắt buộc
-
-Point cloud dùng K thật của camera:
-
-```text
-K = [[fx, 0, cx],
-     [0, fy, cy],
-     [0,  0,  1]]
-```
-
-Ví dụ:
-
-```bash
-bash infer.sh img/frame.png \
-  --prompt "blue cube" \
-  --camera-k 615.2 614.8 320.1 239.7
-```
-
-Cho UI:
-
-```bash
-export CAMERA_K="615.2 614.8 320.1 239.7"
-```
-
-Lite-Mono là monocular depth nên scale metric không tuyệt đối. Cần hiệu chuẩn:
-
-```bash
-export LITEMONO_DEPTH_SCALE=0.73
-```
-
-Nếu không đặt, pipeline dùng `1.0` và log cảnh báo.
-
-## Ba entrypoint
-
-Yêu cầu JetPack đã có CUDA, TensorRT và PyTorch/torchvision tương thích Jetson.
-
-### 1. Chuẩn bị
+## Prepare, start and infer
 
 ```bash
 bash prepare.sh
-```
-
-`prepare.sh`:
-
-- tạo `.venv` với `--system-site-packages`;
-- bootstrap `pip==25.0.1` trước khi resolve dependencies; đây là bản cuối hỗ trợ Python 3.8 trong dòng pip 25.0 và nhận diện các wheel tag ARM64/manylinux mới hơn tốt hơn pip cũ đi kèm Ubuntu 20.04;
-- cài Python dependencies mà không thay Torch/CUDA của JetPack;
-- tải checkpoint YOLOE-26s khi cần, bake 3 prompt cố định và export `model/yoloe-26s-seg.engine` FP16 ngay trên Xavier;
-- tải đúng Lite-Mono Tiny ONNX 192x640 opset 11 đã pin, kiểm tra Git blob SHA, build FP16 TensorRT engine và C++ runtime tối giản;
-- tải checkpoint VGN chính thức nếu thiếu;
-- export ONNX và build `model/vgn.engine` bằng TensorRT trên chính Jetson;
-- chạy `env/check_env.py`.
-
-Có thể override checkpoint VGN:
-
-```bash
-VGN_CHECKPOINT=/path/to/vgn_conv.pth bash prepare.sh
-```
-
-
-YOLOE tạo artifact runtime local:
-
-```text
-model/yoloe-26s-seg.engine
-model/yoloe-26s-seg.classes.txt
-```
-
-File `.pt`, MobileCLIP và CLIP chỉ phục vụ bước export/rebuild. Nếu thay đổi
-ba class thì phải rebuild engine; runtime không hỗ trợ `set_classes()`.
-
-Lite-Mono mặc định tạo hai artifact local (đều bị `.gitignore` bỏ qua):
-
-```text
-model/lite-mono-tiny_192x640_op11.onnx
-model/lite-mono-tiny_192x640_op11_fp16.engine
-```
-
-C++ shim được build thành:
-
-```text
-build/litemono_trt/liblitemono_trt.so
-```
-
-Có thể override đường dẫn runtime bằng `LITEMONO_ONNX`, `LITEMONO_ENGINE`
-và `LITEMONO_TRT_LIBRARY`. Không copy file `.engine` từ máy khác sang Xavier.
-
-### 2. Inference một ảnh
-
-```bash
+bash cold.sh
 bash infer.sh img/frame.png \
-  --camera-k FX FY CX CY \
-  --prompt "blue cube"
+  --prompt "blue cube" \
+  --camera-k FX FY CX CY
 ```
 
-`infer.sh` không cài dependency. Mặc định nó ghi đúng một bộ vào thư mục `output/` trong repo (được `prepare.sh` tạo, nên user Jetson thông thường có quyền ghi):
+`prepare.sh` creates `.venv` while retaining the JetPack Torch, torchvision,
+NumPy and TensorRT packages. It writes the selected artifact paths to
+`.venv/runtime.json`. Explicit environment variables still override these
+paths; for example, `VGN_ENGINE=/path/to/vgn.engine bash prepare.sh` checks
+and remembers the selected VGN engine for subsequent inference.
 
-```text
-<repo>/output/<stem>_box.png
-<repo>/output/<stem>_mask.png
-<repo>/output/<stem>_depthmap.png
-<repo>/output/<stem>_grasp.png
-```
-
-Nếu môi trường/container đã provision một thư mục tuyệt đối khác, có thể override:
+`cold.sh` starts a local Unix-socket worker, loads all three models and runs
+one warmup through each inference path before it reports ready. It is safe to
+call `cold.sh` again while the worker is running. Lifecycle commands:
 
 ```bash
-OUTPUT_DIR=/output bash infer.sh img/frame.png --camera-k FX FY CX CY
+bash cold.sh status
+bash cold.sh stop
+bash cold.sh restart
 ```
 
-### 3. UI Space
+Each `infer.sh` call reuses that process and prints the four image paths plus
+client and worker time. Outputs are written to `output/<image-stem>_{box,mask,
+depthmap,grasp}.png`; set `OUTPUT_DIR` to change the directory. An unknown
+prompt or an absent worker produces an error. Inference does not load a text
+encoder or call `set_classes()`.
+
+The camera matrix must describe the input image:
+
+```text
+K = [[FX, 0, CX], [0, FY, CY], [0, 0, 1]]
+```
+
+For the UI, set `CAMERA_K="FX FY CX CY"` before starting the worker. Lite-Mono
+is monocular and its metric scale needs camera calibration; set
+`LITEMONO_DEPTH_SCALE` before `cold.sh` when needed. After changing model paths
+or runtime configuration, run `cold.sh restart`.
+
+## Gradio
 
 ```bash
 export CAMERA_K="FX FY CX CY"
 bash space.sh --host 0.0.0.0 --port 8080
 ```
 
-UI preload các model một lần rồi tái sử dụng cho mọi request.
+Gradio uses the same local worker as `infer.sh` and offers only the three
+classes baked into the engine. `space.sh` starts the worker if necessary.
 
-## Python API
+## Timing
 
-```python
-import numpy as np
-import pipeline as P
+`cold.sh` pays model loading and first-use initialization once. The `TOTAL`
+printed by `infer.sh` starts when the client sends a request and includes
+worker communication, image decoding, the full pipeline and writing four PNGs.
+Compare runs on the same image and prompt after `cold.sh` reports ready;
+zero-detection images skip depth and grasp and do not represent full-pipeline
+latency.
 
-K = np.array([
-    [615.2, 0, 320.1],
-    [0, 614.8, 239.7],
-    [0, 0, 1.0],
-])
-
-P.load_models()
-
-# Allowed runtime targets:
-# "blue cube", "yellow ball", "blue cylinder"
-
-result = P.pipeline(
-    rgb,
-    prompt="blue cube",
-    camera_K=K,
-    top=5,
-)
-
-# các frame tiếp theo tái sử dụng model resident
-# P.close_models() khi shutdown
-```
-
-Có thể truyền `T_cam_volume` (4x4, volume -> OpenCV camera). Nếu bỏ trống, TSDF builder tạo volume camera-aligned 0.30 m quanh point cloud mục tiêu; đây là fallback, không thay thế extrinsic/table calibration cho robot thật.
-
-## Test
-
-Các test logic không yêu cầu GPU/model:
-
-```bash
-python -m unittest \
-  tests.test_architecture \
-  tests.test_pipeline_guards \
-  tests.test_environment -v
-
-python test_pipeline_mock.py
-python test_app.py
-```
+The Python `pipeline.py` API remains available for direct in-process use and
+does not send requests to the worker. Use `infer.sh` or `space.sh` for the
+resident worker path.

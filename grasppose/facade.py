@@ -64,6 +64,10 @@ class GraspService:
                 top=top,
             ),
             "depth_m": result.depth_m,
+            "detection_count": int(len(result.vision.detection.boxes)),
+            "mask_pixels": int(np.asarray(
+                result.vision.segmentation.mask, bool).sum()),
+            "grasp_count": int(len(result.grasp.graspgroup)),
         }
 
 

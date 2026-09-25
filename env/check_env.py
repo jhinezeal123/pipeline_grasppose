@@ -256,13 +256,9 @@ def main():
     trt = modules.get("tensorrt")
     if trt is not None:
         version = getattr(trt, "__version__", "0")
-        if _version_tuple(version) < (8, 5):
+        if str(version) != "8.5.2.2":
             problems.append(
-                "TensorRT >=8.5 is required; got %s" % version
-            )
-        if not str(version).startswith("8.5."):
-            problems.append(
-                "L4T R35.6.4 target expects TensorRT 8.5.x; got %s"
+                "release engines require TensorRT 8.5.2.2; got %s"
                 % version
             )
 
@@ -275,8 +271,6 @@ def main():
         )
     )
     print("trtexec:", trtexec or "not found")
-    if not trtexec:
-        problems.append("trtexec is required to build TensorRT engines")
 
     total_gib = _mem_total_gib()
     if total_gib is not None:

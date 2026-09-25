@@ -15,4 +15,5 @@ if [ ! -x "$PYTHON" ]; then
   exit 1
 fi
 
+bash "$ROOT/cold.sh" start
 exec "$PYTHON" app.py "$@"

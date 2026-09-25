@@ -1,40 +1,39 @@
-# Edge pipeline model/source dependencies.
-
-# YOLOE-26s checkpoint is resolved by Ultralytics during prepare.sh.
-NAME = yoloe-26s-seg
-KIND = url
-URL = https://github.com/ultralytics/assets/releases/download/v8.4.0/yoloe-26s-seg.pt
-DEST = model/yoloe-26s-seg.pt
+# Pinned AGX Xavier / L4T R35.6.4 / TensorRT 8.5.2.2 runtime bundles.
+# These are TensorRT engine archives, not Python wheels. prepare.sh verifies
+# archive and extracted-file SHA-256 before using them.
+NAME = yoloe-26s-threeclass-trt-fp16
+KIND = tar.gz
+URL = https://github.com/jhinezeal123/pipeline_grasppose/releases/download/jetson-xavier-pr7-fp16-bundle-v1/yoloe-26s-threeclass-fp16-xavier-r35.6.4-trt8.5.2.2.tar.gz
+SHA256 = 773cffa2561e69d733e257068a48cf86d86f33bf73f35fec5b9144bff2820e7c
+DEST = model
+ENGINE_SHA256 = c8f1f583f0b70ac1cc375a9e14b96b763dc9dd75d3455300f7ad256dda70c6b9
+CLASSES_SHA256 = 46fd4d26ab2443620f6af54b3f4313514f61559fa45efa996c7f37fca882caa7
+GPU = tegra194
+L4T = R35.6.4
+TENSORRT = 8.5.2.2
+PRECISION = fp16
 ---
-# YOLOE text tokenizer dependency, pinned so first inference never installs code.
-NAME = ultralytics-clip
-KIND = git
-URL = https://github.com/ultralytics/CLIP.git
-REVISION = a13192f8cb767260d7dfd98c843b0716593169e7
-DEST = .venv
+NAME = lite-mono-tiny-trt-fp16
+KIND = tar.gz
+URL = https://github.com/jhinezeal123/pipeline_grasppose/releases/download/jetson-xavier-pr7-fp16-bundle-v1/lite-mono-tiny-fp16-xavier-r35.6.4-trt8.5.2.2.tar.gz
+SHA256 = c244fa3e0f2f662a00ea39c6a82b8f0aa5984acd6270e0257958f849d2e888fc
+DEST = model
+ENGINE_SHA256 = c4475f6389de466384149d0c09b785c49652e7e2c6800a1b73273f6971eee04c
+ONNX_SHA256 = a1c5400a5abf04b9177f0d37776262fc2300795381db2003ed8c90a76c658785
+GPU = tegra194
+L4T = R35.6.4
+TENSORRT = 8.5.2.2
+PRECISION = fp16
 ---
-# YOLOE-26 MobileCLIP2 TorchScript text encoder.
-NAME = mobileclip2-b
-KIND = url
-URL = https://github.com/ultralytics/assets/releases/download/v8.4.0/mobileclip2_b.ts
-SHA256 = 35d7f213e4d75f38514e4656ad3cb91158bd33e3805d8ac349f23b186f66982f
-DEST = mobileclip2_b.ts
----
-NAME = lite-mono-repo
-KIND = git
-URL = https://github.com/noahzn/Lite-Mono.git
-DEST = model/Lite-Mono
-REVISION = 4874b35df8ed4da16159ce8be8c697028b72bf76
----
-# Official 640x192 Lite-Mono trained model.
-NAME = lite-mono-weights
-KIND = url
-URL = https://surfdrive.surf.nl/files/index.php/s/CUjiK221EFLyXDY/download
-DEST = model/lite-mono
----
-# Official ETH VGN data bundle. prepare.sh extracts data/models/vgn_conv.pth
-# and builds a target-specific TensorRT engine locally.
-NAME = vgn-official-data
-KIND = url
-URL = https://drive.google.com/file/d/1MysYHve3ooWiLq12b58Nm8FWiFBMH-bJ/view?usp=sharing
-DEST = model/vgn_conv.pth
+# Identical asset copied from the PR8 release, including its checkpoint.
+NAME = vgn-trt-xavier
+KIND = tar.gz
+URL = https://github.com/jhinezeal123/pipeline_grasppose/releases/download/jetson-xavier-pr7-fp16-bundle-v1/vgn-fp16-xavier-r35.6.4-trt8.5.2.2.tar.gz
+SHA256 = e16a33354b7f5732df143c8100d33c1c8f2f10d46eb629e1e8c4406a898fb795
+DEST = model
+ENGINE_SHA256 = 82eefa90408d337a6b831204303efa601726266bbc2320182e40498373aa2ed1
+CHECKPOINT_SHA256 = ba3391d0805e9c9b178cd18106866313cee808ff2b654f689663e92a814cec4b
+GPU = tegra194
+L4T = R35.6.4
+TENSORRT = 8.5.2.2
+PRECISION = fp16
