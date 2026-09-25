@@ -58,9 +58,9 @@ runtime = {
     for key in keys
 }
 dst.parent.mkdir(parents=True, exist_ok=True)
-temporary = dst.with_name(dst.name + ".tmp")
-temporary.write_text(json.dumps(runtime, indent=2, sort_keys=True) + "\n")
-temporary.replace(dst)
+tmp = dst.with_name(dst.name + ".tmp")
+tmp.write_text(json.dumps(runtime, indent=2, sort_keys=True) + "\n")
+tmp.replace(dst)
 print("Runtime config:", dst)
 PY
 

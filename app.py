@@ -7,7 +7,6 @@ import sys
 import tempfile
 
 import numpy as np
-from PIL import Image
 
 from grasppose.config import DEFAULT_PROMPT, RUNTIME_DIR, YOLOE_CLASSES
 from grasppose.worker_client import infer_image, request_worker
@@ -28,6 +27,8 @@ class WorkerService:
         return self
 
     def infer(self, image, prompt, top):
+        from PIL import Image
+
         incoming = os.path.join(RUNTIME_DIR, "incoming")
         os.makedirs(incoming, exist_ok=True)
         fd, image_path = tempfile.mkstemp(

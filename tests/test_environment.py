@@ -282,32 +282,29 @@ class EnvironmentTests(unittest.TestCase):
         self.assertIn("simplify=False", source)
         self.assertIn("model.set_classes(list(FIXED_CLASSES))", source)
 
-    def test_prepare_builds_yoloe_engine_only_for_pinned_class_stamp(self):
-        source = (ROOT / "prepare.sh").read_text()
-        self.assertIn("YOLOE_CLASSES_EXPECTED=$'blue cube", source)
-        self.assertIn("yellow ball", source)
-        self.assertIn("blue cylinder'", source)
-        self.assertIn("tools/export_yoloe_trt.py", source)
-        self.assertIn("model/yoloe-26s-seg.engine", source)
+    def test_prepare_installs_pinned_yoloe_release_without_export(self):
+        prepare = (ROOT / "prepare.sh").read_text()
+        dependencies = (ROOT / "dependencies").read_text()
+        fetch = (ROOT / "tools" / "fetch_prebuilt_trt.py").read_text()
+        self.assertIn('"$PYTHON" tools/fetch_prebuilt_trt.py', prepare)
+        self.assertNotIn("tools/export_yoloe_trt.py", prepare)
+        self.assertIn("jetson-xavier-pr7-fp16-bundle-v1", dependencies)
+        self.assertIn("yoloe-26s-threeclass-trt-fp16", dependencies)
+        self.assertIn("yoloe-26s-seg.engine", fetch)
+        for target in ("blue cube", "yellow ball", "blue cylinder"):
+            self.assertIn(target, fetch)
 
-    def test_prepare_pins_litemono_tiny_onnx_for_xavier_trt(self):
-        source = (ROOT / "prepare.sh").read_text()
-        self.assertIn(
-            'LITEMONO_MODEL_REV="520ab0e5aaabf705c25b4f23b3316ae2c5a7bd3a"',
-            source,
-        )
-        self.assertIn(
-            'LITEMONO_ONNX_BLOB_SHA="cbfaf3c2a0e6619d8d0ce554a35a009473d08faa"',
-            source,
-        )
-        self.assertIn(
-            "lite-mono-tiny_192x640_op11.onnx",
-            source,
-        )
-        self.assertIn("--fp16", source)
-        self.assertIn("native/litemono_trt", source)
-        self.assertNotIn("model/Lite-Mono", source)
-        self.assertNotIn("model/lite-mono/encoder.pth", source)
+    def test_prepare_installs_pinned_litemono_and_vgn_release(self):
+        prepare = (ROOT / "prepare.sh").read_text()
+        dependencies = (ROOT / "dependencies").read_text()
+        fetch = (ROOT / "tools" / "fetch_prebuilt_trt.py").read_text()
+        self.assertIn("lite-mono-tiny-trt-fp16", dependencies)
+        self.assertIn("vgn-trt-xavier", dependencies)
+        self.assertIn("lite-mono-tiny_192x640_op11.onnx", fetch)
+        self.assertIn("c4475f6389de466384149d0c09b785", dependencies)
+        self.assertIn("82eefa90408d337a6b831204303efa", dependencies)
+        self.assertIn("native/litemono_trt", prepare)
+        self.assertNotIn("--saveEngine", prepare)
 
 
 if __name__ == "__main__":

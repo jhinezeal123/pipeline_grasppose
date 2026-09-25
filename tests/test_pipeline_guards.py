@@ -200,6 +200,8 @@ class YoloeInputTests(unittest.TestCase):
         captured = {}
 
         class FakeModel:
+            names = {0: "blue cube", 1: "yellow ball", 2: "blue cylinder"}
+
             def predict(self, **kwargs):
                 captured["kwargs"] = dict(kwargs)
                 captured["source"] = kwargs["source"].copy()
@@ -261,6 +263,8 @@ class YoloeInputTests(unittest.TestCase):
                 ], dtype=np.float32))
 
         class FakeModel:
+            names = {0: "blue cube", 1: "yellow ball", 2: "blue cylinder"}
+
             def predict(self, **kwargs):
                 captured.update(kwargs)
                 return [SimpleNamespace(
