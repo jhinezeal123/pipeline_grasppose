@@ -2,6 +2,7 @@
 """CLI client for the resident worker."""
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -36,6 +37,9 @@ def main(argv=None):
         metavar=("FX", "FY", "CX", "CY"),
     )
     parser.add_argument("--fov-x", type=float, default=None)
+    parser.add_argument("--fov-y", type=float, default=None)
+    parser.add_argument("--render", action="store_true",
+                        help="also create the four diagnostic PNG images")
     parser.add_argument("--out", default=os.environ.get(
         "OUTPUT_DIR",
         os.path.join(os.path.dirname(os.path.dirname(__file__)), "output"),
@@ -49,9 +53,9 @@ def main(argv=None):
         parser.error("input image not found: %s" % image)
     try:
         camera_k = _camera_k(args)
-        if camera_k is None and args.fov_x is None:
+        if camera_k is None and args.fov_x is None and args.fov_y is None:
             parser.error(
-                "provide --camera-k FX FY CX CY, CAMERA_K env, or --fov-x"
+                "provide --camera-k FX FY CX CY, CAMERA_K env, --fov-x or --fov-y"
             )
         started = time.perf_counter()
         response = infer_image(
@@ -59,7 +63,9 @@ def main(argv=None):
             args.prompt_id,
             camera_k=camera_k,
             fov_x=args.fov_x,
-            output_dir=args.out,
+            fov_y=args.fov_y,
+            output_dir=args.out if args.render else None,
+            render=args.render,
             top=args.top,
             max_width=args.max_width,
         )
@@ -67,16 +73,25 @@ def main(argv=None):
         print("ERROR: %s" % exc, file=sys.stderr)
         return 2
 
-    print("\n".join(response["files"]))
-    print("DETECTIONS: %d MASK_PIXELS=%d" % (
+    print("RUN_ID: %s" % response["run_id"])
+    if not response.get("snapshot_available", True):
+        print("SNAPSHOT: unavailable (frame exceeded the retained-output cache limit)")
+    if response.get("files"):
+        print("\n".join(response["files"]))
+    print("DETECTIONS: %d MASK_PIXELS=%d GRASPS=%d" % (
         response.get("detection_count", 0),
         response.get("mask_pixels", 0),
+        response.get("grasp_count", 0),
     ))
     if response.get("depth_m") is not None:
         print("target depth: %.3f m" % response["depth_m"])
     print("TOTAL: %.1f ms" % (
         (time.perf_counter() - started) * 1000.0))
     print("worker: %.1f ms" % response["server_ms"])
+    if response.get("render_ms") is not None:
+        print("render: %.1f ms" % response["render_ms"])
+    print("GRASP_POSES: %s" % json.dumps(
+        response.get("grasps", []), separators=(",", ":")))
     return 0
 
 

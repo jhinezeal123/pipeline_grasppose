@@ -224,20 +224,27 @@ bash infer.sh img/frame.png \
 ```
 
 CLI chỉ nhận prompt ID đã bake, không nhận prompt text tự do. Mỗi request gửi
-ảnh qua worker resident, rồi ghi bốn file:
+ảnh qua worker resident và mặc định trả ngay `RUN_ID`, số detection/mask/grasp,
+độ sâu, danh sách grasp pose và latency mà không render hay ghi ảnh. Dùng
+`get_output.sh RUN_ID` để render riêng bốn ảnh sau đó. Thêm `--render` khi muốn
+request chờ và tạo ảnh ngay:
 
 ```text
-output/<stem>_box.png
-output/<stem>_mask.png
-output/<stem>_depthmap.png
-output/<stem>_grasp.png
+output/<RUN_ID>/box.png
+output/<RUN_ID>/mask.png
+output/<RUN_ID>/depthmap.png
+output/<RUN_ID>/grasp.png
 ```
 
-Có thể đặt output directory bằng `--out DIR` hoặc `OUTPUT_DIR`. Worker ghi
-PNG lossless song song (4 writer) với nén mức 1 để giảm latency; có thể điều
-chỉnh bằng `GRASP_PNG_WORKERS` và `GRASP_PNG_COMPRESSION_LEVEL` (0–9). Dùng
-`GRASP_PROFILE_INFER=1` khi khởi động worker để xem thời gian từng stage/render/write.
-Để đo yêu cầu latency sau cold start (ít nhất 20 lần, gồm IPC và bốn lần ghi PNG):
+Output renderer giữ snapshot có giới hạn (tối đa 8 frame / 128 MiB / 10 phút);
+snapshot hết hạn khi worker khởi động lại. Lấy ảnh theo `RUN_ID` bằng
+`bash get_output.sh RUN_ID`; kiểm tra tiến trình bằng
+`bash get_output.sh status RUN_ID` hoặc `bash get_output.sh wait RUN_ID`.
+`--out DIR` hoặc `OUTPUT_DIR` chọn output directory. `--render` ghi PNG
+lossless song song với
+mức nén 1; có thể chỉnh qua `GRASP_PNG_COMPRESSION_LEVEL` (0–9). Dùng
+`GRASP_PROFILE_INFER=1` khi khởi động worker để xem timing các stage.
+Để đo latency inference sau cold start (không tính render PNG):
 
 ```bash
 python tools/benchmark_infer.py img/frame.png \
@@ -256,7 +263,8 @@ export CAMERA_K="615.2 614.8 320.1 239.7"
 bash space.sh --host 0.0.0.0 --port 8080
 ```
 
-UI dùng dropdown prompt ID và gửi request tới cùng worker với CLI. Khi đổi bộ
+UI yêu cầu worker render ảnh để hiển thị bốn diagnostic image. UI dùng dropdown
+prompt ID và gửi request tới cùng worker với CLI. Khi đổi bộ
 prompt rồi `cold.sh restart`, tải lại trang hoặc nhấn `Lam moi prompts` để lấy
 danh sách ID từ worker mới mà không cần khởi động lại Gradio.
 

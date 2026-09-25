@@ -13,9 +13,10 @@ if [ ! -x "$PYTHON" ]; then
 fi
 
 if [ "$#" -lt 1 ]; then
-  echo "Usage: bash infer.sh IMAGE --prompt-id ID --camera-k FX FY CX CY" >&2
+  echo "Usage: bash infer.sh IMAGE --prompt-id ID [--camera-k FX FY CX CY] [--fov-x DEG] [--render]" >&2
+  echo "Inference returns grasp metadata and a RUN_ID. Rendering the four diagnostic PNGs is optional; pass --render." >&2
   echo "Start the resident models once with: bash cold.sh" >&2
   exit 2
 fi
 
-exec "$PYTHON" tools/infer_client.py "$@"
+exec "$PYTHON" -S tools/infer_client.py "$@"

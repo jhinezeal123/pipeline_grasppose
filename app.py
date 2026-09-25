@@ -57,6 +57,7 @@ def run_one(image, prompt_id):
             str(prompt_id),
             camera_k=_camera_k(),
             output_dir=OUTPUT_DIR,
+            render=True,
             top=TOP_GRASPS,
         )
         outputs = [

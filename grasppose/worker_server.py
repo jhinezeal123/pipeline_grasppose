@@ -3,31 +3,34 @@
 import json
 import os
 import signal
-from concurrent.futures import ThreadPoolExecutor
 import socketserver
 import sys
 import threading
 import time
 import traceback
-from pathlib import Path
+import uuid
 
 import numpy as np
 from PIL import Image
 
 from .config import RUNTIME_DIR, WORKER_PID, WORKER_SOCKET
+from .domain.geometry import fov_x_from_fovy
 from .facade import DEFAULT_SERVICE
+from .output_snapshot import ARRAY_NAMES, OutputSnapshot, SnapshotCache
 from .prompt_catalog import PromptCatalog
 from .runtime import log
 
 
-class WorkerServer(socketserver.UnixStreamServer):
+class WorkerServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     allow_reuse_address = True
+    daemon_threads = True
 
     def __init__(self, address, handler):
         self.state = "starting"
         self.error = None
         self.service = DEFAULT_SERVICE
         self.catalog = None
+        self.snapshots = SnapshotCache()
         super().__init__(address, handler)
 
 
@@ -44,10 +47,8 @@ class Handler(socketserver.StreamRequestHandler):
                     "ok": self.server.state == "ready",
                     "state": self.server.state,
                     "pid": os.getpid(),
-                    "prompt_ids": (
-                        list(self.server.catalog.by_id)
-                        if self.server.catalog else []
-                    ),
+                    "prompt_ids": list(self.server.catalog.by_id)
+                    if self.server.catalog else [],
                     "prompts": (
                         [{"id": item["id"], "text": item["text"]}
                          for item in self.server.catalog.prompts]
@@ -55,6 +56,30 @@ class Handler(socketserver.StreamRequestHandler):
                     ),
                     "error": self.server.error,
                 })
+                return
+            if operation in ("snapshot_status", "snapshot"):
+                run_id = request.get("run_id")
+                snapshot = self.server.snapshots.get(run_id)
+                if snapshot is None:
+                    raise ValueError("RUN_ID is unknown or expired: %r" % run_id)
+                if operation == "snapshot_status":
+                    self._respond({"ok": True, "run_id": run_id})
+                else:
+                    specs = [{
+                        "name": name,
+                        "dtype": str(getattr(snapshot, name).dtype),
+                        "shape": list(getattr(snapshot, name).shape),
+                        "nbytes": int(getattr(snapshot, name).nbytes),
+                    } for name in ARRAY_NAMES]
+                    self._respond({
+                        "ok": True, "run_id": run_id,
+                        "metadata": snapshot.metadata(), "arrays": specs,
+                    })
+                    for name in ARRAY_NAMES:
+                        array = getattr(snapshot, name)
+                        if array.nbytes:
+                            self.wfile.write(memoryview(array).cast("B"))
+                    self.wfile.flush()
                 return
             if operation == "stop":
                 self._respond({"ok": True, "state": "stopping"})
@@ -82,13 +107,6 @@ class Handler(socketserver.StreamRequestHandler):
         image_path = request.get("image")
         if not isinstance(image_path, str) or not os.path.isfile(image_path):
             raise ValueError("input image does not exist: %r" % image_path)
-        output_dir = request.get("output_dir")
-        if not isinstance(output_dir, str) or not output_dir:
-            raise ValueError("output directory is required")
-        os.makedirs(output_dir, exist_ok=True)
-        if not os.access(output_dir, os.W_OK | os.X_OK):
-            raise ValueError("output directory is not writable: %s" % output_dir)
-
         profile = os.environ.get("GRASP_PROFILE_INFER") == "1"
         started = time.perf_counter()
         image_started = time.perf_counter()
@@ -104,53 +122,61 @@ class Handler(socketserver.StreamRequestHandler):
                 [[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]],
                 dtype=np.float64,
             )
-        result = self.server.service.infer(
+        fov_x = request.get("fov_x")
+        if fov_x is None and request.get("fov_y") is not None:
+            fov_x = fov_x_from_fovy(
+                request["fov_y"], image.shape[1], image.shape[0])
+        max_width = float(request.get("max_width", 0.080))
+        top = int(request.get("top", 1))
+        if max_width <= 0 or top < 1:
+            raise ValueError("top and max_width must be positive")
+        output_dir = request.get("output_dir")
+        if request.get("render", False):
+            if not isinstance(output_dir, str) or not output_dir:
+                raise ValueError("output directory is required with render")
+            os.makedirs(output_dir, exist_ok=True)
+            if not os.access(output_dir, os.W_OK | os.X_OK):
+                raise ValueError("output directory is not writable: %s" % output_dir)
+        result = self.server.service.core.run(
             image,
             prompt_id=prompt_id,
             camera_K=camera_k,
-            fov_x=request.get("fov_x"),
-            max_width=float(request.get("max_width", 0.080)),
-            top=int(request.get("top", 1)),
+            fov_x=fov_x,
         )
-        stem = Path(image_path).stem
-        compression = int(os.environ.get("GRASP_PNG_COMPRESSION_LEVEL", "1"))
-        workers = int(os.environ.get("GRASP_PNG_WORKERS", "4"))
-        if not 0 <= compression <= 9:
-            raise ValueError("GRASP_PNG_COMPRESSION_LEVEL must be from 0 to 9")
-        if workers < 1:
-            raise ValueError("GRASP_PNG_WORKERS must be at least 1")
-
-        def save_png(item):
-            key, array = item
-            path = os.path.join(
-                output_dir, "%s_%s.png" % (stem, key))
-            save_started = time.perf_counter()
-            Image.fromarray(array).save(
-                path,
-                format="PNG",
-                compress_level=compression,
-            )
-            if profile:
-                log("profile PNG %s %.3f s" % (
-                    key, time.perf_counter() - save_started))
-            return path
-
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            saved = list(pool.map(save_png, (
-                (key, result[key])
-                for key in ("box", "mask", "depthmap", "grasp")
-            )))
+        snapshot = OutputSnapshot.capture(image, result, max_width, top)
+        run_id = self.server.snapshots.put(snapshot)
+        snapshot_available = run_id is not None
+        if run_id is None:
+            run_id = uuid.uuid4().hex
+        files = []
+        render_ms = None
+        if request.get("render", False):
+            from .output_renderer import render_and_save
+            files, render_ms = render_and_save(snapshot, run_id, output_dir)
+        grasps = snapshot.graspgroup
+        valid_grasps = grasps[grasps[:, 1] <= max_width]
+        valid_grasps = valid_grasps[np.argsort(-valid_grasps[:, 0])[:top]]
+        grasp_poses = [{
+            "score": float(row[0]),
+            "width_m": float(row[1]),
+            "translation_m": row[13:16].tolist(),
+            "rotation": row[4:13].reshape(3, 3).tolist(),
+        } for row in valid_grasps]
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         if profile:
             log("profile worker total %.3f s" % (elapsed_ms / 1000.0))
         return {
             "ok": True,
-            "files": saved,
-            "depth_m": result["depth_m"],
-            "detection_count": result["detection_count"],
-            "mask_pixels": result["mask_pixels"],
-            "grasp_count": result["grasp_count"],
+            "run_id": run_id,
+            "snapshot_available": snapshot_available,
+            "files": files,
+            "grasps": grasp_poses,
+            "depth_m": result.depth_m,
+            "detection_count": int(len(snapshot.boxes)),
+            "mask_pixels": int(np.count_nonzero(snapshot.mask)),
+            "grasp_count": int(len(snapshot.graspgroup)),
             "server_ms": elapsed_ms,
+            "render_ms": render_ms,
         }
 
     def _respond(self, value):

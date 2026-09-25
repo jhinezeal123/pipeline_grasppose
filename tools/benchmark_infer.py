@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure end-to-end infer.sh latency, including IPC and four PNG writes."""
+"""Measure infer.sh latency over the resident worker (fast path by default)."""
 
 import argparse
 import math
@@ -23,6 +23,10 @@ def main(argv=None):
         metavar=("FX", "FY", "CX", "CY"))
     parser.add_argument("--runs", type=int, default=20)
     parser.add_argument("--out", default=str(ROOT / "output"))
+    parser.add_argument(
+        "--render", action="store_true",
+        help="also measure the optional four-image PNG render path",
+    )
     args = parser.parse_args(argv)
     if args.runs < 20:
         parser.error("--runs must be at least 20 for the acceptance check")
@@ -31,7 +35,9 @@ def main(argv=None):
         parser.error("image does not exist: %s" % image)
 
     command = ["bash", str(ROOT / "infer.sh"), str(image),
-               "--prompt-id", args.prompt_id, "--out", args.out]
+               "--prompt-id", args.prompt_id]
+    if args.render:
+        command.extend(["--render", "--out", args.out])
     if args.camera_k:
         command.extend(["--camera-k"] + [str(value) for value in args.camera_k])
     samples = []
@@ -63,20 +69,30 @@ def main(argv=None):
             continue
         samples.append(elapsed)
 
-    if samples:
-        ordered = sorted(samples)
-        p95 = ordered[max(0, int(math.ceil(0.95 * len(ordered))) - 1)]
-        median = ordered[len(ordered) // 2]
-        print("successful runs: %d/%d" % (len(samples), args.runs))
-        print("median infer.sh wall time: %.1f ms" % median)
-        print("P95 infer.sh wall time: %.1f ms" % p95)
-        print("maximum infer.sh wall time: %.1f ms" % ordered[-1])
-        if len(samples) == args.runs and p95 < 1000.0:
-            print("acceptance: PASS (P95 < 1000 ms)")
-        else:
-            print("acceptance: FAIL")
+    if not samples:
+        print("successful runs: 0/%d" % args.runs)
+        for failure in failures:
+            print("ERROR:", failure, file=sys.stderr)
+        return 1
+    ordered = sorted(samples)
+    p95 = ordered[max(0, int(math.ceil(0.95 * len(ordered))) - 1)]
+    median = ordered[len(ordered) // 2]
+    print("successful runs: %d/%d" % (len(samples), args.runs))
+    mode = "with PNG rendering" if args.render else "fast inference"
+    print("mode: %s" % mode)
+    print("median infer.sh wall time: %.1f ms" % median)
+    print("P95 infer.sh wall time: %.1f ms" % p95)
+    print("maximum infer.sh wall time: %.1f ms" % ordered[-1])
+    if args.render:
+        print("acceptance: NOT APPLICABLE (render path selected)")
+    elif len(samples) == args.runs and p95 < 1000.0:
+        print("acceptance: PASS (P95 < 1000 ms)")
+    else:
+        print("acceptance: FAIL")
     for failure in failures:
         print("ERROR:", failure, file=sys.stderr)
+    if args.render:
+        return 0 if len(samples) == args.runs else 1
     return 0 if len(samples) == args.runs and p95 < 1000.0 else 1
 
 

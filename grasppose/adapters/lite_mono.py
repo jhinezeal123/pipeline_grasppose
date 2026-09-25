@@ -85,7 +85,7 @@ class LiteMonoDepth(DepthPort):
         height, width = rgb.shape[:2]
         K = resolve_camera_intrinsics(camera_K, fov_x, width, height)
         feed_h, feed_w = self._feed_hw
-        resized = Image.fromarray(rgb.astype(np.uint8)).resize(
+        resized = Image.fromarray(rgb.astype(np.uint8, copy=False)).resize(
             (feed_w, feed_h), Image.LANCZOS)
         input_array = np.asarray(resized, dtype=np.float32).transpose(2, 0, 1)
         input_array = np.ascontiguousarray(input_array[None] / 255.0)

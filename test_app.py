@@ -103,6 +103,10 @@ def main():
             "top grasps forwarded",
             seen.get("top") == A.TOP_GRASPS,
         )
+        check(
+            "Gradio explicitly requests diagnostic rendering",
+            seen.get("render") is True,
+        )
         check("depth value", abs(depth_m - 0.4712) < 1e-9)
         check("status has timing", "57.2 ms" in status)
 
