@@ -52,9 +52,21 @@ def infer_image(image_path, prompt_id, camera_k=None, fov_x=None,
         "camera_k_size": camera_k_size,
         "fov_x": fov_x,
         "fov_y": fov_y,
-        "render": bool(render),
-        "output_dir": os.path.abspath(output_dir) if output_dir else None,
+        "render": False,
+        "output_dir": None,
         "top": int(top),
         "max_width": float(max_width),
     }
-    return request_worker(payload, timeout=timeout)
+    response = request_worker(payload, timeout=timeout)
+    if render:
+        if not response.get("snapshot_available") or not response.get("run_id"):
+            raise WorkerError(
+                "cannot render asynchronously: output snapshot was not retained"
+            )
+        from tools.output_control import start
+        try:
+            response["render_job"] = start(
+                response["run_id"], output_dir=output_dir)
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise WorkerError("cannot queue output render: %s" % exc) from exc
+    return response

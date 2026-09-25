@@ -102,6 +102,11 @@ class Handler(socketserver.StreamRequestHandler):
             })
 
     def _infer(self, request):
+        if request.get("render", False):
+            raise ValueError(
+                "inline worker rendering is unavailable; request inference "
+                "then queue output with get_output.sh RUN_ID"
+            )
         prompt_id = str(request.get("prompt_id", ""))
         self.server.catalog.require(prompt_id)
         image_path = request.get("image")
@@ -136,13 +141,6 @@ class Handler(socketserver.StreamRequestHandler):
         top = int(request.get("top", 1))
         if max_width <= 0 or top < 1:
             raise ValueError("top and max_width must be positive")
-        output_dir = request.get("output_dir")
-        if request.get("render", False):
-            if not isinstance(output_dir, str) or not output_dir:
-                raise ValueError("output directory is required with render")
-            os.makedirs(output_dir, exist_ok=True)
-            if not os.access(output_dir, os.W_OK | os.X_OK):
-                raise ValueError("output directory is not writable: %s" % output_dir)
         result = self.server.service.core.run(
             image,
             prompt_id=prompt_id,
@@ -156,9 +154,6 @@ class Handler(socketserver.StreamRequestHandler):
             run_id = uuid.uuid4().hex
         files = []
         render_ms = None
-        if request.get("render", False):
-            from .output_renderer import render_and_save
-            files, render_ms = render_and_save(snapshot, run_id, output_dir)
         grasps = snapshot.graspgroup
         valid_grasps = grasps[grasps[:, 1] <= max_width]
         valid_grasps = valid_grasps[np.argsort(-valid_grasps[:, 0])[:top]]

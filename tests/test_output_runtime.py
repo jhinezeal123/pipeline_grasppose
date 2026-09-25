@@ -22,7 +22,8 @@ from grasppose.output_renderer import (
 from grasppose.output_snapshot import (
     ARRAY_NAMES, OutputSnapshot, SnapshotCache,
 )
-from grasppose.worker_client import infer_image
+from grasppose.worker_client import WorkerError, infer_image
+from tools import output_control
 try:
     from grasppose.worker_server import Handler, WorkerServer
 except AttributeError:  # Windows Python has no socketserver.UnixStreamServer.
@@ -189,36 +190,65 @@ class CacheAndRenderingTests(unittest.TestCase):
         )
 
     @unittest.skipIf(Handler is None, "Unix worker server is unavailable")
-    def test_render_flag_returns_the_four_diagnostic_files(self):
+    def test_worker_rejects_inline_render(self):
+        handler = object.__new__(Handler)
+        with self.assertRaisesRegex(ValueError, "inline worker rendering"):
+            handler._infer({"render": True})
+
+    @unittest.skipIf(Handler is None, "Unix worker server is unavailable")
+    def test_render_runs_in_a_separate_process(self):
         image, result = fixture_result()
         class Catalog:
             def require(self, prompt_id):
                 if prompt_id != "cube":
                     raise ValueError("unknown prompt")
 
-        server = SimpleNamespace(
-            catalog=Catalog(),
-            service=SimpleNamespace(core=FixtureCore(result)),
-            snapshots=SnapshotCache(),
-        )
-        handler = object.__new__(Handler)
-        handler.server = server
         with tempfile.TemporaryDirectory() as directory:
+            runtime_dir = os.path.join(directory, "runtime")
+            os.makedirs(runtime_dir)
+            socket_path = os.path.join(runtime_dir, "worker.sock")
             image_path = os.path.join(directory, "frame.png")
             output_dir = os.path.join(directory, "output")
             Image.fromarray(image).save(image_path)
-            response = handler._infer({
-                "prompt_id": "cube", "image": image_path,
-                "camera_k": [100, 100, 40, 30],
-                "render": True, "output_dir": output_dir,
-            })
-            self.assertTrue(response["ok"])
-            self.assertEqual(len(response["files"]), 4)
-            self.assertGreaterEqual(response["render_ms"], 0)
-            self.assertEqual(
-                [os.path.basename(path) for path in response["files"]],
-                ["box.png", "mask.png", "depthmap.png", "grasp.png"],
-            )
+            server = WorkerServer(socket_path, Handler)
+            server.catalog = Catalog()
+            server.service = SimpleNamespace(core=FixtureCore(result))
+            server.state = "ready"
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                with patch("grasppose.worker_client.WORKER_SOCKET", socket_path), \
+                        patch.object(output_control, "SOCKET_PATH", socket_path), \
+                        patch.object(output_control, "JOB_DIR", os.path.join(
+                            runtime_dir, "output-jobs")), \
+                        patch.dict(os.environ, {
+                            "GRASP_RUNTIME_DIR": runtime_dir,
+                            "GRASP_WORKER_SOCKET": socket_path,
+                        }):
+                    response = infer_image(
+                        image_path, "cube", camera_k=[100, 100, 40, 30],
+                        render=True, output_dir=output_dir)
+                    self.assertEqual(response["render_job"]["state"], "queued")
+                    self.assertNotEqual(response["render_job"]["pid"],
+                                        os.getpid())
+                    self.assertEqual(response["files"], [])
+                    self.assertIsNone(response["render_ms"])
+                    job = output_control.wait(response["run_id"], timeout=30)
+                    self.assertEqual(job["state"], "done", job.get("error"))
+                    self.assertEqual(
+                        [os.path.basename(path) for path in job["files"]],
+                        ["box.png", "mask.png", "depthmap.png", "grasp.png"],
+                    )
+                    self.assertEqual(
+                        os.path.dirname(job["files"][0]),
+                        os.path.join(output_dir, response["run_id"]),
+                    )
+                    self.assertTrue(all(os.path.isfile(path)
+                                        for path in job["files"]))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
 
     def test_client_defaults_to_no_render(self):
         with patch("grasppose.worker_client.request_worker", return_value={
@@ -227,6 +257,13 @@ class CacheAndRenderingTests(unittest.TestCase):
         self.assertFalse(request.call_args.args[0]["render"])
         self.assertEqual(
             request.call_args.args[0]["camera_k_size"], [1280, 720])
+
+    def test_client_reports_unavailable_render_snapshot(self):
+        with patch("grasppose.worker_client.request_worker", return_value={
+                "ok": True, "run_id": "a" * 32,
+                "snapshot_available": False}):
+            with self.assertRaisesRegex(WorkerError, "snapshot was not retained"):
+                infer_image("frame.png", "cube", render=True)
 
     @unittest.skipIf(Handler is None, "Unix worker server is unavailable")
     def test_snapshot_can_be_retrieved_over_worker_socket(self):

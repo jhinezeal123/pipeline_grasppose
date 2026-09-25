@@ -55,7 +55,7 @@ def main(argv=None):
     parser.add_argument("--fov-x", type=float, default=None)
     parser.add_argument("--fov-y", type=float, default=None)
     parser.add_argument("--render", action="store_true",
-                        help="also create the four diagnostic PNG images")
+                        help="queue four diagnostic PNGs in a separate process")
     parser.add_argument("--out", default=os.environ.get(
         "OUTPUT_DIR",
         os.path.join(os.path.dirname(os.path.dirname(__file__)), "output"),
@@ -96,8 +96,11 @@ def main(argv=None):
     print("RUN_ID: %s" % response["run_id"])
     if not response.get("snapshot_available", True):
         print("SNAPSHOT: unavailable (frame exceeded the retained-output cache limit)")
-    if response.get("files"):
-        print("\n".join(response["files"]))
+    if args.render:
+        job = response["render_job"]
+        print("RENDER_JOB: %s" % job["state"])
+        if job.get("output_dir"):
+            print("OUTPUT_PENDING: %s" % job["output_dir"])
     print("DETECTIONS: %d MASK_PIXELS=%d GRASPS=%d" % (
         response.get("detection_count", 0),
         response.get("mask_pixels", 0),

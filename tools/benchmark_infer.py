@@ -2,6 +2,7 @@
 """Measure infer.sh latency over the resident worker (fast path by default)."""
 
 import argparse
+import json
 import math
 import os
 import re
@@ -12,6 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DETECTION = re.compile(r"DETECTIONS:\s*(\d+)\s+MASK_PIXELS=(\d+)")
+RUN_ID = re.compile(r"RUN_ID:\s*([0-9a-f]{32})")
 
 
 def main(argv=None):
@@ -52,7 +54,6 @@ def main(argv=None):
         started = time.perf_counter()
         completed = subprocess.run(
             command, cwd=str(ROOT), text=True, capture_output=True)
-        elapsed = (time.perf_counter() - started) * 1000.0
         if completed.returncode != 0:
             failures.append(
                 "run %d exited %d: %s"
@@ -73,6 +74,27 @@ def main(argv=None):
                 % (index + 1, boxes, mask_pixels)
             )
             continue
+        if args.render:
+            run_id = RUN_ID.search(completed.stdout)
+            if not run_id:
+                failures.append("run %d did not report a RUN_ID" % (index + 1))
+                continue
+            waited = subprocess.run(
+                ["bash", str(ROOT / "get_output.sh"), "wait", run_id.group(1)],
+                cwd=str(ROOT), text=True, capture_output=True)
+            try:
+                job = json.loads(waited.stdout)
+            except ValueError:
+                job = {}
+            if (waited.returncode != 0 or job.get("state") != "done" or
+                    len(job.get("files", [])) != 4 or
+                    not all(Path(path).is_file() for path in job["files"])):
+                failures.append(
+                    "run %d did not produce four PNGs: %s"
+                    % (index + 1, (waited.stderr or waited.stdout).strip())
+                )
+                continue
+        elapsed = (time.perf_counter() - started) * 1000.0
         samples.append(elapsed)
 
     if not samples:

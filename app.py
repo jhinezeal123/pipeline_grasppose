@@ -11,6 +11,7 @@ from PIL import Image
 
 from grasppose.config import RUNTIME_DIR
 from grasppose.worker_client import infer_image, request_worker
+from tools.output_control import wait as wait_output
 
 TOP_GRASPS = 5
 PORT_DEFAULT = 8080
@@ -70,13 +71,19 @@ def run_one(image, prompt_id):
             render=True,
             top=TOP_GRASPS,
         )
+        job = wait_output(response["run_id"])
+        if job.get("state") != "done":
+            raise RuntimeError(job.get("error", "output render failed"))
+        files = job.get("files", [])
+        if len(files) != 4:
+            raise RuntimeError("output renderer did not produce four images")
         outputs = [
             np.asarray(Image.open(path).convert("RGB"))
-            for path in response["files"]
+            for path in files
         ]
         depth_m = response.get("depth_m")
-        status = "Prompt ID: %s | %.1f ms" % (
-            prompt_id, response["server_ms"])
+        status = "Prompt ID: %s | infer %.1f ms | render %.1f ms" % (
+            prompt_id, response["server_ms"], job["render_ms"])
         if depth_m is not None:
             status = "Do sau vat: %.3f m | %s" % (depth_m, status)
         else:

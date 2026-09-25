@@ -7,6 +7,7 @@ import re
 import socket
 import subprocess
 import sys
+import threading
 import time
 
 
@@ -47,7 +48,9 @@ def _check_snapshot(run_id):
         raise RuntimeError(response.get("error", "snapshot unavailable"))
 
 
-def start(run_id, retry=False):
+def start(run_id, retry=False, output_dir=None):
+    run_id = _run_id(run_id)
+    output_dir = os.path.abspath(output_dir or OUTPUT_DIR)
     path = os.path.join(JOB_DIR, run_id + ".json")
     if os.path.isfile(path):
         previous = _status(run_id)
@@ -58,13 +61,16 @@ def start(run_id, retry=False):
         else:
             return previous
     _check_snapshot(run_id)
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    if not os.access(OUTPUT_DIR, os.W_OK | os.X_OK):
-        raise PermissionError("output directory is not writable: %s" % OUTPUT_DIR)
+    os.makedirs(output_dir, exist_ok=True)
+    if not os.access(output_dir, os.W_OK | os.X_OK):
+        raise PermissionError("output directory is not writable: %s" % output_dir)
     os.makedirs(JOB_DIR, exist_ok=True)
     try:
         with open(path, "x", encoding="utf-8") as handle:
-            json.dump({"state": "queued", "run_id": run_id}, handle)
+            json.dump({
+                "state": "queued", "run_id": run_id,
+                "output_dir": os.path.join(output_dir, run_id),
+            }, handle)
     except FileExistsError:
         return _status(run_id)
     log_path = os.path.join(JOB_DIR, run_id + ".log")
@@ -72,7 +78,7 @@ def start(run_id, retry=False):
         with open(log_path, "ab") as log_handle:
             child = subprocess.Popen(
                 [sys.executable, "-m", "grasppose.output_renderer",
-                 run_id, OUTPUT_DIR],
+                 run_id, output_dir],
                 cwd=ROOT,
                 stdin=subprocess.DEVNULL,
                 stdout=log_handle,
@@ -83,11 +89,24 @@ def start(run_id, retry=False):
     except Exception:
         os.unlink(path)
         raise
+    threading.Thread(target=child.wait, daemon=True).start()
     return {
         "state": "queued", "run_id": run_id,
         "pid": child.pid,
-        "output_dir": os.path.join(OUTPUT_DIR, run_id),
+        "output_dir": os.path.join(output_dir, run_id),
     }
+
+
+def wait(run_id, timeout=120):
+    run_id = _run_id(run_id)
+    deadline = time.monotonic() + timeout
+    while True:
+        result = _status(run_id)
+        if result.get("state") in ("done", "failed"):
+            return result
+        if time.monotonic() >= deadline:
+            raise TimeoutError("render job has not completed in %d s" % timeout)
+        time.sleep(0.1)
 
 
 def main(argv=None):
@@ -109,14 +128,7 @@ def main(argv=None):
         elif command == "status":
             result = _status(run_id)
         else:
-            deadline = time.monotonic() + 120
-            while True:
-                result = _status(run_id)
-                if result.get("state") in ("done", "failed"):
-                    break
-                if time.monotonic() >= deadline:
-                    raise TimeoutError("render job has not completed in 120 s")
-                time.sleep(0.1)
+            result = wait(run_id)
         print(json.dumps(result, separators=(",", ":")))
         return 1 if result.get("state") == "failed" else 0
     except (OSError, ValueError, RuntimeError) as exc:
