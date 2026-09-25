@@ -29,6 +29,10 @@ def main(argv=None):
         "--camera-k", nargs=4, type=float, required=True,
         metavar=("FX", "FY", "CX", "CY"),
     )
+    parser.add_argument(
+        "--camera-k-size", nargs=2, type=int,
+        metavar=("WIDTH", "HEIGHT"),
+    )
     args = parser.parse_args(argv)
     catalog = PromptCatalog.load(verify_engine=True)
     manifest_path = Path(catalog.artifact_dir) / "manifest.json"
@@ -45,6 +49,9 @@ def main(argv=None):
             "--validation-dir", str(Path(args.validation_dir).resolve()),
             "--camera-k", *[str(value) for value in args.camera_k],
         ]
+        if args.camera_k_size is not None:
+            command.extend(
+                ["--camera-k-size", *[str(value) for value in args.camera_k_size]])
         print("Checking full pipeline with YOLOE FP32 ...", flush=True)
         result = subprocess.run(command, cwd=str(ROOT))
         if result.returncode != 0:
@@ -55,6 +62,7 @@ def main(argv=None):
             "engine_sha256": trial["engine"]["sha256"],
             "prompt_ids": [item["id"] for item in trial["prompts"]],
             "camera_k": list(args.camera_k),
+            "camera_k_size": args.camera_k_size,
         }
         atomic_write_json(str(manifest_path), trial)
         passed = True

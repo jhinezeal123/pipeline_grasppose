@@ -26,6 +26,17 @@ def _camera_k(args):
     return values
 
 
+def _camera_k_size(args):
+    values = args.camera_k_size
+    if values is None:
+        configured = os.environ.get("CAMERA_K_SIZE", "").replace(",", " ").split()
+        if configured:
+            if len(configured) != 2:
+                raise ValueError("CAMERA_K_SIZE must contain WIDTH HEIGHT")
+            values = [int(value) for value in configured]
+    return values
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Run a fixed-prompt TensorRT pipeline through cold.sh worker."
@@ -35,6 +46,11 @@ def main(argv=None):
     parser.add_argument(
         "--camera-k", nargs=4, type=float,
         metavar=("FX", "FY", "CX", "CY"),
+    )
+    parser.add_argument(
+        "--camera-k-size", nargs=2, type=int,
+        metavar=("WIDTH", "HEIGHT"),
+        help="resolution at which --camera-k was calibrated",
     )
     parser.add_argument("--fov-x", type=float, default=None)
     parser.add_argument("--fov-y", type=float, default=None)
@@ -53,6 +69,9 @@ def main(argv=None):
         parser.error("input image not found: %s" % image)
     try:
         camera_k = _camera_k(args)
+        camera_k_size = _camera_k_size(args)
+        if camera_k_size is not None and camera_k is None:
+            parser.error("--camera-k-size requires --camera-k or CAMERA_K")
         if camera_k is None and args.fov_x is None and args.fov_y is None:
             parser.error(
                 "provide --camera-k FX FY CX CY, CAMERA_K env, --fov-x or --fov-y"
@@ -62,6 +81,7 @@ def main(argv=None):
             image,
             args.prompt_id,
             camera_k=camera_k,
+            camera_k_size=camera_k_size,
             fov_x=args.fov_x,
             fov_y=args.fov_y,
             output_dir=args.out if args.render else None,

@@ -29,6 +29,16 @@ if [ "${#CAMERA_K_VALUES[@]}" -ne 4 ]; then
   exit 2
 fi
 
+CAMERA_K_SIZE_ARGS=()
+if [ -n "${CAMERA_K_SIZE:-}" ]; then
+  read -r -a CAMERA_K_SIZE_VALUES <<< "$CAMERA_K_SIZE"
+  if [ "${#CAMERA_K_SIZE_VALUES[@]}" -ne 2 ]; then
+    echo "CAMERA_K_SIZE must contain WIDTH HEIGHT" >&2
+    exit 2
+  fi
+  CAMERA_K_SIZE_ARGS=(--camera-k-size "${CAMERA_K_SIZE_VALUES[@]}")
+fi
+
 if bash "$ROOT/cold.sh" status >/dev/null 2>&1; then
   echo "Stop the resident worker before preprocessing: bash cold.sh stop" >&2
   exit 2
@@ -43,7 +53,8 @@ fi
 
 "$PYTHON" tools/preprocess_yoloe.py "$1"
 if "$PYTHON" tools/validate_yoloe_fp32.py "$1" \
-    --camera-k "${CAMERA_K_VALUES[@]}"; then
+    --camera-k "${CAMERA_K_VALUES[@]}" \
+    "${CAMERA_K_SIZE_ARGS[@]}"; then
   exit 0
 fi
 if [ -n "$OLD_CURRENT" ]; then

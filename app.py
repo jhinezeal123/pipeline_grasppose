@@ -28,6 +28,15 @@ def _camera_k():
     return [fx, fy, cx, cy]
 
 
+def _camera_k_size():
+    values = os.environ.get("CAMERA_K_SIZE", "").replace(",", " ").split()
+    if not values:
+        return None
+    if len(values) != 2:
+        raise ValueError("CAMERA_K_SIZE must contain WIDTH HEIGHT")
+    return [int(value) for value in values]
+
+
 def prompt_choices():
     status = request_worker({"op": "status"}, timeout=2)
     prompts = status.get("prompts", [])
@@ -56,6 +65,7 @@ def run_one(image, prompt_id):
             input_path,
             str(prompt_id),
             camera_k=_camera_k(),
+            camera_k_size=_camera_k_size(),
             output_dir=OUTPUT_DIR,
             render=True,
             top=TOP_GRASPS,

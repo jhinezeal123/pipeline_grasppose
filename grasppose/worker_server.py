@@ -14,7 +14,7 @@ import numpy as np
 from PIL import Image
 
 from .config import RUNTIME_DIR, WORKER_PID, WORKER_SOCKET
-from .domain.geometry import fov_x_from_fovy
+from .domain.geometry import fov_x_from_fovy, scale_camera_intrinsics
 from .facade import DEFAULT_SERVICE
 from .output_snapshot import ARRAY_NAMES, OutputSnapshot, SnapshotCache
 from .prompt_catalog import PromptCatalog
@@ -122,6 +122,12 @@ class Handler(socketserver.StreamRequestHandler):
                 [[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]],
                 dtype=np.float64,
             )
+        camera_k_size = request.get("camera_k_size")
+        if camera_k_size is not None:
+            if camera_k is None:
+                raise ValueError("camera_k_size requires camera_k")
+            camera_k = scale_camera_intrinsics(
+                camera_k, camera_k_size, (image.shape[1], image.shape[0]))
         fov_x = request.get("fov_x")
         if fov_x is None and request.get("fov_y") is not None:
             fov_x = fov_x_from_fovy(

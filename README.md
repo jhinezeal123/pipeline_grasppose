@@ -149,6 +149,12 @@ Truyền camera matrix qua `--camera-k FX FY CX CY`, hoặc đặt
 khi chưa có calibration thật. Lite-Mono là monocular depth nên scale metric
 không tuyệt đối; đặt `LITEMONO_DEPTH_SCALE` sau khi hiệu chuẩn nếu cần.
 
+K phải tương ứng với kích thước ảnh đưa vào pipeline. Nếu K được hiệu chuẩn
+ở kích thước khác và ảnh chỉ được resize toàn khung, truyền thêm
+`--camera-k-size WIDTH HEIGHT` (hoặc `CAMERA_K_SIZE="WIDTH HEIGHT"`).
+Worker scale cả tiêu cự và tâm ảnh theo kích thước ảnh thực tế trước khi tạo
+point cloud/TSDF. Ảnh crop cần hiệu chỉnh thêm tọa độ tâm ảnh.
+
 ## Chuẩn bị và chạy
 
 Yêu cầu JetPack đã có CUDA, TensorRT và PyTorch/torchvision tương thích Jetson.
@@ -190,6 +196,7 @@ gồm 1–16 prompt có thứ tự:
 
 ```bash
 export CAMERA_K="615.2 614.8 320.1 239.7"
+# Đặt CAMERA_K_SIZE="640 480" nếu ảnh validation khác kích thước hiệu chuẩn.
 bash preprocess_prompt.sh prompts.json
 ```
 
@@ -221,6 +228,14 @@ không khớp checksum.
 bash infer.sh img/frame.png \
   --prompt-id blue_cube \
   --camera-k 615.2 614.8 320.1 239.7
+```
+
+Với `cam2.jpg` (1920x1080) và K hiệu chuẩn ở 1280x720, dùng:
+
+```bash
+bash infer.sh /path/to/cam2.jpg --prompt-id cube \
+  --camera-k 957.746642 948.820235 636.883856 352.232764 \
+  --camera-k-size 1280 720 --render
 ```
 
 CLI chỉ nhận prompt ID đã bake, không nhận prompt text tự do. Mỗi request gửi

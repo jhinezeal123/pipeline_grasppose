@@ -56,6 +56,17 @@ def _camera_values(args):
     return None
 
 
+def _camera_k_size(args):
+    if args.camera_k_size is not None:
+        return args.camera_k_size
+    configured = os.environ.get("CAMERA_K_SIZE", "").replace(",", " ").split()
+    if not configured:
+        return None
+    if len(configured) != 2:
+        raise ValueError("CAMERA_K_SIZE must contain WIDTH HEIGHT")
+    return [int(value) for value in configured]
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Client for the resident TensorRT grasp worker")
@@ -64,6 +75,9 @@ def main():
     parser.add_argument(
         "--camera-k", nargs=4, type=float,
         metavar=("FX", "FY", "CX", "CY"))
+    parser.add_argument(
+        "--camera-k-size", nargs=2, type=int,
+        metavar=("WIDTH", "HEIGHT"))
     parser.add_argument("--fov-x", type=float, default=None)
     parser.add_argument("--out", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--max-width", type=float, default=GRIP_MAX_OPEN_M)
@@ -76,12 +90,16 @@ def main():
         parser.error("input image not found: %s" % image_path)
     width, height = Image.open(image_path).size
     camera_k = _camera_values(args)
+    camera_k_size = _camera_k_size(args)
+    if camera_k_size is not None and camera_k is None:
+        parser.error("--camera-k-size requires --camera-k or CAMERA_K")
     if camera_k is None and args.fov_x is None:
         parser.error("provide --camera-k FX FY CX CY, CAMERA_K, or --fov-x")
     response = infer_image(
         image_path,
         args.prompt_id,
         camera_k=camera_k,
+        camera_k_size=camera_k_size,
         fov_x=args.fov_x,
         output_dir=args.out,
         top=args.top,

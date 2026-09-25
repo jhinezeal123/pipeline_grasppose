@@ -42,13 +42,14 @@ def request_worker(payload, timeout=300.0, socket_path=None):
 
 def infer_image(image_path, prompt_id, camera_k=None, fov_x=None,
                 output_dir=None, top=1, max_width=0.080, timeout=300.0,
-                render=False, fov_y=None):
+                render=False, fov_y=None, camera_k_size=None):
     image_path = os.path.abspath(image_path)
     payload = {
         "op": "infer",
         "image": image_path,
         "prompt_id": str(prompt_id),
         "camera_k": camera_k,
+        "camera_k_size": camera_k_size,
         "fov_x": fov_x,
         "fov_y": fov_y,
         "render": bool(render),

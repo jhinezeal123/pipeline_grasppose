@@ -21,6 +21,9 @@ def main(argv=None):
     parser.add_argument(
         "--camera-k", nargs=4, type=float,
         metavar=("FX", "FY", "CX", "CY"))
+    parser.add_argument(
+        "--camera-k-size", nargs=2, type=int,
+        metavar=("WIDTH", "HEIGHT"))
     parser.add_argument("--runs", type=int, default=20)
     parser.add_argument("--out", default=str(ROOT / "output"))
     parser.add_argument(
@@ -40,6 +43,9 @@ def main(argv=None):
         command.extend(["--render", "--out", args.out])
     if args.camera_k:
         command.extend(["--camera-k"] + [str(value) for value in args.camera_k])
+    if args.camera_k_size:
+        command.extend(
+            ["--camera-k-size"] + [str(value) for value in args.camera_k_size])
     samples = []
     failures = []
     for index in range(args.runs):

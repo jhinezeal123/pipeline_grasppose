@@ -71,6 +71,7 @@ class FixtureCore:
         self.result = result
 
     def run(self, *args, **kwargs):
+        self.last_kwargs = kwargs
         return self.result
 
 
@@ -160,6 +161,34 @@ class CacheAndRenderingTests(unittest.TestCase):
             self.assertFalse(os.path.exists(output_dir))
 
     @unittest.skipIf(Handler is None, "Unix worker server is unavailable")
+    def test_worker_scales_calibrated_K_to_decoded_image(self):
+        image, result = fixture_result()
+        class Catalog:
+            def require(self, prompt_id):
+                if prompt_id != "cube":
+                    raise ValueError("unknown prompt")
+
+        core = FixtureCore(result)
+        handler = object.__new__(Handler)
+        handler.server = SimpleNamespace(
+            catalog=Catalog(),
+            service=SimpleNamespace(core=core),
+            snapshots=SnapshotCache(),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            image_path = os.path.join(directory, "frame.png")
+            Image.fromarray(image).save(image_path)
+            handler._infer({
+                "prompt_id": "cube", "image": image_path,
+                "camera_k": [50, 50, 20, 15],
+                "camera_k_size": [40, 30],
+            })
+        np.testing.assert_allclose(
+            core.last_kwargs["camera_K"],
+            [[100, 0, 40], [0, 100, 30], [0, 0, 1]],
+        )
+
+    @unittest.skipIf(Handler is None, "Unix worker server is unavailable")
     def test_render_flag_returns_the_four_diagnostic_files(self):
         image, result = fixture_result()
         class Catalog:
@@ -194,8 +223,10 @@ class CacheAndRenderingTests(unittest.TestCase):
     def test_client_defaults_to_no_render(self):
         with patch("grasppose.worker_client.request_worker", return_value={
                 "ok": True}) as request:
-            infer_image("frame.png", "cube")
+            infer_image("frame.png", "cube", camera_k_size=[1280, 720])
         self.assertFalse(request.call_args.args[0]["render"])
+        self.assertEqual(
+            request.call_args.args[0]["camera_k_size"], [1280, 720])
 
     @unittest.skipIf(Handler is None, "Unix worker server is unavailable")
     def test_snapshot_can_be_retrieved_over_worker_socket(self):
