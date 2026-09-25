@@ -14,6 +14,11 @@ class ProjectiveTSDFBuilder:
         self.resolution = int(resolution)
         self.voxel_size = self.size_m / self.resolution
         self.truncation = float(trunc_voxels) * self.voxel_size
+        indices = np.indices(
+            (self.resolution, self.resolution, self.resolution),
+            dtype=np.float32,
+        ).reshape(3, -1).T
+        self._points_volume = indices * self.voxel_size
 
     def build(self, depth, K, mask=None, cloud=None, T_cam_volume=None):
         depth = np.asarray(depth, np.float32)
@@ -33,11 +38,7 @@ class ProjectiveTSDFBuilder:
             T_cam_volume, np.float64).reshape(4, 4)
 
         resolution = self.resolution
-        indices = np.indices(
-            (resolution, resolution, resolution),
-            dtype=np.float32,
-        ).reshape(3, -1).T
-        points_volume = indices * self.voxel_size
+        points_volume = self._points_volume
         rotation = T_cam_volume[:3, :3]
         translation = T_cam_volume[:3, 3]
         points_camera = points_volume @ rotation.T + translation
@@ -90,6 +91,8 @@ class ProjectiveTSDFBuilder:
         )
 
     def _auto_pose(self, cloud):
+        # Keep separate calls: a two-quantile call can round interpolated
+        # float32 results differently and shift the voxel pose by an ulp.
         low = np.percentile(cloud, 5.0, axis=0)
         high = np.percentile(cloud, 95.0, axis=0)
         center = 0.5 * (low + high)

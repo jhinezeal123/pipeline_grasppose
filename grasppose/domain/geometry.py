@@ -11,6 +11,30 @@ def fov_x_from_fovy(fovy_deg, width, height):
     )))
 
 
+def scale_camera_intrinsics(camera_K, calibration_size, image_size):
+    """Scale pixel-space K from calibration (width, height) to image size.
+
+    This applies to a full-frame resize. A crop also needs a principal-point
+    offset and must be calibrated separately.
+    """
+    K = np.asarray(camera_K, dtype=np.float64).reshape(3, 3)
+    if not np.isfinite(K).all() or K[0, 0] <= 0 or K[1, 1] <= 0:
+        raise ValueError("camera_K must have finite values and positive fx/fy")
+    try:
+        source_width, source_height = map(float, calibration_size)
+        target_width, target_height = map(float, image_size)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("camera sizes must be WIDTH HEIGHT") from exc
+    sizes = (source_width, source_height, target_width, target_height)
+    if not all(np.isfinite(size) and size > 0 and size.is_integer()
+               for size in sizes):
+        raise ValueError("camera sizes must contain positive integer pixels")
+    scaled = K.copy()
+    scaled[0, :] *= target_width / source_width
+    scaled[1, :] *= target_height / source_height
+    return scaled
+
+
 def resolve_camera_intrinsics(camera_K, fov_x, width, height):
     """Resolve a pixel-space 3x3 camera matrix.
 
@@ -65,16 +89,16 @@ def depth_to_cloud(depth, K, mask=None):
     """Convert metric depth + K to an OpenCV-camera-frame point cloud."""
     depth = np.asarray(depth)
     K = np.asarray(K, np.float64).reshape(3, 3)
-    height, width = depth.shape
-    ys, xs = np.mgrid[0:height, 0:width]
-    z = depth.astype(np.float64)
-    valid = np.isfinite(z) & (z > 0.05)
+    valid = np.isfinite(depth) & (depth > 0.05)
     if mask is not None:
         valid &= np.asarray(mask, bool)
 
-    zz = z[valid]
-    px = (xs[valid] - K[0, 2]) * zz / K[0, 0]
-    py = (ys[valid] - K[1, 2]) * zz / K[1, 1]
-    return np.stack([px, py, zz], axis=-1).astype(np.float32)
-
+    # Generate coordinates and promote depth only for the selected pixels.
+    ys, xs = np.nonzero(valid)
+    zz = np.asarray(depth[ys, xs], np.float64)
+    cloud = np.empty((len(zz), 3), dtype=np.float32)
+    cloud[:, 0] = (xs - K[0, 2]) * zz / K[0, 0]
+    cloud[:, 1] = (ys - K[1, 2]) * zz / K[1, 1]
+    cloud[:, 2] = zz
+    return cloud
 

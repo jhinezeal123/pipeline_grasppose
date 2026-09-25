@@ -65,13 +65,16 @@ def main():
             seen["prompt_id"] = prompt_id
             seen.update(kwargs)
             return {
-                "files": paths,
+                "run_id": "a" * 32,
                 "depth_m": 0.4712,
                 "server_ms": 57.2,
             }
 
         with patch.object(A, "OUTPUT_DIR", temp), \
-                patch.object(A, "infer_image", side_effect=success):
+                patch.object(A, "infer_image", side_effect=success), \
+                patch.object(A, "wait_output", return_value={
+                    "state": "done", "files": paths, "render_ms": 22.4,
+                }) as waited:
             output = A.run_one(IMG, "blue_cube")
 
         check("six UI outputs", len(output) == 6)
@@ -103,8 +106,15 @@ def main():
             "top grasps forwarded",
             seen.get("top") == A.TOP_GRASPS,
         )
+        check(
+            "Gradio explicitly requests diagnostic rendering",
+            seen.get("render") is True,
+        )
+        check("Gradio waits outside the inference worker",
+              waited.call_args.args == ("a" * 32,))
         check("depth value", abs(depth_m - 0.4712) < 1e-9)
-        check("status has timing", "57.2 ms" in status)
+        check("status has timing",
+              "57.2 ms" in status and "22.4 ms" in status)
 
         none_output = A.run_one(None, "blue_cube")
         check("None image returns six outputs", len(none_output) == 6)

@@ -1,5 +1,6 @@
 """Application orchestration over abstract model ports."""
 
+import os
 import threading
 import time
 
@@ -133,13 +134,14 @@ class GraspPipeline:
         started = time.time()
         vision = self._vision.predict(image, prompt_id)
         mask = np.asarray(vision.segmentation.mask, bool)
+        mask_pixels = int(np.count_nonzero(mask))
         log("YOLOE: %d boxes | mask=%d px | %.3fs" % (
             len(vision.detection.boxes),
-            int(mask.sum()),
+            mask_pixels,
             time.time() - started,
         ))
 
-        if not mask.any():
+        if mask_pixels == 0:
             reason = (
                 vision.segmentation.reason or
                 "empty target mask"
@@ -164,25 +166,20 @@ class GraspPipeline:
         )
         K = np.asarray(
             depth.intrinsics, np.float64).reshape(3, 3)
+        depth_summary = (
+            depth_range_str(depth.depth)
+            if os.environ.get("GRASP_VERBOSE_DEPTH") == "1"
+            else "ready"
+        )
         log("Lite-Mono: depth %s | scale=%.5g | %.3fs" % (
-            depth_range_str(depth.depth),
+            depth_summary,
             float(depth.scale),
             time.time() - started,
         ))
 
-        valid_target_depth = np.asarray(
-            depth.depth, np.float32)[mask]
-        valid_target_depth = valid_target_depth[
-            np.isfinite(valid_target_depth) &
-            (valid_target_depth > 0.05)
-        ]
-        depth_m = (
-            float(np.median(valid_target_depth))
-            if valid_target_depth.size else None
-        )
-
         cloud = depth_to_cloud(
             depth.depth, K, mask=mask)
+        depth_m = float(np.median(cloud[:, 2])) if len(cloud) else None
         if len(cloud) == 0:
             return PipelineResult(
                 vision=vision,

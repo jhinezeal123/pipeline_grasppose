@@ -2,6 +2,7 @@
 """CLI client for the resident worker."""
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -25,6 +26,17 @@ def _camera_k(args):
     return values
 
 
+def _camera_k_size(args):
+    values = args.camera_k_size
+    if values is None:
+        configured = os.environ.get("CAMERA_K_SIZE", "").replace(",", " ").split()
+        if configured:
+            if len(configured) != 2:
+                raise ValueError("CAMERA_K_SIZE must contain WIDTH HEIGHT")
+            values = [int(value) for value in configured]
+    return values
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Run a fixed-prompt TensorRT pipeline through cold.sh worker."
@@ -35,7 +47,15 @@ def main(argv=None):
         "--camera-k", nargs=4, type=float,
         metavar=("FX", "FY", "CX", "CY"),
     )
+    parser.add_argument(
+        "--camera-k-size", nargs=2, type=int,
+        metavar=("WIDTH", "HEIGHT"),
+        help="resolution at which --camera-k was calibrated",
+    )
     parser.add_argument("--fov-x", type=float, default=None)
+    parser.add_argument("--fov-y", type=float, default=None)
+    parser.add_argument("--render", action="store_true",
+                        help="queue four diagnostic PNGs in a separate process")
     parser.add_argument("--out", default=os.environ.get(
         "OUTPUT_DIR",
         os.path.join(os.path.dirname(os.path.dirname(__file__)), "output"),
@@ -49,17 +69,23 @@ def main(argv=None):
         parser.error("input image not found: %s" % image)
     try:
         camera_k = _camera_k(args)
-        if camera_k is None and args.fov_x is None:
+        camera_k_size = _camera_k_size(args)
+        if camera_k_size is not None and camera_k is None:
+            parser.error("--camera-k-size requires --camera-k or CAMERA_K")
+        if camera_k is None and args.fov_x is None and args.fov_y is None:
             parser.error(
-                "provide --camera-k FX FY CX CY, CAMERA_K env, or --fov-x"
+                "provide --camera-k FX FY CX CY, CAMERA_K env, --fov-x or --fov-y"
             )
         started = time.perf_counter()
         response = infer_image(
             image,
             args.prompt_id,
             camera_k=camera_k,
+            camera_k_size=camera_k_size,
             fov_x=args.fov_x,
-            output_dir=args.out,
+            fov_y=args.fov_y,
+            output_dir=args.out if args.render else None,
+            render=args.render,
             top=args.top,
             max_width=args.max_width,
         )
@@ -67,16 +93,28 @@ def main(argv=None):
         print("ERROR: %s" % exc, file=sys.stderr)
         return 2
 
-    print("\n".join(response["files"]))
-    print("DETECTIONS: %d MASK_PIXELS=%d" % (
+    print("RUN_ID: %s" % response["run_id"])
+    if not response.get("snapshot_available", True):
+        print("SNAPSHOT: unavailable (frame exceeded the retained-output cache limit)")
+    if args.render:
+        job = response["render_job"]
+        print("RENDER_JOB: %s" % job["state"])
+        if job.get("output_dir"):
+            print("OUTPUT_PENDING: %s" % job["output_dir"])
+    print("DETECTIONS: %d MASK_PIXELS=%d GRASPS=%d" % (
         response.get("detection_count", 0),
         response.get("mask_pixels", 0),
+        response.get("grasp_count", 0),
     ))
     if response.get("depth_m") is not None:
         print("target depth: %.3f m" % response["depth_m"])
     print("TOTAL: %.1f ms" % (
         (time.perf_counter() - started) * 1000.0))
     print("worker: %.1f ms" % response["server_ms"])
+    if response.get("render_ms") is not None:
+        print("render: %.1f ms" % response["render_ms"])
+    print("GRASP_POSES: %s" % json.dumps(
+        response.get("grasps", []), separators=(",", ":")))
     return 0
 
 

@@ -13,6 +13,7 @@ from grasppose.domain.geometry import (
     depth_range_str,
     depth_to_cloud,
     resolve_camera_intrinsics,
+    scale_camera_intrinsics,
 )
 from grasppose.domain.tsdf import ProjectiveTSDFBuilder
 from grasppose.domain.vgn import vgn_to_graspgroup
@@ -38,6 +39,31 @@ class GeometryTests(unittest.TestCase):
         self.assertEqual(cloud.shape, (1, 3))
         self.assertTrue(
             np.allclose(cloud[0], [0, 0, 1]))
+
+    def test_intrinsics_scale_with_full_frame_resize(self):
+        K = np.array([
+            [957.746642, 0.0, 636.883856],
+            [0.0, 948.820235, 352.232764],
+            [0.0, 0.0, 1.0],
+        ])
+        scaled = scale_camera_intrinsics(K, (1280, 720), (1920, 1080))
+        np.testing.assert_allclose(
+            scaled,
+            [[1436.619963, 0.0, 955.325784],
+             [0.0, 1423.2303525, 528.349146],
+             [0.0, 0.0, 1.0]],
+            rtol=0, atol=1e-9,
+        )
+        np.testing.assert_array_equal(
+            scale_camera_intrinsics(K, (1280, 720), (1280, 720)), K)
+        self.assertEqual(K[0, 0], 957.746642)
+
+    def test_intrinsics_reject_bad_calibration_size(self):
+        K = np.eye(3)
+        with self.assertRaisesRegex(ValueError, "positive integer"):
+            scale_camera_intrinsics(K, (0, 720), (1920, 1080))
+        with self.assertRaisesRegex(ValueError, "WIDTH HEIGHT"):
+            scale_camera_intrinsics(K, (1280,), (1920, 1080))
 
     def test_depth_range_empty_is_safe(self):
         text = depth_range_str(

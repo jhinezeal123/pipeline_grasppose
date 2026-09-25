@@ -22,7 +22,9 @@ from grasppose.config import (  # noqa: E402
     YOLOE_IMGSZ,
     YOLOE_MODEL,
 )
-from grasppose.domain.geometry import depth_to_cloud  # noqa: E402
+from grasppose.domain.geometry import (  # noqa: E402
+    depth_to_cloud, scale_camera_intrinsics,
+)
 from grasppose.prompt_catalog import PromptCatalog  # noqa: E402
 from tools.preprocess_yoloe import (  # noqa: E402
     best_mask,
@@ -109,6 +111,10 @@ def main(argv=None):
         "--camera-k", nargs=4, type=float, required=True,
         metavar=("FX", "FY", "CX", "CY"),
     )
+    parser.add_argument(
+        "--camera-k-size", nargs=2, type=int,
+        metavar=("WIDTH", "HEIGHT"),
+    )
     parser.add_argument("--model", default=YOLOE_MODEL)
     parser.add_argument("--litemono-home", default=LITEMONO_HOME)
     parser.add_argument("--litemono-weights", default=LITEMONO_WEIGHTS)
@@ -129,7 +135,7 @@ def main(argv=None):
             "active YOLOE artifact does not match prompts.json; "
             "run preprocess_prompt.sh first"
         )
-    K = camera_matrix(args.camera_k)
+    calibration_K = camera_matrix(args.camera_k)
 
     from grasppose.config import LITEMONO_DEPTH_SCALE
     from grasppose.facade import DEFAULT_SERVICE
@@ -139,6 +145,9 @@ def main(argv=None):
     candidate_data = {}
     for prompt in prompts:
         image = np.asarray(Image.open(paths[prompt["id"]]).convert("RGB"))
+        K = (scale_camera_intrinsics(
+            calibration_K, args.camera_k_size, (image.shape[1], image.shape[0]))
+            if args.camera_k_size is not None else calibration_K)
         vision = core._vision.predict(image, prompt["id"])
         mask = np.asarray(vision.segmentation.mask, bool)
         if not mask.any():
@@ -155,6 +164,7 @@ def main(argv=None):
         tsdf = core._tsdf_builder.build(
             depth, K, mask=mask, cloud=cloud)
         candidate_data[prompt["id"]] = {
+            "camera_K": K,
             "mask": mask.copy(),
             "depth": np.asarray(depth, np.float32).copy(),
             "tsdf": tsdf,
@@ -218,6 +228,7 @@ def main(argv=None):
         prompt_id = prompt["id"]
         depth = reference_depths[prompt_id]
         mask = reference_masks[prompt_id]
+        K = candidate_data[prompt_id]["camera_K"]
         cloud = depth_to_cloud(depth, K, mask=mask)
         if not len(cloud):
             raise RuntimeError(

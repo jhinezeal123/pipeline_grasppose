@@ -149,6 +149,12 @@ Truyền camera matrix qua `--camera-k FX FY CX CY`, hoặc đặt
 khi chưa có calibration thật. Lite-Mono là monocular depth nên scale metric
 không tuyệt đối; đặt `LITEMONO_DEPTH_SCALE` sau khi hiệu chuẩn nếu cần.
 
+K phải tương ứng với kích thước ảnh đưa vào pipeline. Nếu K được hiệu chuẩn
+ở kích thước khác và ảnh chỉ được resize toàn khung, truyền thêm
+`--camera-k-size WIDTH HEIGHT` (hoặc `CAMERA_K_SIZE="WIDTH HEIGHT"`).
+Worker scale cả tiêu cự và tâm ảnh theo kích thước ảnh thực tế trước khi tạo
+point cloud/TSDF. Ảnh crop cần hiệu chỉnh thêm tọa độ tâm ảnh.
+
 ## Chuẩn bị và chạy
 
 Yêu cầu JetPack đã có CUDA, TensorRT và PyTorch/torchvision tương thích Jetson.
@@ -190,6 +196,7 @@ gồm 1–16 prompt có thứ tự:
 
 ```bash
 export CAMERA_K="615.2 614.8 320.1 239.7"
+# Đặt CAMERA_K_SIZE="640 480" nếu ảnh validation khác kích thước hiệu chuẩn.
 bash preprocess_prompt.sh prompts.json
 ```
 
@@ -223,21 +230,39 @@ bash infer.sh img/frame.png \
   --camera-k 615.2 614.8 320.1 239.7
 ```
 
-CLI chỉ nhận prompt ID đã bake, không nhận prompt text tự do. Mỗi request gửi
-ảnh qua worker resident, rồi ghi bốn file:
+Với `cam2.jpg` (1920x1080) và K hiệu chuẩn ở 1280x720, dùng:
 
-```text
-output/<stem>_box.png
-output/<stem>_mask.png
-output/<stem>_depthmap.png
-output/<stem>_grasp.png
+```bash
+bash infer.sh /path/to/cam2.jpg --prompt-id cube \
+  --camera-k 957.746642 948.820235 636.883856 352.232764 \
+  --camera-k-size 1280 720 --render
+# Dùng RUN_ID vừa in ra để chờ bốn ảnh hoàn tất khi cần:
+bash get_output.sh wait RUN_ID
 ```
 
-Có thể đặt output directory bằng `--out DIR` hoặc `OUTPUT_DIR`. Worker ghi
-PNG lossless song song (4 writer) với nén mức 1 để giảm latency; có thể điều
-chỉnh bằng `GRASP_PNG_WORKERS` và `GRASP_PNG_COMPRESSION_LEVEL` (0–9). Dùng
-`GRASP_PROFILE_INFER=1` khi khởi động worker để xem thời gian từng stage/render/write.
-Để đo yêu cầu latency sau cold start (ít nhất 20 lần, gồm IPC và bốn lần ghi PNG):
+CLI chỉ nhận prompt ID đã bake, không nhận prompt text tự do. Mỗi request gửi
+ảnh qua worker resident và mặc định trả ngay `RUN_ID`, số detection/mask/grasp,
+độ sâu, danh sách grasp pose và latency mà không render hay ghi ảnh. Dùng
+`get_output.sh RUN_ID` để khởi chạy renderer riêng sau đó. `--render` tự xếp
+việc xuất bốn ảnh vào một tiến trình riêng và trả pose ngay; dùng
+`get_output.sh wait RUN_ID` khi cần chờ ảnh hoàn tất:
+
+```text
+output/<RUN_ID>/box.png
+output/<RUN_ID>/mask.png
+output/<RUN_ID>/depthmap.png
+output/<RUN_ID>/grasp.png
+```
+
+Output renderer giữ snapshot có giới hạn (tối đa 8 frame / 128 MiB / 10 phút);
+snapshot hết hạn khi worker khởi động lại. Xếp việc xuất ảnh theo `RUN_ID` bằng
+`bash get_output.sh RUN_ID`; kiểm tra tiến trình bằng
+`bash get_output.sh status RUN_ID` hoặc `bash get_output.sh wait RUN_ID`.
+`--out DIR` hoặc `OUTPUT_DIR` chọn output directory. Renderer ghi PNG
+lossless song song với
+mức nén 1; có thể chỉnh qua `GRASP_PNG_COMPRESSION_LEVEL` (0–9). Dùng
+`GRASP_PROFILE_INFER=1` khi khởi động worker để xem timing các stage.
+Để đo latency inference sau cold start (không tính render PNG):
 
 ```bash
 python tools/benchmark_infer.py img/frame.png \
@@ -256,6 +281,8 @@ export CAMERA_K="615.2 614.8 320.1 239.7"
 bash space.sh --host 0.0.0.0 --port 8080
 ```
 
+UI gửi inference tới worker, xếp việc xuất ảnh ở tiến trình riêng rồi chờ
+bốn ảnh để hiển thị; worker có thể nhận frame tiếp theo trong lúc UI chờ.
 UI dùng dropdown prompt ID và gửi request tới cùng worker với CLI. Khi đổi bộ
 prompt rồi `cold.sh restart`, tải lại trang hoặc nhấn `Lam moi prompts` để lấy
 danh sách ID từ worker mới mà không cần khởi động lại Gradio.
