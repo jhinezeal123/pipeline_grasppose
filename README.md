@@ -84,6 +84,13 @@ Compare runs on the same image and prompt after `cold.sh` reports ready;
 zero-detection images skip depth and grasp and do not represent full-pipeline
 latency.
 
+On `ktmt` (AGX Xavier, 2026-09-25), 20 consecutive warm runs on the same
+`cam2.jpg` with `--prompt "blue cube"` and calibrated K all returned 2 boxes
+and a 100,449-pixel mask. Full `infer.sh` process wall time was 1,563 ms
+median / 1,655 ms P95; the client-reported time from request to four saved
+images was 1,242 ms median / 1,334 ms P95. The sub-second target has not
+been reached on this image.
+
 The Python `pipeline.py` API remains available for direct in-process use and
 does not send requests to the worker. Use `infer.sh` or `space.sh` for the
 resident worker path.
