@@ -13,12 +13,11 @@ import uuid
 import numpy as np
 from PIL import Image
 
-from ...config import RUNTIME_DIR, WORKER_PID, WORKER_SOCKET
-from ...modules.depth.geometry import fov_x_from_fovy, scale_camera_intrinsics
-from ...facade import DEFAULT_SERVICE
+from ..settings import RUNTIME_DIR, WORKER_PID, WORKER_SOCKET
+from ..composition import DEFAULT_ESTIMATOR, DEFAULT_PIPELINE
 from ..output.snapshot import ARRAY_NAMES, OutputSnapshot, SnapshotCache
 from ...modules.vision.prompt_catalog import PromptCatalog
-from ...runtime import log
+from ..runtime import log
 
 
 class WorkerServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
@@ -28,7 +27,7 @@ class WorkerServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     def __init__(self, address, handler):
         self.state = "starting"
         self.error = None
-        self.service = DEFAULT_SERVICE
+        self.estimator = DEFAULT_ESTIMATOR
         self.catalog = None
         self.snapshots = SnapshotCache()
         super().__init__(address, handler)
@@ -105,7 +104,7 @@ class Handler(socketserver.StreamRequestHandler):
         if request.get("render", False):
             raise ValueError(
                 "inline worker rendering is unavailable; request inference "
-                "then queue output with get_output.sh RUN_ID"
+                "then queue output with scripts/output.sh RUN_ID"
             )
         prompt_id = str(request.get("prompt_id", ""))
         self.server.catalog.require(prompt_id)
@@ -119,33 +118,20 @@ class Handler(socketserver.StreamRequestHandler):
         if profile:
             log("profile image decode %.3f s" % (
                 time.perf_counter() - image_started))
-        camera_k = request.get("camera_k")
-        if camera_k is not None:
-            camera_k = np.asarray(camera_k, dtype=np.float64).reshape(4)
-            fx, fy, cx, cy = camera_k
-            camera_k = np.array(
-                [[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]],
-                dtype=np.float64,
-            )
-        camera_k_size = request.get("camera_k_size")
-        if camera_k_size is not None:
-            if camera_k is None:
-                raise ValueError("camera_k_size requires camera_k")
-            camera_k = scale_camera_intrinsics(
-                camera_k, camera_k_size, (image.shape[1], image.shape[0]))
-        fov_x = request.get("fov_x")
-        if fov_x is None and request.get("fov_y") is not None:
-            fov_x = fov_x_from_fovy(
-                request["fov_y"], image.shape[1], image.shape[0])
         max_width = float(request.get("max_width", 0.080))
         top = int(request.get("top", 1))
         if max_width <= 0 or top < 1:
             raise ValueError("top and max_width must be positive")
-        result = self.server.service.core.run(
+        estimate, result = self.server.estimator.estimate_with_details(
             image,
             prompt_id=prompt_id,
-            camera_K=camera_k,
-            fov_x=fov_x,
+            camera_K=request.get("camera_k"),
+            camera_K_size=request.get("camera_k_size"),
+            fov_x=request.get("fov_x"),
+            fov_y=request.get("fov_y"),
+            max_width=max_width,
+            top=top,
+            T_cam_volume=request.get("T_cam_volume"),
         )
         snapshot = OutputSnapshot.capture(image, result, max_width, top)
         run_id = self.server.snapshots.put(snapshot)
@@ -154,15 +140,12 @@ class Handler(socketserver.StreamRequestHandler):
             run_id = uuid.uuid4().hex
         files = []
         render_ms = None
-        grasps = snapshot.graspgroup
-        valid_grasps = grasps[grasps[:, 1] <= max_width]
-        valid_grasps = valid_grasps[np.argsort(-valid_grasps[:, 0])[:top]]
         grasp_poses = [{
-            "score": float(row[0]),
-            "width_m": float(row[1]),
-            "translation_m": row[13:16].tolist(),
-            "rotation": row[4:13].reshape(3, 3).tolist(),
-        } for row in valid_grasps]
+            "score": pose.score,
+            "width_m": pose.width_m,
+            "translation_m": list(pose.translation_m),
+            "rotation": [list(row) for row in pose.rotation],
+        } for pose in estimate.grasps]
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         if profile:
             log("profile worker total %.3f s" % (elapsed_ms / 1000.0))
@@ -172,10 +155,10 @@ class Handler(socketserver.StreamRequestHandler):
             "snapshot_available": snapshot_available,
             "files": files,
             "grasps": grasp_poses,
-            "depth_m": result.depth_m,
-            "detection_count": int(len(snapshot.boxes)),
-            "mask_pixels": int(np.count_nonzero(snapshot.mask)),
-            "grasp_count": int(len(snapshot.graspgroup)),
+            "depth_m": estimate.depth_m,
+            "detection_count": estimate.detection_count,
+            "mask_pixels": estimate.mask_pixels,
+            "grasp_count": estimate.grasp_count,
             "server_ms": elapsed_ms,
             "render_ms": render_ms,
         }
@@ -216,15 +199,15 @@ def serve():
     try:
         catalog = PromptCatalog.load(verify_engine=True, require_full_pipeline=True)
         expected_artifact_id = catalog.manifest["artifact_id"]
-        DEFAULT_SERVICE.load()
-        loaded_catalog = DEFAULT_SERVICE.core._vision._catalog
+        DEFAULT_ESTIMATOR.load()
+        loaded_catalog = DEFAULT_PIPELINE._vision._catalog
         if loaded_catalog.manifest["artifact_id"] != expected_artifact_id:
             raise RuntimeError(
                 "YOLOE prompt artifact changed during worker startup; "
                 "retry scripts/worker.sh start"
             )
         catalog = loaded_catalog
-        DEFAULT_SERVICE.core.warmup()
+        DEFAULT_ESTIMATOR.warmup()
         server = WorkerServer(WORKER_SOCKET, Handler)
         server.catalog = catalog
         server.state = "ready"

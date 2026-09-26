@@ -1,8 +1,8 @@
-"""Runtime configuration for the Jetson-oriented pipeline."""
+"""Runtime settings for the Jetson-oriented pipeline."""
 
 import os
 
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+HERE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 MODEL_DIR = os.environ.get("MODEL_DIR", os.path.join(HERE, "model"))
 RUNTIME_DIR = os.environ.get("GRASP_RUNTIME_DIR", os.path.join(HERE, ".runtime"))
 
@@ -37,6 +37,3 @@ WORKER_SOCKET = os.environ.get(
     "GRASP_WORKER_SOCKET", os.path.join(RUNTIME_DIR, "worker.sock"))
 WORKER_PID = os.path.join(RUNTIME_DIR, "worker.pid")
 WORKER_LOG = os.path.join(RUNTIME_DIR, "worker.log")
-
-GRIP_HW_OPEN_M = 0.0694
-GRIP_MAX_OPEN_M = 0.080

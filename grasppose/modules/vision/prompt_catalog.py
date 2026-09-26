@@ -6,7 +6,7 @@ import os
 import re
 
 from ...infrastructure.artifacts import verify_sha256
-from ...config import (
+from ...infrastructure.settings import (
     YOLOE_ARTIFACT_ROOT,
     YOLOE_CONF,
     YOLOE_CURRENT_FILE,

@@ -313,11 +313,11 @@ def main():
         yoloe_smoke = r"""
 import sys
 
-from grasppose.facade import DEFAULT_SERVICE
+from grasppose.infrastructure.composition import DEFAULT_ESTIMATOR
 
 if "torch" in sys.modules:
     raise RuntimeError(
-        "Torch was imported before YOLOE initialization during service construction"
+        "Torch was imported before YOLOE initialization during estimator composition"
     )
 
 from ultralytics import YOLOE, ASSETS

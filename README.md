@@ -83,10 +83,10 @@ camera I/O khỏi venv hoặc đổi chiến lược OpenCV.
 ## Kiến trúc OOP
 
 ```text
-CLI / Gradio
+CLI / Gradio / Robot
     │
     ▼
-facade.py
+GraspEstimator interface
     │
     ▼
 application/
@@ -108,24 +108,26 @@ Cấu trúc chính:
 ```text
 grasppose/
 ├── application/
-│   ├── grasp_pipeline.py     # orchestration/use-case
-│   └── types.py              # PipelineResult aggregate
+│   ├── interface.py          # GraspEstimator contract
+│   ├── service.py            # local estimator implementation
+│   ├── grasp_pipeline.py     # internal orchestration/use-case
+│   └── types.py              # public/internal result contracts
 ├── modules/
 │   ├── vision/               # port + types + YOLOE + prompt catalog
 │   ├── depth/                # port + types + geometry + Lite-Mono
 │   ├── tsdf/                 # port + types + projective builder
 │   └── grasp/                # port + types + VGN logic + TensorRT adapter
 ├── infrastructure/
-│   ├── worker/                # Unix-socket resident worker
+│   ├── composition.py         # production composition root
+│   ├── settings.py            # environment/runtime settings
+│   ├── runtime.py             # logging + CUDA cleanup helpers
+│   ├── artifacts.py           # checksum/manifest integrity helpers
+│   ├── worker/                # Unix-socket estimator adapter/server
 │   ├── output/                # snapshot/render job runtime
-│   ├── tensorrt/              # shared TensorRT execution runtime
-│   └── artifacts.py           # checksum/manifest integrity helpers
+│   └── tensorrt/              # shared TensorRT execution runtime
 ├── presentation/
 │   └── rendering.py
-├── bootstrap.py              # composition root
-├── facade.py                 # API chung cho CLI/UI
-├── config.py
-└── runtime.py
+└── api.py                     # public Python interface
 ```
 
 Các adapter chỉ giữ resource persistent như weights, encoder/decoder hoặc TensorRT engine. Dữ liệu theo frame không được lưu trong object; mỗi frame đi qua `predict(...)` và typed dataclass nằm cạnh từng feature trong `modules/*/types.py`.
@@ -299,14 +301,17 @@ K = np.array([
 
 P.load_models()
 
-result = P.pipeline(
+result = P.estimate(
     rgb,
     prompt_id="blue_cube",
     camera_K=K,
     top=5,
 )
 
-# các frame tiếp theo tái sử dụng model resident
+best = result.grasps[0]
+print(best.translation_m, best.rotation, best.width_m)
+
+# CLI, Gradio và robot đều giao tiếp qua GraspEstimator.
 # P.close_models() khi shutdown
 ```
 

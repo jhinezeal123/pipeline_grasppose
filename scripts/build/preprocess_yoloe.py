@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from grasppose.infrastructure.artifacts import atomic_write_json, sha256_file
-from grasppose.config import (
+from grasppose.infrastructure.settings import (
     YOLOE_CONF,
     YOLOE_IMGSZ,
     YOLOE_MODEL,

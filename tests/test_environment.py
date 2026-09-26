@@ -155,7 +155,7 @@ class EnvironmentTests(unittest.TestCase):
         app_source = (ROOT / "apps" / "gradio" / "app.py").read_text()
         self.assertIn("gr.Dropdown", app_source)
         self.assertNotIn("input_prompt = gr.Textbox(", app_source)
-        self.assertIn("infer_image(", app_source)
+        self.assertIn("ESTIMATOR.estimate(", app_source)
         adapter = (ROOT / "grasppose" / "modules" / "vision" / "yoloe.py").read_text()
         self.assertNotIn(".set_classes(", adapter)
 
@@ -184,7 +184,7 @@ class EnvironmentTests(unittest.TestCase):
     def test_check_env_preflights_text_export_and_tensor_rt_artifacts(self):
         source = (ROOT / "env" / "check_env.py").read_text()
         self.assertIn(
-            '"Torch was imported before YOLOE initialization during service construction"',
+            '"Torch was imported before YOLOE initialization during estimator composition"',
             source,
         )
         self.assertIn('YOLOE("model/yoloe-26s-seg.pt")', source)

@@ -11,6 +11,7 @@ import numpy as np
 from PIL import Image
 
 from apps.gradio import app as A
+from grasppose.application.types import EstimateResult
 
 
 FAIL = []
@@ -59,19 +60,24 @@ def main():
 
         seen = {}
 
-        def success(image_path, prompt_id, **kwargs):
-            seen["image_path"] = image_path
-            seen["image_exists_at_call"] = Path(image_path).is_file()
+        def success(image, prompt_id, **kwargs):
+            seen["image"] = np.asarray(image).copy()
             seen["prompt_id"] = prompt_id
             seen.update(kwargs)
-            return {
-                "run_id": "a" * 32,
-                "depth_m": 0.4712,
-                "server_ms": 57.2,
-            }
+            return EstimateResult(
+                grasps=(),
+                depth_m=0.4712,
+                detection_count=1,
+                mask_pixels=100,
+                grasp_count=1,
+                request_id="a" * 32,
+                snapshot_available=True,
+                latency_ms=57.2,
+            )
 
         with patch.object(A, "OUTPUT_DIR", temp), \
-                patch.object(A, "infer_image", side_effect=success), \
+                patch.object(A.ESTIMATOR, "estimate", side_effect=success), \
+                patch.object(A, "start_output", return_value={"state": "queued"}), \
                 patch.object(A, "wait_output", return_value={
                     "state": "done", "files": paths, "render_ms": 22.4,
                 }) as waited:
@@ -94,9 +100,9 @@ def main():
             seen.get("prompt_id") == "blue_cube",
         )
         check(
-            "image sent by local path",
-            isinstance(seen.get("image_path"), str)
-            and seen.get("image_exists_at_call") is True,
+            "image sent through estimator interface",
+            isinstance(seen.get("image"), np.ndarray)
+            and seen["image"].shape == IMG.shape,
         )
         check(
             "no prompt text sent to worker",
@@ -105,10 +111,6 @@ def main():
         check(
             "top grasps forwarded",
             seen.get("top") == A.TOP_GRASPS,
-        )
-        check(
-            "Gradio explicitly requests diagnostic rendering",
-            seen.get("render") is True,
         )
         check("Gradio waits outside the inference worker",
               waited.call_args.args == ("a" * 32,))
@@ -127,7 +129,7 @@ def main():
             raise RuntimeError("synthetic worker failure")
 
         with patch.object(A, "OUTPUT_DIR", temp), \
-                patch.object(A, "infer_image", side_effect=failure):
+                patch.object(A.ESTIMATOR, "estimate", side_effect=failure):
             failed = A.run_one(IMG, "blue_cube")
         check(
             "worker errors are displayed",

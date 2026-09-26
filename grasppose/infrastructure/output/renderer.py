@@ -12,7 +12,7 @@ import time
 import numpy as np
 from PIL import Image
 
-from ...config import RUNTIME_DIR, WORKER_SOCKET
+from ..settings import RUNTIME_DIR, WORKER_SOCKET
 from ...modules.depth.types import DepthResult
 from ...modules.grasp.types import GraspResult
 from ...modules.vision.types import DetectionResult, SegmentationResult

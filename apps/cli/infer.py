@@ -11,8 +11,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from grasppose.config import GRIP_MAX_OPEN_M
-from grasppose.infrastructure.worker.client import WorkerError, infer_image
+from grasppose.api import DEFAULT_MAX_WIDTH_M
+from grasppose.infrastructure.output.control import start as start_output
+from grasppose.infrastructure.worker.client import WorkerError, WorkerGraspEstimator
+
+ESTIMATOR = WorkerGraspEstimator()
 
 
 def _camera_k(args):
@@ -60,7 +63,7 @@ def main(argv=None):
         "OUTPUT_DIR",
         os.path.join(ROOT, "artifacts", "output"),
     ))
-    parser.add_argument("--max-width", type=float, default=GRIP_MAX_OPEN_M)
+    parser.add_argument("--max-width", type=float, default=DEFAULT_MAX_WIDTH_M)
     parser.add_argument("--top", type=int, default=1)
     args = parser.parse_args(argv)
 
@@ -77,44 +80,55 @@ def main(argv=None):
                 "provide --camera-k FX FY CX CY, CAMERA_K env, --fov-x or --fov-y"
             )
         started = time.perf_counter()
-        response = infer_image(
+        estimate = ESTIMATOR.estimate(
             image,
             args.prompt_id,
-            camera_k=camera_k,
-            camera_k_size=camera_k_size,
+            camera_K=camera_k,
+            camera_K_size=camera_k_size,
             fov_x=args.fov_x,
             fov_y=args.fov_y,
-            output_dir=args.out if args.render else None,
-            render=args.render,
             top=args.top,
             max_width=args.max_width,
         )
+        render_job = None
+        if args.render:
+            if not estimate.snapshot_available or not estimate.request_id:
+                raise WorkerError(
+                    "cannot render asynchronously: output snapshot was not retained"
+                )
+            render_job = start_output(
+                estimate.request_id, output_dir=args.out)
     except (WorkerError, ValueError) as exc:
         print("ERROR: %s" % exc, file=sys.stderr)
         return 2
 
-    print("RUN_ID: %s" % response["run_id"])
-    if not response.get("snapshot_available", True):
+    print("RUN_ID: %s" % estimate.request_id)
+    if not estimate.snapshot_available:
         print("SNAPSHOT: unavailable (frame exceeded the retained-output cache limit)")
-    if args.render:
-        job = response["render_job"]
-        print("RENDER_JOB: %s" % job["state"])
-        if job.get("output_dir"):
-            print("OUTPUT_PENDING: %s" % job["output_dir"])
+    if render_job is not None:
+        print("RENDER_JOB: %s" % render_job["state"])
+        if render_job.get("output_dir"):
+            print("OUTPUT_PENDING: %s" % render_job["output_dir"])
     print("DETECTIONS: %d MASK_PIXELS=%d GRASPS=%d" % (
-        response.get("detection_count", 0),
-        response.get("mask_pixels", 0),
-        response.get("grasp_count", 0),
+        estimate.detection_count,
+        estimate.mask_pixels,
+        estimate.grasp_count,
     ))
-    if response.get("depth_m") is not None:
-        print("target depth: %.3f m" % response["depth_m"])
+    if estimate.depth_m is not None:
+        print("target depth: %.3f m" % estimate.depth_m)
     print("TOTAL: %.1f ms" % (
         (time.perf_counter() - started) * 1000.0))
-    print("worker: %.1f ms" % response["server_ms"])
-    if response.get("render_ms") is not None:
-        print("render: %.1f ms" % response["render_ms"])
-    print("GRASP_POSES: %s" % json.dumps(
-        response.get("grasps", []), separators=(",", ":")))
+    if estimate.latency_ms is not None:
+        print("worker: %.1f ms" % estimate.latency_ms)
+    print("GRASP_POSES: %s" % json.dumps([
+        {
+            "score": pose.score,
+            "width_m": pose.width_m,
+            "translation_m": list(pose.translation_m),
+            "rotation": [list(row) for row in pose.rotation],
+        }
+        for pose in estimate.grasps
+    ], separators=(",", ":")))
     return 0
 
 

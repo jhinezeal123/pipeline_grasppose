@@ -14,7 +14,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from grasppose.config import (  # noqa: E402
+from grasppose.infrastructure.settings import (  # noqa: E402
     LITEMONO_HOME,
     LITEMONO_MODEL,
     LITEMONO_WEIGHTS,
@@ -137,10 +137,10 @@ def main(argv=None):
         )
     calibration_K = camera_matrix(args.camera_k)
 
-    from grasppose.config import LITEMONO_DEPTH_SCALE
-    from grasppose.facade import DEFAULT_SERVICE
+    from grasppose.infrastructure.settings import LITEMONO_DEPTH_SCALE
+    from grasppose.infrastructure.composition import DEFAULT_PIPELINE
 
-    core = DEFAULT_SERVICE.core
+    core = DEFAULT_PIPELINE
     core.load()
     candidate_data = {}
     for prompt in prompts:

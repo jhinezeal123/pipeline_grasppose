@@ -4,14 +4,14 @@
 import argparse
 import os
 import sys
-import tempfile
 
 import numpy as np
 from PIL import Image
 
-from grasppose.config import RUNTIME_DIR
-from grasppose.infrastructure.worker.client import infer_image, request_worker
-from grasppose.infrastructure.output.control import wait as wait_output
+from grasppose.infrastructure.worker.client import WorkerGraspEstimator, request_worker
+from grasppose.infrastructure.output.control import start as start_output, wait as wait_output
+
+ESTIMATOR = WorkerGraspEstimator()
 
 TOP_GRASPS = 5
 PORT_DEFAULT = 8080
@@ -54,24 +54,18 @@ def run_one(image, prompt_id):
         return None, None, None, None, None, "Chua co anh."
     if not prompt_id:
         return None, None, None, None, None, "Hay chon prompt ID."
-    incoming_dir = os.path.join(RUNTIME_DIR, "incoming")
-    os.makedirs(incoming_dir, exist_ok=True)
-    fd, input_path = tempfile.mkstemp(
-        prefix="gradio-", suffix=".png", dir=incoming_dir)
-    os.close(fd)
     try:
-        Image.fromarray(np.asarray(image)[:, :, :3].astype(np.uint8)).save(
-            input_path, format="PNG")
-        response = infer_image(
-            input_path,
+        estimate = ESTIMATOR.estimate(
+            image,
             str(prompt_id),
-            camera_k=_camera_k(),
-            camera_k_size=_camera_k_size(),
-            output_dir=OUTPUT_DIR,
-            render=True,
+            camera_K=_camera_k(),
+            camera_K_size=_camera_k_size(),
             top=TOP_GRASPS,
         )
-        job = wait_output(response["run_id"])
+        if not estimate.snapshot_available or not estimate.request_id:
+            raise RuntimeError("output snapshot was not retained")
+        start_output(estimate.request_id, output_dir=OUTPUT_DIR)
+        job = wait_output(estimate.request_id)
         if job.get("state") != "done":
             raise RuntimeError(job.get("error", "output render failed"))
         files = job.get("files", [])
@@ -81,9 +75,9 @@ def run_one(image, prompt_id):
             np.asarray(Image.open(path).convert("RGB"))
             for path in files
         ]
-        depth_m = response.get("depth_m")
+        depth_m = estimate.depth_m
         status = "Prompt ID: %s | infer %.1f ms | render %.1f ms" % (
-            prompt_id, response["server_ms"], job["render_ms"])
+            prompt_id, estimate.latency_ms or 0.0, job["render_ms"])
         if depth_m is not None:
             status = "Do sau vat: %.3f m | %s" % (depth_m, status)
         else:
@@ -92,11 +86,7 @@ def run_one(image, prompt_id):
     except Exception as exc:
         return None, None, None, None, None, "LOI: %s: %s" % (
             type(exc).__name__, exc)
-    finally:
-        try:
-            os.unlink(input_path)
-        except OSError:
-            pass
+
 
 
 def build_ui():

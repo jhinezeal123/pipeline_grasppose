@@ -12,7 +12,7 @@ from grasppose.modules.vision.types import (
     SegmentationResult,
     VisionResult,
 )
-from grasppose.facade import GraspService
+from grasppose.application.service import LocalGraspEstimator
 
 
 class Vision:
@@ -105,34 +105,27 @@ def main():
         [0, 0, 1.0],
     ])
 
-    mock_service = GraspService(GraspPipeline(
+    mock_estimator = LocalGraspEstimator(GraspPipeline(
         vision=Vision(),
         depth=Depth(),
         tsdf_builder=TSDF(),
         grasper=Grasp(),
     ))
-    original = P.DEFAULT_SERVICE
-    P.DEFAULT_SERVICE = mock_service
+    original = P.DEFAULT_ESTIMATOR
+    P.DEFAULT_ESTIMATOR = mock_estimator
     try:
-        result = P.pipeline(
+        result = P.estimate(
             image, "object", camera_K=K)
     finally:
-        P.DEFAULT_SERVICE = original
+        P.DEFAULT_ESTIMATOR = original
 
-    assert {
-        "box", "mask", "depthmap", "grasp", "depth_m",
-        "detection_count", "mask_pixels", "grasp_count",
-    }.issubset(set(result))
-    assert all(
-        result[key].shape == image.shape
-        for key in (
-            "box", "mask", "depthmap", "grasp")
-    )
-    assert abs(result["depth_m"] - 0.6) < 1e-5
-    # Regression guard: correct shape alone is insufficient. Each renderer
-    # must actually draw content (this previously caught a P0 rendering bug).
-    for key in ("box", "mask", "depthmap", "grasp"):
-        assert np.any(result[key]), "%s rendering is empty" % key
+    assert result.detection_count == 1
+    assert result.mask_pixels > 0
+    assert result.grasp_count == 1
+    assert abs(result.depth_m - 0.6) < 1e-5
+    assert len(result.grasps) == 1
+    assert abs(result.grasps[0].score - 0.9) < 1e-9
+    assert abs(result.grasps[0].width_m - 0.075) < 1e-9
     print("TAT CA MUC DEU PASS")
     return 0
 

@@ -20,3 +20,23 @@ class PipelineResult:
     grasp: GraspResult
     camera_K: np.ndarray
     depth_m: Optional[float]
+
+
+@dataclass(frozen=True)
+class GraspPose:
+    score: float
+    width_m: float
+    translation_m: tuple
+    rotation: tuple
+
+
+@dataclass(frozen=True)
+class EstimateResult:
+    grasps: tuple
+    depth_m: Optional[float]
+    detection_count: int
+    mask_pixels: int
+    grasp_count: int
+    request_id: Optional[str] = None
+    snapshot_available: bool = False
+    latency_ms: Optional[float] = None

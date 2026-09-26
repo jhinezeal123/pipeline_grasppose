@@ -7,11 +7,11 @@ import time
 import numpy as np
 
 from ...infrastructure.artifacts import verify_sha256
-from ...config import VGN_CHECKPOINT, VGN_ENGINE, VGN_MANIFEST, VGN_QUAL_THRESHOLD
+from ...infrastructure.settings import VGN_CHECKPOINT, VGN_ENGINE, VGN_MANIFEST, VGN_QUAL_THRESHOLD
 from .types import GraspResult
 from .vgn import vgn_to_graspgroup
 from .port import GraspPort
-from ...runtime import log, release_attributes
+from ...infrastructure.runtime import log, release_attributes
 
 
 class VgnTensorRT(GraspPort):

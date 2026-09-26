@@ -6,7 +6,7 @@ import time
 
 import numpy as np
 
-from ..config import GRIP_HW_OPEN_M
+from ..modules.grasp.constants import GRIP_HW_OPEN_M
 from ..modules.depth.geometry import depth_range_str, depth_to_cloud
 from .types import PipelineResult
 from ..modules.depth.port import DepthPort
@@ -15,7 +15,7 @@ from ..modules.grasp.port import GraspPort
 from ..modules.grasp.types import GraspResult
 from ..modules.tsdf.port import TSDFPort
 from ..modules.vision.port import VisionPort
-from ..runtime import log, log_exception, log_vram
+from ..infrastructure.runtime import log, log_exception, log_vram
 
 
 class GraspPipeline:

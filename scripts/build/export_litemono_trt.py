@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from grasppose.infrastructure.artifacts import atomic_write_json, sha256_file
-from grasppose.config import LITEMONO_DEPTH_SCALE
+from grasppose.infrastructure.settings import LITEMONO_DEPTH_SCALE
 from grasppose.infrastructure.tensorrt.engine import TensorRTEngine
 
 

@@ -11,15 +11,18 @@ from unittest.mock import patch
 import numpy as np
 from PIL import Image
 
+from grasppose.application.service import LocalGraspEstimator
 from grasppose.application.types import PipelineResult
 from grasppose.modules.depth.types import DepthResult
 from grasppose.modules.grasp.types import GraspResult
 from grasppose.modules.vision.types import (
     DetectionResult, SegmentationResult, VisionResult,
 )
-from grasppose.facade import GraspService
 from grasppose.infrastructure.output.renderer import (
     fetch_snapshot, render_and_save, render_images,
+)
+from grasppose.presentation.rendering import (
+    draw_box, draw_depth, draw_grasp, draw_mask,
 )
 from grasppose.infrastructure.output.snapshot import (
     ARRAY_NAMES, OutputSnapshot, SnapshotCache,
@@ -109,18 +112,20 @@ class CacheAndRenderingTests(unittest.TestCase):
         too_small = SnapshotCache(max_bytes=1)
         self.assertIsNone(too_small.put(snapshot))
 
-    def test_rendered_pngs_match_legacy_facade_output(self):
+    def test_rendered_pngs_match_presentation_renderers(self):
         image, result = fixture_result()
-        old_path = GraspService(FixtureCore(result)).infer(
-            image, "blue_cube", camera_K=result.camera_K,
-            max_width=0.08, top=1,
-        )
+        expected = {
+            "box": draw_box(image, result.vision.detection),
+            "mask": draw_mask(image, result.vision.segmentation),
+            "depthmap": draw_depth(result.depth),
+            "grasp": draw_grasp(
+                image, result.grasp, result.camera_K, max_width=0.08, top=1),
+        }
         snapshot = OutputSnapshot.capture(image, result, 0.08, 1)
-        new_path = render_images(snapshot)
-        self.assertEqual(set(old_path) & {"box", "mask", "depthmap", "grasp"},
-                         set(new_path))
-        for name in ("box", "mask", "depthmap", "grasp"):
-            np.testing.assert_array_equal(new_path[name], old_path[name])
+        rendered = render_images(snapshot)
+        self.assertEqual(set(rendered), set(expected))
+        for name in expected:
+            np.testing.assert_array_equal(rendered[name], expected[name])
 
         with tempfile.TemporaryDirectory() as directory:
             run_id = uuid.uuid4().hex
@@ -128,9 +133,9 @@ class CacheAndRenderingTests(unittest.TestCase):
             self.assertEqual(len(files), 4)
             for name, path in zip(
                     ("box", "mask", "depthmap", "grasp"), files):
-                with Image.open(path) as rendered:
+                with Image.open(path) as image_file:
                     np.testing.assert_array_equal(
-                        np.asarray(rendered.convert("RGB")), old_path[name])
+                        np.asarray(image_file.convert("RGB")), expected[name])
 
     @unittest.skipIf(Handler is None, "Unix worker server is unavailable")
     def test_fast_worker_response_skips_render_and_png_writes(self):
@@ -142,7 +147,7 @@ class CacheAndRenderingTests(unittest.TestCase):
 
         server = SimpleNamespace(
             catalog=Catalog(),
-            service=SimpleNamespace(core=FixtureCore(result)),
+            estimator=LocalGraspEstimator(FixtureCore(result)),
             snapshots=SnapshotCache(),
         )
         handler = object.__new__(Handler)
@@ -175,7 +180,7 @@ class CacheAndRenderingTests(unittest.TestCase):
         handler = object.__new__(Handler)
         handler.server = SimpleNamespace(
             catalog=Catalog(),
-            service=SimpleNamespace(core=core),
+            estimator=LocalGraspEstimator(core),
             snapshots=SnapshotCache(),
         )
         with tempfile.TemporaryDirectory() as directory:
@@ -214,7 +219,7 @@ class CacheAndRenderingTests(unittest.TestCase):
             Image.fromarray(image).save(image_path)
             server = WorkerServer(socket_path, Handler)
             server.catalog = Catalog()
-            server.service = SimpleNamespace(core=FixtureCore(result))
+            server.estimator = LocalGraspEstimator(FixtureCore(result))
             server.state = "ready"
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
