@@ -1,13 +1,15 @@
 """Composition root for the production Jetson pipeline."""
 
-from .adapters import LiteMonoDepth, VgnTensorRT, Yoloe26sVision
+from .modules.depth.lite_mono import LiteMonoDepth
+from .modules.grasp.vgn_trt import VgnTensorRT
+from .modules.vision.yoloe import Yoloe26sVision
 from .application import GraspPipeline
 from .config import (
     TSDF_RESOLUTION,
     TSDF_SIZE_M,
     TSDF_TRUNC_VOXELS,
 )
-from .domain.tsdf import ProjectiveTSDFBuilder
+from .modules.tsdf.projective import ProjectiveTSDFBuilder
 
 
 def build_default_pipeline():

@@ -92,36 +92,29 @@ facade.py
 application/
     │ depends only on
     ▼
-ports/ + domain/
+feature modules
     ▲
     │ implemented by
     │
-adapters/
-  ├─ yoloe.py
-  ├─ lite_mono.py
-  └─ vgn_trt.py
+modules/
+  ├─ vision/
+  ├─ depth/
+  ├─ tsdf/
+  └─ grasp/
 ```
 
 Cấu trúc chính:
 
 ```text
 grasppose/
-├── adapters/                 # code phụ thuộc framework/model
-│   ├── yoloe.py
-│   ├── lite_mono.py
-│   └── vgn_trt.py
 ├── application/
-│   └── grasp_pipeline.py     # orchestration/use-case
-├── domain/                   # numpy/scipy, không biết model framework
-│   ├── geometry.py
-│   ├── tsdf.py
-│   ├── types.py
-│   └── vgn.py
-├── ports/                    # interface/contract
-│   ├── vision.py
-│   ├── depth.py
-│   ├── tsdf.py
-│   └── grasp.py
+│   ├── grasp_pipeline.py     # orchestration/use-case
+│   └── types.py              # PipelineResult aggregate
+├── modules/
+│   ├── vision/               # port + types + YOLOE + prompt catalog
+│   ├── depth/                # port + types + geometry + Lite-Mono
+│   ├── tsdf/                 # port + types + projective builder
+│   └── grasp/                # port + types + VGN logic + TensorRT adapter
 ├── presentation/
 │   └── rendering.py
 ├── bootstrap.py              # composition root
@@ -130,7 +123,7 @@ grasppose/
 └── runtime.py
 ```
 
-Các adapter chỉ giữ resource persistent như weights, encoder/decoder hoặc TensorRT engine. Dữ liệu theo frame không được lưu trong object; mỗi frame đi qua `predict(...)` và typed dataclass trong `domain/types.py`.
+Các adapter chỉ giữ resource persistent như weights, encoder/decoder hoặc TensorRT engine. Dữ liệu theo frame không được lưu trong object; mỗi frame đi qua `predict(...)` và typed dataclass nằm cạnh từng feature trong `modules/*/types.py`.
 
 Các implementation Grounding-DINO, SAM, MoGe và GraspNess/MinkowskiEngine cũ đã được loại khỏi source tree để repository chỉ có một runtime architecture canonical.
 

@@ -15,9 +15,9 @@ if str(ROOT) not in sys.path:
 
 os.environ.setdefault("ULTRALYTICS_SKIP_REQUIREMENTS_CHECKS", "1")
 
-from grasppose.adapters.lite_mono import LiteMonoDepth
-from grasppose.adapters.vgn_trt import VgnTensorRT
-from grasppose.adapters.yoloe import Yoloe26sVision
+from grasppose.modules.depth.lite_mono import LiteMonoDepth
+from grasppose.modules.grasp.vgn_trt import VgnTensorRT
+from grasppose.modules.vision.yoloe import Yoloe26sVision
 
 
 def _summary(result):

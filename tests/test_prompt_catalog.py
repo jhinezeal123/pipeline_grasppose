@@ -7,8 +7,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from grasppose.prompt_catalog import PromptCatalog
-import grasppose.prompt_catalog as prompt_catalog
+from grasppose.modules.vision.prompt_catalog import PromptCatalog
+import grasppose.modules.vision.prompt_catalog as prompt_catalog
 from tools.preprocess_yoloe import read_prompt_file
 
 

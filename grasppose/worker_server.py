@@ -14,10 +14,10 @@ import numpy as np
 from PIL import Image
 
 from .config import RUNTIME_DIR, WORKER_PID, WORKER_SOCKET
-from .domain.geometry import fov_x_from_fovy, scale_camera_intrinsics
+from .modules.depth.geometry import fov_x_from_fovy, scale_camera_intrinsics
 from .facade import DEFAULT_SERVICE
 from .output_snapshot import ARRAY_NAMES, OutputSnapshot, SnapshotCache
-from .prompt_catalog import PromptCatalog
+from .modules.vision.prompt_catalog import PromptCatalog
 from .runtime import log
 
 

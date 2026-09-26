@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from .geometry import depth_to_cloud
+from ..depth.geometry import depth_to_cloud
 from .types import TSDFResult
 
 

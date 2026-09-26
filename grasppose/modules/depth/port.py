@@ -1,8 +1,8 @@
-"""Depth port: RGB + camera calibration -> metric-scaled depth."""
+"""Depth contract: RGB + camera calibration -> metric-scaled depth."""
 
 from abc import ABC, abstractmethod
 
-from ..domain.types import DepthResult
+from .types import DepthResult
 
 
 class DepthPort(ABC):

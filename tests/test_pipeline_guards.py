@@ -7,16 +7,16 @@ from unittest.mock import patch
 
 import numpy as np
 
-from grasppose.adapters.vgn_trt import classify_vgn_outputs
-from grasppose.adapters.yoloe import Yoloe26sVision
-from grasppose.domain.geometry import (
+from grasppose.modules.grasp.vgn_trt import classify_vgn_outputs
+from grasppose.modules.vision.yoloe import Yoloe26sVision
+from grasppose.modules.depth.geometry import (
     depth_range_str,
     depth_to_cloud,
     resolve_camera_intrinsics,
     scale_camera_intrinsics,
 )
-from grasppose.domain.tsdf import ProjectiveTSDFBuilder
-from grasppose.domain.vgn import vgn_to_graspgroup
+from grasppose.modules.tsdf.projective import ProjectiveTSDFBuilder
+from grasppose.modules.grasp.vgn import vgn_to_graspgroup
 from grasppose.facade import GraspService
 from grasppose.presentation.rendering import hw_open_note
 import grasppose.runtime as runtime

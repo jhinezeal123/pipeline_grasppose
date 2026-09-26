@@ -7,16 +7,14 @@ import time
 import numpy as np
 
 from ..config import GRIP_HW_OPEN_M
-from ..domain.geometry import depth_range_str, depth_to_cloud
-from ..domain.types import (
-    DepthResult,
-    GraspResult,
-    PipelineResult,
-)
-from ..ports.depth import DepthPort
-from ..ports.grasp import GraspPort
-from ..ports.tsdf import TSDFPort
-from ..ports.vision import VisionPort
+from ..modules.depth.geometry import depth_range_str, depth_to_cloud
+from .types import PipelineResult
+from ..modules.depth.port import DepthPort
+from ..modules.depth.types import DepthResult
+from ..modules.grasp.port import GraspPort
+from ..modules.grasp.types import GraspResult
+from ..modules.tsdf.port import TSDFPort
+from ..modules.vision.port import VisionPort
 from ..runtime import log, log_exception, log_vram
 
 

@@ -1,18 +1,16 @@
-"""Vision port: RGB + prompt -> detections and target mask."""
+"""Grasp inference contract: TSDF -> grasp poses."""
 
 from abc import ABC, abstractmethod
 
-from ..domain.types import VisionResult
 
-
-class VisionPort(ABC):
+class GraspPort(ABC):
     @abstractmethod
     def load(self):
         raise NotImplementedError
 
     @abstractmethod
-    def predict(self, image, prompt):
-        """Return VisionResult for one frame."""
+    def predict(self, tsdf):
+        """Return a grasp result from a TSDF result."""
         raise NotImplementedError
 
     @abstractmethod

@@ -295,7 +295,7 @@ def main():
 
     if not problems:
         try:
-            from grasppose.prompt_catalog import PromptCatalog
+            from grasppose.modules.vision.prompt_catalog import PromptCatalog
             catalog = PromptCatalog.load(
                 verify_engine=True, require_full_pipeline=True)
             print("[OK] YOLOE FP32 artifact | prompt IDs:",
@@ -353,7 +353,7 @@ print("YOLOE text-encoder preparation smoke: boxes=%d" % len(result.boxes))
 
     if not problems:
         try:
-            from grasppose.adapters.lite_mono import LiteMonoDepth
+            from grasppose.modules.depth.lite_mono import LiteMonoDepth
 
             image = np.zeros((192, 640, 3), dtype=np.uint8)
             K = np.array(
@@ -388,8 +388,8 @@ print("YOLOE text-encoder preparation smoke: boxes=%d" % len(result.boxes))
     # the 8.5.x API path, engine compatibility and CUDA execution on sm_72.
     if not problems:
         try:
-            from grasppose.adapters.vgn_trt import VgnTensorRT
-            from grasppose.domain.types import TSDFResult
+            from grasppose.modules.grasp.vgn_trt import VgnTensorRT
+            from grasppose.modules.tsdf.types import TSDFResult
 
             smoke = VgnTensorRT(str(vgn_engine_path))
             smoke.load()

@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from grasppose.artifacts import atomic_write_json
-from grasppose.prompt_catalog import PromptCatalog
+from grasppose.modules.vision.prompt_catalog import PromptCatalog
 
 
 def main(argv=None):

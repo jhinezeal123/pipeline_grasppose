@@ -4,12 +4,12 @@ from unittest.mock import patch
 import numpy as np
 
 from grasppose.application.grasp_pipeline import GraspPipeline
-from grasppose.domain.types import (
-    DepthResult,
+from grasppose.modules.depth.types import DepthResult
+from grasppose.modules.grasp.types import GraspResult
+from grasppose.modules.tsdf.types import TSDFResult
+from grasppose.modules.vision.types import (
     DetectionResult,
-    GraspResult,
     SegmentationResult,
-    TSDFResult,
     VisionResult,
 )
 

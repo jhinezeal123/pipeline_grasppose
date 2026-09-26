@@ -5,8 +5,8 @@ import json
 import os
 import re
 
-from .artifacts import verify_sha256
-from .config import (
+from ...artifacts import verify_sha256
+from ...config import (
     YOLOE_ARTIFACT_ROOT,
     YOLOE_CONF,
     YOLOE_CURRENT_FILE,

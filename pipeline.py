@@ -8,7 +8,7 @@ import sys
 import numpy as np
 
 from grasppose.config import GRIP_MAX_OPEN_M
-from grasppose.domain.geometry import fov_x_from_fovy
+from grasppose.modules.depth.geometry import fov_x_from_fovy
 from grasppose.facade import DEFAULT_SERVICE
 from grasppose.runtime import log
 from grasppose.worker_client import infer_image

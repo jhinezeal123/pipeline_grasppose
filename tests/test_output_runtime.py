@@ -11,9 +11,11 @@ from unittest.mock import patch
 import numpy as np
 from PIL import Image
 
-from grasppose.domain.types import (
-    DepthResult, DetectionResult, GraspResult, PipelineResult,
-    SegmentationResult, VisionResult,
+from grasppose.application.types import PipelineResult
+from grasppose.modules.depth.types import DepthResult
+from grasppose.modules.grasp.types import GraspResult
+from grasppose.modules.vision.types import (
+    DetectionResult, SegmentationResult, VisionResult,
 )
 from grasppose.facade import GraspService
 from grasppose.output_renderer import (

@@ -6,12 +6,12 @@ import time
 
 import numpy as np
 
-from ..artifacts import verify_sha256
-from ..config import VGN_CHECKPOINT, VGN_ENGINE, VGN_MANIFEST, VGN_QUAL_THRESHOLD
-from ..domain.types import GraspResult
-from ..domain.vgn import vgn_to_graspgroup
-from ..ports.grasp import GraspPort
-from ..runtime import log, release_attributes
+from ...artifacts import verify_sha256
+from ...config import VGN_CHECKPOINT, VGN_ENGINE, VGN_MANIFEST, VGN_QUAL_THRESHOLD
+from .types import GraspResult
+from .vgn import vgn_to_graspgroup
+from .port import GraspPort
+from ...runtime import log, release_attributes
 
 
 class VgnTensorRT(GraspPort):

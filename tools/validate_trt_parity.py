@@ -22,10 +22,10 @@ from grasppose.config import (  # noqa: E402
     YOLOE_IMGSZ,
     YOLOE_MODEL,
 )
-from grasppose.domain.geometry import (  # noqa: E402
+from grasppose.modules.depth.geometry import (  # noqa: E402
     depth_to_cloud, scale_camera_intrinsics,
 )
-from grasppose.prompt_catalog import PromptCatalog  # noqa: E402
+from grasppose.modules.vision.prompt_catalog import PromptCatalog  # noqa: E402
 from tools.preprocess_yoloe import (  # noqa: E402
     best_mask,
     bgr_image,
@@ -221,7 +221,7 @@ def main(argv=None):
         gc.collect()
         torch.cuda.empty_cache()
 
-    from grasppose.domain.types import TSDFResult
+    from grasppose.modules.tsdf.types import TSDFResult
 
     reference_tsdfs = {}
     for prompt in prompts:

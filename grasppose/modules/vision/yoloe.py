@@ -4,11 +4,11 @@ import time
 
 import numpy as np
 
-from ..config import YOLOE_ARTIFACT_ROOT, YOLOE_CONF, YOLOE_IMGSZ, YOLOE_MODEL
-from ..domain.types import DetectionResult, SegmentationResult, VisionResult
-from ..ports.vision import VisionPort
-from ..prompt_catalog import PromptCatalog
-from ..runtime import log, release_attributes
+from ...config import YOLOE_ARTIFACT_ROOT, YOLOE_CONF, YOLOE_IMGSZ, YOLOE_MODEL
+from .types import DetectionResult, SegmentationResult, VisionResult
+from .port import VisionPort
+from .prompt_catalog import PromptCatalog
+from ...runtime import log, release_attributes
 
 
 class Yoloe26sVision(VisionPort):

@@ -7,19 +7,19 @@ import re
 import numpy as np
 from PIL import Image
 
-from ..artifacts import verify_sha256
-from ..config import (
+from ...artifacts import verify_sha256
+from ...config import (
     LITEMONO_ARTIFACT_ROOT,
     LITEMONO_CURRENT_FILE,
     LITEMONO_DEPTH_SCALE,
     LITEMONO_MODEL,
     LITEMONO_WEIGHTS,
 )
-from ..domain.geometry import resolve_camera_intrinsics
-from ..domain.types import DepthResult
-from ..ports.depth import DepthPort
-from ..runtime import log
-from ..trt_engine import TensorRTEngine
+from .geometry import resolve_camera_intrinsics
+from .types import DepthResult
+from .port import DepthPort
+from ...runtime import log
+from ...trt_engine import TensorRTEngine
 
 
 class LiteMonoDepth(DepthPort):
