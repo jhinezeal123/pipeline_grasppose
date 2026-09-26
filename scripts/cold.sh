@@ -2,7 +2,7 @@
 # Start, inspect, stop, or restart the resident TensorRT model worker.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 # Keep the resident worker on the artifacts installed by this checkout.
 export VGN_ENGINE="$ROOT/model/vgn.engine"
@@ -22,7 +22,7 @@ COMMAND=start
 [ "$#" -eq 0 ] || COMMAND="$1"
 
 if [ ! -x "$PYTHON" ]; then
-  echo ".venv is missing. Run: bash prepare.sh" >&2
+  echo ".venv is missing. Run: bash scripts/prepare.sh" >&2
   exit 1
 fi
 
@@ -172,7 +172,7 @@ case "$COMMAND" in
     esac
     ;;
   *)
-    echo "Usage: bash cold.sh [start|status|stop|restart]" >&2
+    echo "Usage: bash scripts/cold.sh [start|status|stop|restart]" >&2
     exit 2
     ;;
 esac

@@ -2,7 +2,7 @@
 # Prepare the Jetson runtime once: Python overlay, dependencies, model sources and artifacts.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 mkdir -p model output
 

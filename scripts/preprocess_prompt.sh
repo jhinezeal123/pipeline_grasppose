@@ -2,7 +2,7 @@
 # Bake the fixed prompt set into validated YOLOE TensorRT artifacts.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 export VGN_ENGINE="$ROOT/model/vgn.engine"
 export VGN_CHECKPOINT="$ROOT/model/vgn_conv.pth"
@@ -11,11 +11,11 @@ export ULTRALYTICS_SKIP_REQUIREMENTS_CHECKS=1
 PYTHON="$ROOT/.venv/bin/python"
 
 if [ ! -x "$PYTHON" ]; then
-  echo ".venv is missing. Run: bash prepare.sh" >&2
+  echo ".venv is missing. Run: bash scripts/prepare.sh" >&2
   exit 1
 fi
 if [ "$#" -ne 1 ]; then
-  echo "Usage: bash preprocess_prompt.sh prompts.json" >&2
+  echo "Usage: bash scripts/preprocess_prompt.sh prompts.json" >&2
   exit 2
 fi
 
@@ -39,8 +39,8 @@ if [ -n "${CAMERA_K_SIZE:-}" ]; then
   CAMERA_K_SIZE_ARGS=(--camera-k-size "${CAMERA_K_SIZE_VALUES[@]}")
 fi
 
-if bash "$ROOT/cold.sh" status >/dev/null 2>&1; then
-  echo "Stop the resident worker before preprocessing: bash cold.sh stop" >&2
+if bash "$ROOT/scripts/cold.sh" status >/dev/null 2>&1; then
+  echo "Stop the resident worker before preprocessing: bash scripts/cold.sh stop" >&2
   exit 2
 fi
 
