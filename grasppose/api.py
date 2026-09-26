@@ -16,7 +16,7 @@ from grasppose.worker_client import infer_image
 
 DEFAULT_OUTPUT_DIR = os.environ.get(
     "OUTPUT_DIR",
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "output"),
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "output"),
 )
 DEFAULT_PIPELINE = DEFAULT_SERVICE.core
 

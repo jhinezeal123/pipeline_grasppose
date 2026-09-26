@@ -284,7 +284,7 @@ danh sách ID từ worker mới mà không cần khởi động lại Gradio.
 
 ```python
 import numpy as np
-import pipeline as P
+from grasppose import api as P
 
 K = np.array([
     [615.2, 0, 320.1],
@@ -318,6 +318,6 @@ python -m unittest \
   tests.test_prompt_catalog \
   tests.test_environment -v
 
-python test_pipeline_mock.py
-python test_app.py
+python -m tests.test_pipeline_mock
+python -m tests.test_app
 ```

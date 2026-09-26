@@ -12,7 +12,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: bash -n scripts/prepare.sh scripts/preprocess_prompt.sh scripts/cold.sh scripts/infer.sh scripts/get_output.sh scripts/space.sh
-      - run: python -m py_compile env/setup_env.py env/check_env.py tools/validate_yoloe_fp32.py tools/validate_trt_parity.py tools/fetch_prebuilt_trt.py grasppose/worker_server.py grasppose/output_snapshot.py grasppose/output_renderer.py tools/output_control.py tools/infer_client.py tools/benchmark_infer.py
+      - run: python -m py_compile env/setup_env.py env/check_env.py tools/validate_yoloe_fp32.py tools/validate_trt_parity.py tools/fetch_prebuilt_trt.py grasppose/worker_server.py grasppose/output_snapshot.py grasppose/output_renderer.py grasppose/api.py apps/gradio_app.py tools/output_control.py tools/infer_client.py tools/benchmark_infer.py
       - if: matrix.python-version == '3.8'
         run: >-
           python -m pip install
@@ -28,5 +28,5 @@ jobs:
           'opencv-python-headless>=4.8,<5'
           'pillow>=10,<13'
       - run: python -m unittest discover -s tests -p 'test_*.py' -v
-      - run: python test_pipeline_mock.py
-      - run: python test_app.py
+      - run: python -m tests.test_pipeline_mock
+      - run: python -m tests.test_app

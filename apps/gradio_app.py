@@ -15,7 +15,7 @@ from tools.output_control import wait as wait_output
 
 TOP_GRASPS = 5
 PORT_DEFAULT = 8080
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR", os.path.join(ROOT, "output"))
 
 

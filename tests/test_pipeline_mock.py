@@ -2,7 +2,7 @@
 
 import numpy as np
 
-import pipeline as P
+from grasppose import api as P
 from grasppose.application.grasp_pipeline import GraspPipeline
 from grasppose.modules.depth.types import DepthResult
 from grasppose.modules.grasp.types import GraspResult

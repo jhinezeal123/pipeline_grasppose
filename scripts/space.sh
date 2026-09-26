@@ -13,4 +13,4 @@ if [ ! -x "$PYTHON" ]; then
 fi
 
 bash "$ROOT/scripts/cold.sh" start
-exec "$PYTHON" app.py "$@"
+exec "$PYTHON" -m apps.gradio_app "$@"

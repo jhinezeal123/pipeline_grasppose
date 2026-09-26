@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke-test app.py without Gradio or real models."""
+"""Smoke-test the Gradio app without Gradio or real models."""
 
 import sys
 import tempfile
@@ -10,7 +10,7 @@ from unittest.mock import patch
 import numpy as np
 from PIL import Image
 
-import app as A
+from apps import gradio_app as A
 
 
 FAIL = []
