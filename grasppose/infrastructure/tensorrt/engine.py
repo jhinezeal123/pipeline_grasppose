@@ -5,8 +5,8 @@ import time
 
 import numpy as np
 
-from .artifacts import verify_sha256
-from .runtime import log
+from ..artifacts import verify_sha256
+from ...runtime import log
 
 
 class TensorRTEngine:

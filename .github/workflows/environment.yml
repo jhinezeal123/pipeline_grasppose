@@ -12,7 +12,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: bash -n scripts/prepare.sh scripts/preprocess_prompt.sh scripts/worker.sh scripts/infer.sh scripts/output.sh scripts/gradio.sh
-      - run: python -m py_compile env/setup_env.py env/check_env.py scripts/build/preprocess_yoloe.py scripts/build/validate_yoloe.py scripts/build/validate_pipeline.py scripts/setup/fetch_prebuilt_trt.py grasppose/infrastructure/worker/server.py grasppose/infrastructure/output/snapshot.py grasppose/infrastructure/output/renderer.py grasppose/infrastructure/output/control.py grasppose/api.py apps/gradio/app.py apps/cli/infer.py
+      - run: python -m py_compile env/setup_env.py env/check_env.py scripts/build/preprocess_yoloe.py scripts/build/validate_yoloe.py scripts/build/validate_pipeline.py scripts/setup/fetch_prebuilt_trt.py grasppose/infrastructure/worker/server.py grasppose/infrastructure/output/snapshot.py grasppose/infrastructure/output/renderer.py grasppose/infrastructure/output/control.py grasppose/infrastructure/artifacts.py grasppose/infrastructure/tensorrt/engine.py grasppose/api.py apps/gradio/app.py apps/cli/infer.py
       - if: matrix.python-version == '3.8'
         run: >-
           python -m pip install

@@ -18,9 +18,9 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from grasppose.artifacts import atomic_write_json, sha256_file
+from grasppose.infrastructure.artifacts import atomic_write_json, sha256_file
 from grasppose.config import LITEMONO_DEPTH_SCALE
-from grasppose.trt_engine import TensorRTEngine
+from grasppose.infrastructure.tensorrt.engine import TensorRTEngine
 
 
 class DepthGraph:

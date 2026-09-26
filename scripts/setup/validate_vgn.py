@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from grasppose.artifacts import atomic_write_json, sha256_file
+from grasppose.infrastructure.artifacts import atomic_write_json, sha256_file
 
 
 def main():

@@ -117,7 +117,9 @@ grasppose/
 │   └── grasp/                # port + types + VGN logic + TensorRT adapter
 ├── infrastructure/
 │   ├── worker/                # Unix-socket resident worker
-│   └── output/                # snapshot/render job runtime
+│   ├── output/                # snapshot/render job runtime
+│   ├── tensorrt/              # shared TensorRT execution runtime
+│   └── artifacts.py           # checksum/manifest integrity helpers
 ├── presentation/
 │   └── rendering.py
 ├── bootstrap.py              # composition root
