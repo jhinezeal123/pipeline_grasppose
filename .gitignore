@@ -7,10 +7,8 @@ yoloe-26s-seg.pt
 .venv/
 env/lib/
 env/bin/
-output/*
-!output/.gitkeep
-img/*
-!img/.gitkeep
+artifacts/output/*
+!artifacts/output/.gitkeep
 
 hf_token
 __pycache__/

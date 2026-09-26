@@ -7,19 +7,19 @@ from unittest.mock import patch
 
 import numpy as np
 
-from grasppose.adapters.vgn_trt import classify_vgn_outputs
-from grasppose.adapters.yoloe import Yoloe26sVision
-from grasppose.domain.geometry import (
+from grasppose.modules.grasp.vgn_trt import classify_vgn_outputs
+from grasppose.modules.vision.yoloe import Yoloe26sVision
+from grasppose.modules.depth.geometry import (
     depth_range_str,
     depth_to_cloud,
     resolve_camera_intrinsics,
     scale_camera_intrinsics,
 )
-from grasppose.domain.tsdf import ProjectiveTSDFBuilder
-from grasppose.domain.vgn import vgn_to_graspgroup
-from grasppose.facade import GraspService
+from grasppose.modules.tsdf.projective import ProjectiveTSDFBuilder
+from grasppose.modules.grasp.vgn import vgn_to_graspgroup
+from grasppose.application.service import LocalGraspEstimator
 from grasppose.presentation.rendering import hw_open_note
-import grasppose.runtime as runtime
+import grasppose.infrastructure.runtime as runtime
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -283,9 +283,9 @@ class YoloeInputTests(unittest.TestCase):
     def test_default_service_construction_does_not_import_torch(self):
         code = (
             "import sys; "
-            "import grasppose.facade; "
+            "import grasppose.infrastructure.composition; "
             "assert 'torch' not in sys.modules, "
-            "f'torch imported during service construction: {sys.modules.get(\"torch\")}'"
+            "f'torch imported during estimator composition: {sys.modules.get(\"torch\")}'"
         )
         completed = subprocess.run(
             [sys.executable, "-c", code],
@@ -307,16 +307,16 @@ class RenderingGuardTests(unittest.TestCase):
         self.assertIn("HW 69.4 mm", note)
 
 
-class FacadeInputGuardTests(unittest.TestCase):
+class EstimatorInputGuardTests(unittest.TestCase):
     def test_2d_image_raises_value_error_before_core_run(self):
         class Core:
             def run(self, *args, **kwargs):
                 raise AssertionError("core must not be called")
 
-        service = GraspService(Core())
+        estimator = LocalGraspEstimator(Core())
         with self.assertRaisesRegex(
                 ValueError, "input image must have shape"):
-            service.infer(
+            estimator.estimate(
                 np.zeros((10, 10), np.uint8),
                 prompt_id="object",
             )

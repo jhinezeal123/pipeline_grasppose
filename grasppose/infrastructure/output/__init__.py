@@ -1,0 +1,1 @@
+"""Diagnostic output rendering infrastructure."""

@@ -11,21 +11,26 @@ from unittest.mock import patch
 import numpy as np
 from PIL import Image
 
-from grasppose.domain.types import (
-    DepthResult, DetectionResult, GraspResult, PipelineResult,
-    SegmentationResult, VisionResult,
+from grasppose.application.service import LocalGraspEstimator
+from grasppose.application.types import PipelineResult
+from grasppose.modules.depth.types import DepthResult
+from grasppose.modules.grasp.types import GraspResult
+from grasppose.modules.vision.types import (
+    DetectionResult, SegmentationResult, VisionResult,
 )
-from grasppose.facade import GraspService
-from grasppose.output_renderer import (
+from grasppose.infrastructure.output.renderer import (
     fetch_snapshot, render_and_save, render_images,
 )
-from grasppose.output_snapshot import (
+from grasppose.presentation.rendering import (
+    draw_box, draw_depth, draw_grasp, draw_mask,
+)
+from grasppose.infrastructure.output.snapshot import (
     ARRAY_NAMES, OutputSnapshot, SnapshotCache,
 )
-from grasppose.worker_client import WorkerError, infer_image
-from tools import output_control
+from grasppose.infrastructure.worker.client import WorkerError, infer_image
+from grasppose.infrastructure.output import control as output_control
 try:
-    from grasppose.worker_server import Handler, WorkerServer
+    from grasppose.infrastructure.worker.server import Handler, WorkerServer
 except AttributeError:  # Windows Python has no socketserver.UnixStreamServer.
     Handler = WorkerServer = None
 
@@ -107,18 +112,20 @@ class CacheAndRenderingTests(unittest.TestCase):
         too_small = SnapshotCache(max_bytes=1)
         self.assertIsNone(too_small.put(snapshot))
 
-    def test_rendered_pngs_match_legacy_facade_output(self):
+    def test_rendered_pngs_match_presentation_renderers(self):
         image, result = fixture_result()
-        old_path = GraspService(FixtureCore(result)).infer(
-            image, "blue_cube", camera_K=result.camera_K,
-            max_width=0.08, top=1,
-        )
+        expected = {
+            "box": draw_box(image, result.vision.detection),
+            "mask": draw_mask(image, result.vision.segmentation),
+            "depthmap": draw_depth(result.depth),
+            "grasp": draw_grasp(
+                image, result.grasp, result.camera_K, max_width=0.08, top=1),
+        }
         snapshot = OutputSnapshot.capture(image, result, 0.08, 1)
-        new_path = render_images(snapshot)
-        self.assertEqual(set(old_path) & {"box", "mask", "depthmap", "grasp"},
-                         set(new_path))
-        for name in ("box", "mask", "depthmap", "grasp"):
-            np.testing.assert_array_equal(new_path[name], old_path[name])
+        rendered = render_images(snapshot)
+        self.assertEqual(set(rendered), set(expected))
+        for name in expected:
+            np.testing.assert_array_equal(rendered[name], expected[name])
 
         with tempfile.TemporaryDirectory() as directory:
             run_id = uuid.uuid4().hex
@@ -126,9 +133,9 @@ class CacheAndRenderingTests(unittest.TestCase):
             self.assertEqual(len(files), 4)
             for name, path in zip(
                     ("box", "mask", "depthmap", "grasp"), files):
-                with Image.open(path) as rendered:
+                with Image.open(path) as image_file:
                     np.testing.assert_array_equal(
-                        np.asarray(rendered.convert("RGB")), old_path[name])
+                        np.asarray(image_file.convert("RGB")), expected[name])
 
     @unittest.skipIf(Handler is None, "Unix worker server is unavailable")
     def test_fast_worker_response_skips_render_and_png_writes(self):
@@ -140,7 +147,7 @@ class CacheAndRenderingTests(unittest.TestCase):
 
         server = SimpleNamespace(
             catalog=Catalog(),
-            service=SimpleNamespace(core=FixtureCore(result)),
+            estimator=LocalGraspEstimator(FixtureCore(result)),
             snapshots=SnapshotCache(),
         )
         handler = object.__new__(Handler)
@@ -173,7 +180,7 @@ class CacheAndRenderingTests(unittest.TestCase):
         handler = object.__new__(Handler)
         handler.server = SimpleNamespace(
             catalog=Catalog(),
-            service=SimpleNamespace(core=core),
+            estimator=LocalGraspEstimator(core),
             snapshots=SnapshotCache(),
         )
         with tempfile.TemporaryDirectory() as directory:
@@ -212,12 +219,12 @@ class CacheAndRenderingTests(unittest.TestCase):
             Image.fromarray(image).save(image_path)
             server = WorkerServer(socket_path, Handler)
             server.catalog = Catalog()
-            server.service = SimpleNamespace(core=FixtureCore(result))
+            server.estimator = LocalGraspEstimator(FixtureCore(result))
             server.state = "ready"
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             try:
-                with patch("grasppose.worker_client.WORKER_SOCKET", socket_path), \
+                with patch("grasppose.infrastructure.worker.client.WORKER_SOCKET", socket_path), \
                         patch.object(output_control, "SOCKET_PATH", socket_path), \
                         patch.object(output_control, "JOB_DIR", os.path.join(
                             runtime_dir, "output-jobs")), \
@@ -251,7 +258,7 @@ class CacheAndRenderingTests(unittest.TestCase):
                 thread.join(timeout=2)
 
     def test_client_defaults_to_no_render(self):
-        with patch("grasppose.worker_client.request_worker", return_value={
+        with patch("grasppose.infrastructure.worker.client.request_worker", return_value={
                 "ok": True}) as request:
             infer_image("frame.png", "cube", camera_k_size=[1280, 720])
         self.assertFalse(request.call_args.args[0]["render"])
@@ -259,7 +266,7 @@ class CacheAndRenderingTests(unittest.TestCase):
             request.call_args.args[0]["camera_k_size"], [1280, 720])
 
     def test_client_reports_unavailable_render_snapshot(self):
-        with patch("grasppose.worker_client.request_worker", return_value={
+        with patch("grasppose.infrastructure.worker.client.request_worker", return_value={
                 "ok": True, "run_id": "a" * 32,
                 "snapshot_available": False}):
             with self.assertRaisesRegex(WorkerError, "snapshot was not retained"):
