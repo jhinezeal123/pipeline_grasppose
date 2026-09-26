@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from grasppose.modules.vision.prompt_catalog import PromptCatalog
 import grasppose.modules.vision.prompt_catalog as prompt_catalog
-from tools.preprocess_yoloe import read_prompt_file
+from scripts.build.preprocess_yoloe import read_prompt_file
 
 
 def digest(path):
@@ -18,7 +18,7 @@ def digest(path):
 
 class PromptConfigurationTests(unittest.TestCase):
     def test_yoloe_api_imports_ultralytics_before_torch(self):
-        from tools.preprocess_yoloe import load_yoloe_api
+        from scripts.build.preprocess_yoloe import load_yoloe_api
 
         import_order = []
         original_import = builtins.__import__
@@ -41,7 +41,7 @@ class PromptConfigurationTests(unittest.TestCase):
         self.assertIs(loaded[2], fake_torch)
 
     def test_multiword_text_uses_prompt_id_as_engine_class_name(self):
-        from tools.preprocess_yoloe import configure_prompt_classes
+        from scripts.build.preprocess_yoloe import configure_prompt_classes
 
         class FakeYOLOE:
             def get_text_pe(self, texts):

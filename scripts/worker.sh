@@ -36,7 +36,7 @@ is_our_worker() {
   local pid="$1"
   [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null || return 1
   [ "$(readlink -f "/proc/$pid/cwd" 2>/dev/null || true)" = "$ROOT" ] || return 1
-  ps -p "$pid" -o args= 2>/dev/null | grep -Fq "grasppose.worker_server"
+  ps -p "$pid" -o args= 2>/dev/null | grep -Fq "grasppose.infrastructure.worker.server"
 }
 
 worker_uses_checkout_vgn() {
@@ -48,7 +48,7 @@ worker_uses_checkout_vgn() {
 }
 
 rpc_status() {
-  "$PYTHON" -c 'from grasppose.worker_client import request_worker; import json; print(json.dumps(request_worker({"op":"status"}, timeout=2)))' 2>/dev/null
+  "$PYTHON" -c 'from grasppose.infrastructure.worker.client import request_worker; import json; print(json.dumps(request_worker({"op":"status"}, timeout=2)))' 2>/dev/null
 }
 
 show_status() {
@@ -115,7 +115,7 @@ start_worker() {
   fi
   if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then rm -f "$PID_FILE"; fi
   : > "$LOG_FILE"
-  nohup "$PYTHON" -m grasppose.worker_server serve >> "$LOG_FILE" 2>&1 < /dev/null 9>&- &
+  nohup "$PYTHON" -m grasppose.infrastructure.worker.server serve >> "$LOG_FILE" 2>&1 < /dev/null 9>&- &
   pid="$!"
   printf '%s\n' "$pid" > "$PID_FILE"
   echo "Starting worker and warming YOLOE, Lite-Mono, and VGN ..."
@@ -126,7 +126,7 @@ stop_worker() {
   local pid i
   pid="$(worker_pid || true)"
   if state="$(rpc_status)"; then
-    "$PYTHON" -c 'from grasppose.worker_client import request_worker; request_worker({"op":"stop"}, timeout=3)' >/dev/null 2>&1 || true
+    "$PYTHON" -c 'from grasppose.infrastructure.worker.client import request_worker; request_worker({"op":"stop"}, timeout=3)' >/dev/null 2>&1 || true
   fi
   for i in $(seq 1 30); do
     pid="$(worker_pid || true)"
@@ -172,7 +172,7 @@ case "$COMMAND" in
     esac
     ;;
   *)
-    echo "Usage: bash scripts/cold.sh [start|status|stop|restart]" >&2
+    echo "Usage: bash scripts/worker.sh [start|status|stop|restart]" >&2
     exit 2
     ;;
 esac

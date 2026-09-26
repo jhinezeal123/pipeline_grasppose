@@ -10,7 +10,7 @@ from unittest.mock import patch
 import numpy as np
 from PIL import Image
 
-from apps import gradio_app as A
+from apps.gradio import app as A
 
 
 FAIL = []

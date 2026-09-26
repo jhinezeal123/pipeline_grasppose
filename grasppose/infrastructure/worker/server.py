@@ -13,12 +13,12 @@ import uuid
 import numpy as np
 from PIL import Image
 
-from .config import RUNTIME_DIR, WORKER_PID, WORKER_SOCKET
-from .modules.depth.geometry import fov_x_from_fovy, scale_camera_intrinsics
-from .facade import DEFAULT_SERVICE
-from .output_snapshot import ARRAY_NAMES, OutputSnapshot, SnapshotCache
-from .modules.vision.prompt_catalog import PromptCatalog
-from .runtime import log
+from ...config import RUNTIME_DIR, WORKER_PID, WORKER_SOCKET
+from ...modules.depth.geometry import fov_x_from_fovy, scale_camera_intrinsics
+from ...facade import DEFAULT_SERVICE
+from ..output.snapshot import ARRAY_NAMES, OutputSnapshot, SnapshotCache
+from ...modules.vision.prompt_catalog import PromptCatalog
+from ...runtime import log
 
 
 class WorkerServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
@@ -221,7 +221,7 @@ def serve():
         if loaded_catalog.manifest["artifact_id"] != expected_artifact_id:
             raise RuntimeError(
                 "YOLOE prompt artifact changed during worker startup; "
-                "retry cold.sh start"
+                "retry scripts/worker.sh start"
             )
         catalog = loaded_catalog
         DEFAULT_SERVICE.core.warmup()

@@ -4,7 +4,7 @@ import json
 import os
 import socket
 
-from .config import WORKER_SOCKET
+from ...config import WORKER_SOCKET
 
 
 class WorkerError(RuntimeError):
@@ -27,7 +27,7 @@ def request_worker(payload, timeout=300.0, socket_path=None):
         response = json.loads(line.decode("utf-8"))
     except FileNotFoundError as exc:
         raise WorkerError(
-            "inference worker is not running; start it with: bash cold.sh"
+            "inference worker is not running; start it with: bash scripts/worker.sh"
         ) from exc
     except socket.timeout as exc:
         raise WorkerError("timed out waiting for inference worker") from exc
@@ -63,7 +63,7 @@ def infer_image(image_path, prompt_id, camera_k=None, fov_x=None,
             raise WorkerError(
                 "cannot render asynchronously: output snapshot was not retained"
             )
-        from tools.output_control import start
+        from ..output.control import start
         try:
             response["render_job"] = start(
                 response["run_id"], output_dir=output_dir)

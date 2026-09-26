@@ -15,8 +15,8 @@ fi
 if [ "$#" -lt 1 ]; then
   echo "Usage: bash scripts/infer.sh IMAGE --prompt-id ID [--camera-k FX FY CX CY] [--camera-k-size WIDTH HEIGHT] [--fov-x DEG] [--render]" >&2
   echo "Inference returns grasp metadata and a RUN_ID. Rendering the four diagnostic PNGs is optional; pass --render." >&2
-  echo "Start the resident models once with: bash scripts/cold.sh" >&2
+  echo "Start the resident models once with: bash scripts/worker.sh" >&2
   exit 2
 fi
 
-exec "$PYTHON" -S tools/infer_client.py "$@"
+exec "$PYTHON" -S -m apps.cli.infer "$@"

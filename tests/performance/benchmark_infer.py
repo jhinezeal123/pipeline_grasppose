@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure infer.sh latency over the resident worker (fast path by default)."""
+"""Measure scripts/infer.sh latency over the resident worker (fast path by default)."""
 
 import argparse
 import json
@@ -11,7 +11,7 @@ import sys
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DETECTION = re.compile(r"DETECTIONS:\s*(\d+)\s+MASK_PIXELS=(\d+)")
 RUN_ID = re.compile(r"RUN_ID:\s*([0-9a-f]{32})")
 
@@ -27,7 +27,7 @@ def main(argv=None):
         "--camera-k-size", nargs=2, type=int,
         metavar=("WIDTH", "HEIGHT"))
     parser.add_argument("--runs", type=int, default=20)
-    parser.add_argument("--out", default=str(ROOT / "output"))
+    parser.add_argument("--out", default=str(ROOT / "artifacts" / "output"))
     parser.add_argument(
         "--render", action="store_true",
         help="also measure the optional four-image PNG render path",
@@ -39,7 +39,7 @@ def main(argv=None):
     if not image.is_file():
         parser.error("image does not exist: %s" % image)
 
-    command = ["bash", str(ROOT / "infer.sh"), str(image),
+    command = ["bash", str(ROOT / "scripts" / "scripts/infer.sh"), str(image),
                "--prompt-id", args.prompt_id]
     if args.render:
         command.extend(["--render", "--out", args.out])
@@ -80,7 +80,7 @@ def main(argv=None):
                 failures.append("run %d did not report a RUN_ID" % (index + 1))
                 continue
             waited = subprocess.run(
-                ["bash", str(ROOT / "get_output.sh"), "wait", run_id.group(1)],
+                ["bash", str(ROOT / "scripts" / "output.sh"), "wait", run_id.group(1)],
                 cwd=str(ROOT), text=True, capture_output=True)
             try:
                 job = json.loads(waited.stdout)
@@ -108,9 +108,9 @@ def main(argv=None):
     print("successful runs: %d/%d" % (len(samples), args.runs))
     mode = "with PNG rendering" if args.render else "fast inference"
     print("mode: %s" % mode)
-    print("median infer.sh wall time: %.1f ms" % median)
-    print("P95 infer.sh wall time: %.1f ms" % p95)
-    print("maximum infer.sh wall time: %.1f ms" % ordered[-1])
+    print("median scripts/infer.sh wall time: %.1f ms" % median)
+    print("P95 scripts/infer.sh wall time: %.1f ms" % p95)
+    print("maximum scripts/infer.sh wall time: %.1f ms" % ordered[-1])
     if args.render:
         print("acceptance: NOT APPLICABLE (render path selected)")
     elif len(samples) == args.runs and p95 < 1000.0:

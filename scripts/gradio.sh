@@ -12,5 +12,5 @@ if [ ! -x "$PYTHON" ]; then
   exit 1
 fi
 
-bash "$ROOT/scripts/cold.sh" start
-exec "$PYTHON" -m apps.gradio_app "$@"
+bash "$ROOT/scripts/worker.sh" start
+exec "$PYTHON" -m apps.gradio "$@"

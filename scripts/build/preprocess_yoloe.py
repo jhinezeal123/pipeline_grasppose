@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from grasppose.artifacts import atomic_write_json, sha256_file

@@ -8,7 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from grasppose.artifacts import atomic_write_json
@@ -44,7 +44,7 @@ def main(argv=None):
     try:
         command = [
             sys.executable,
-            str(ROOT / "tools" / "validate_trt_parity.py"),
+            str(ROOT / "scripts" / "build" / "validate_pipeline.py"),
             str(Path(args.prompts_json).resolve()),
             "--validation-dir", str(Path(args.validation_dir).resolve()),
             "--camera-k", *[str(value) for value in args.camera_k],

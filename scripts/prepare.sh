@@ -4,7 +4,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
-mkdir -p model output
+mkdir -p model artifacts/output
 
 HOST_PYTHON="$(command -v "${PYTHON:-python3}")"
 "$HOST_PYTHON" env/setup_env.py
@@ -126,14 +126,14 @@ fi
 # this Xavier/L4T/TensorRT stack. The installer verifies each release archive
 # and its weights/engine checksums before activating checkout-local artifacts.
 echo "Downloading and validating checkout-local TensorRT engines ..."
-"$PYTHON" tools/fetch_prebuilt_trt.py
+"$PYTHON" scripts/setup/fetch_prebuilt_trt.py
 
 # Always validate the VGN files installed in this checkout. An inherited
 # VGN_ENGINE path must not silently reuse an engine from another checkout.
 export VGN_ENGINE="$ROOT/model/vgn.engine"
 export VGN_CHECKPOINT="$ROOT/model/vgn_conv.pth"
 export VGN_MANIFEST="$ROOT/model/runtime/vgn.json"
-"$PYTHON" tools/vgn_manifest.py check \
+"$PYTHON" scripts/setup/validate_vgn.py check \
   --checkpoint "$VGN_CHECKPOINT" \
   --engine "$VGN_ENGINE" \
   --manifest "$VGN_MANIFEST"

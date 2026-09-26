@@ -12,12 +12,12 @@ import time
 import numpy as np
 from PIL import Image
 
-from .config import RUNTIME_DIR, WORKER_SOCKET
-from .modules.depth.types import DepthResult
-from .modules.grasp.types import GraspResult
-from .modules.vision.types import DetectionResult, SegmentationResult
-from .output_snapshot import ARRAY_NAMES, OutputSnapshot
-from .presentation.rendering import draw_box, draw_depth, draw_grasp, draw_mask
+from ...config import RUNTIME_DIR, WORKER_SOCKET
+from ...modules.depth.types import DepthResult
+from ...modules.grasp.types import GraspResult
+from ...modules.vision.types import DetectionResult, SegmentationResult
+from .snapshot import ARRAY_NAMES, OutputSnapshot
+from ...presentation.rendering import draw_box, draw_depth, draw_grasp, draw_mask
 
 
 def _write_json(path, value):

@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from grasppose.config import (  # noqa: E402
@@ -26,7 +26,7 @@ from grasppose.modules.depth.geometry import (  # noqa: E402
     depth_to_cloud, scale_camera_intrinsics,
 )
 from grasppose.modules.vision.prompt_catalog import PromptCatalog  # noqa: E402
-from tools.preprocess_yoloe import (  # noqa: E402
+from scripts.build.preprocess_yoloe import (  # noqa: E402
     best_mask,
     bgr_image,
     configure_prompt_classes,
@@ -35,7 +35,7 @@ from tools.preprocess_yoloe import (  # noqa: E402
     read_prompt_file,
     validation_paths,
 )
-from tools.export_litemono_trt import (  # noqa: E402
+from scripts.build.export_litemono_trt import (  # noqa: E402
     depth_from_disp,
     image_tensor,
     load_models,

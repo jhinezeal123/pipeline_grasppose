@@ -18,16 +18,16 @@ from grasppose.modules.vision.types import (
     DetectionResult, SegmentationResult, VisionResult,
 )
 from grasppose.facade import GraspService
-from grasppose.output_renderer import (
+from grasppose.infrastructure.output.renderer import (
     fetch_snapshot, render_and_save, render_images,
 )
-from grasppose.output_snapshot import (
+from grasppose.infrastructure.output.snapshot import (
     ARRAY_NAMES, OutputSnapshot, SnapshotCache,
 )
-from grasppose.worker_client import WorkerError, infer_image
-from tools import output_control
+from grasppose.infrastructure.worker.client import WorkerError, infer_image
+from grasppose.infrastructure.output import control as output_control
 try:
-    from grasppose.worker_server import Handler, WorkerServer
+    from grasppose.infrastructure.worker.server import Handler, WorkerServer
 except AttributeError:  # Windows Python has no socketserver.UnixStreamServer.
     Handler = WorkerServer = None
 
@@ -219,7 +219,7 @@ class CacheAndRenderingTests(unittest.TestCase):
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             try:
-                with patch("grasppose.worker_client.WORKER_SOCKET", socket_path), \
+                with patch("grasppose.infrastructure.worker.client.WORKER_SOCKET", socket_path), \
                         patch.object(output_control, "SOCKET_PATH", socket_path), \
                         patch.object(output_control, "JOB_DIR", os.path.join(
                             runtime_dir, "output-jobs")), \
@@ -253,7 +253,7 @@ class CacheAndRenderingTests(unittest.TestCase):
                 thread.join(timeout=2)
 
     def test_client_defaults_to_no_render(self):
-        with patch("grasppose.worker_client.request_worker", return_value={
+        with patch("grasppose.infrastructure.worker.client.request_worker", return_value={
                 "ok": True}) as request:
             infer_image("frame.png", "cube", camera_k_size=[1280, 720])
         self.assertFalse(request.call_args.args[0]["render"])
@@ -261,7 +261,7 @@ class CacheAndRenderingTests(unittest.TestCase):
             request.call_args.args[0]["camera_k_size"], [1280, 720])
 
     def test_client_reports_unavailable_render_snapshot(self):
-        with patch("grasppose.worker_client.request_worker", return_value={
+        with patch("grasppose.infrastructure.worker.client.request_worker", return_value={
                 "ok": True, "run_id": "a" * 32,
                 "snapshot_available": False}):
             with self.assertRaisesRegex(WorkerError, "snapshot was not retained"):

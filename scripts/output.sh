@@ -8,4 +8,5 @@ if [ ! -x "$PYTHON" ]; then
   echo ".venv is missing. Run: bash scripts/prepare.sh" >&2
   exit 1
 fi
-exec "$PYTHON" -S "$ROOT/tools/output_control.py" "$@"
+cd "$ROOT"
+exec "$PYTHON" -S -m grasppose.infrastructure.output.control "$@"

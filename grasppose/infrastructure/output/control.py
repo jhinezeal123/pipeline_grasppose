@@ -11,13 +11,13 @@ import threading
 import time
 
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 RUNTIME_DIR = os.environ.get("GRASP_RUNTIME_DIR", os.path.join(ROOT, ".runtime"))
 SOCKET_PATH = os.environ.get(
     "GRASP_WORKER_SOCKET", os.path.join(RUNTIME_DIR, "worker.sock"))
 JOB_DIR = os.path.join(RUNTIME_DIR, "output-jobs")
 OUTPUT_DIR = os.path.abspath(os.environ.get(
-    "OUTPUT_DIR", os.path.join(ROOT, "output")))
+    "OUTPUT_DIR", os.path.join(ROOT, "artifacts", "output")))
 
 
 def _run_id(value):
@@ -77,7 +77,7 @@ def start(run_id, retry=False, output_dir=None):
     try:
         with open(log_path, "ab") as log_handle:
             child = subprocess.Popen(
-                [sys.executable, "-m", "grasppose.output_renderer",
+                [sys.executable, "-m", "grasppose.infrastructure.output.renderer",
                  run_id, output_dir],
                 cwd=ROOT,
                 stdin=subprocess.DEVNULL,
@@ -118,7 +118,7 @@ def main(argv=None):
             "start", "status", "wait", "retry"):
         command, run_id = argv
     else:
-        print("Usage: get_output.sh RUN_ID | status RUN_ID | wait RUN_ID | retry RUN_ID",
+        print("Usage: scripts/output.sh RUN_ID | status RUN_ID | wait RUN_ID | retry RUN_ID",
               file=sys.stderr)
         return 2
     try:

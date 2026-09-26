@@ -146,21 +146,21 @@ class EnvironmentTests(unittest.TestCase):
         )
 
     def test_infer_uses_worker_and_fixed_prompt_ids(self):
-        source = (ROOT / "infer.sh").read_text()
-        self.assertIn("tools/infer_client.py", source)
+        source = (ROOT / "scripts" / "infer.sh").read_text()
+        self.assertIn("apps.cli.infer", source)
         self.assertIn("--prompt-id", source)
-        worker = (ROOT / "cold.sh").read_text()
+        worker = (ROOT / "scripts" / "worker.sh").read_text()
         for command in ("start)", "status)", "stop)", "restart)"):
             self.assertIn(command, worker)
-        app_source = (ROOT / "app.py").read_text()
+        app_source = (ROOT / "apps" / "gradio" / "app.py").read_text()
         self.assertIn("gr.Dropdown", app_source)
         self.assertNotIn("input_prompt = gr.Textbox(", app_source)
         self.assertIn("infer_image(", app_source)
-        adapter = (ROOT / "grasppose/adapters/yoloe.py").read_text()
+        adapter = (ROOT / "grasppose" / "modules" / "vision" / "yoloe.py").read_text()
         self.assertNotIn(".set_classes(", adapter)
 
     def test_prepare_does_not_run_global_pip_check(self):
-        source = (ROOT / "prepare.sh").read_text()
+        source = (ROOT / "scripts" / "prepare.sh").read_text()
         self.assertNotIn(
             '"$PYTHON" -m pip check',
             source,

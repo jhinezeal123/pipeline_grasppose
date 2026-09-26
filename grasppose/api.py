@@ -11,12 +11,12 @@ from grasppose.config import GRIP_MAX_OPEN_M
 from grasppose.modules.depth.geometry import fov_x_from_fovy
 from grasppose.facade import DEFAULT_SERVICE
 from grasppose.runtime import log
-from grasppose.worker_client import infer_image
+from grasppose.infrastructure.worker.client import infer_image
 
 
 DEFAULT_OUTPUT_DIR = os.environ.get(
     "OUTPUT_DIR",
-    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "output"),
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "artifacts", "output"),
 )
 DEFAULT_PIPELINE = DEFAULT_SERVICE.core
 

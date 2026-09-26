@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from grasppose.artifacts import atomic_write_json, sha256_file
@@ -228,7 +228,7 @@ def main(argv=None):
         configured = os.environ.get("LITEMONO_VALIDATION_IMAGES")
         validation_images = (
             configured.split(os.pathsep) if configured
-            else [str(ROOT / "example" / "bag_input.png")]
+            else [str(ROOT / "artifacts" / "examples" / "bag_input.png")]
         )
     validation_images = [Path(item).resolve() for item in validation_images]
     missing = [str(path) for path in validation_images if not path.is_file()]

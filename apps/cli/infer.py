@@ -7,12 +7,12 @@ import os
 import sys
 import time
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from grasppose.config import GRIP_MAX_OPEN_M
-from grasppose.worker_client import WorkerError, infer_image
+from grasppose.infrastructure.worker.client import WorkerError, infer_image
 
 
 def _camera_k(args):
@@ -39,7 +39,7 @@ def _camera_k_size(args):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Run a fixed-prompt TensorRT pipeline through cold.sh worker."
+        description="Run a fixed-prompt TensorRT pipeline through scripts/worker.sh worker."
     )
     parser.add_argument("image")
     parser.add_argument("--prompt-id", required=True)
@@ -58,7 +58,7 @@ def main(argv=None):
                         help="queue four diagnostic PNGs in a separate process")
     parser.add_argument("--out", default=os.environ.get(
         "OUTPUT_DIR",
-        os.path.join(os.path.dirname(os.path.dirname(__file__)), "output"),
+        os.path.join(ROOT, "artifacts", "output"),
     ))
     parser.add_argument("--max-width", type=float, default=GRIP_MAX_OPEN_M)
     parser.add_argument("--top", type=int, default=1)

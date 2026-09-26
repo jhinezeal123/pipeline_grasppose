@@ -54,12 +54,12 @@ nền. CLI và Gradio gửi ảnh/prompt ID qua Unix socket cục bộ.
 
 YOLOE-26 text prompting cần thêm `mobileclip2_b.ts`. `scripts/prepare.sh` tải artifact
 này, kiểm tra SHA-256, cài Ultralytics CLIP ở revision đã pin và chạy
-`set_classes(["object"])` một lần. Vì vậy `scripts/infer.sh` / `scripts/space.sh` không cần
+`set_classes(["object"])` một lần. Vì vậy `scripts/infer.sh` / `scripts/gradio.sh` không cần
 tự cài package hay tải text encoder ở request đầu tiên.
 
 VGN engine trong release được build trên chính Xavier với `trtexec --fp16`.
 `scripts/prepare.sh` tải nó về `model/vgn.engine` và không đọc engine từ checkout khác.
-`tools/export_vgn_onnx.py` vẫn có thể dùng để build thủ công khi đổi hardware
+`scripts/build/export_vgn_onnx.py` vẫn có thể dùng để build thủ công khi đổi hardware
 hoặc checkpoint; engine phát hành không dùng được trên T4 (sm_75) hay stack
 TensorRT khác.
 
@@ -115,6 +115,9 @@ grasppose/
 │   ├── depth/                # port + types + geometry + Lite-Mono
 │   ├── tsdf/                 # port + types + projective builder
 │   └── grasp/                # port + types + VGN logic + TensorRT adapter
+├── infrastructure/
+│   ├── worker/                # Unix-socket resident worker
+│   └── output/                # snapshot/render job runtime
 ├── presentation/
 │   └── rendering.py
 ├── bootstrap.py              # composition root
@@ -170,7 +173,7 @@ engine riêng trên thiết bị đích.
 ### 2. Đóng bộ prompt thành YOLOE engine
 
 `scripts/prepare.sh` đã cài sẵn engine FP32 cho prompt `cube`, nên có thể chạy ngay
-`scripts/cold.sh` và `scripts/infer.sh --prompt-id cube`. Với bộ prompt khác, tạo `prompts.json`
+`scripts/worker.sh` và `scripts/infer.sh --prompt-id cube`. Với bộ prompt khác, tạo `prompts.json`
 gồm 1–16 prompt có thứ tự:
 
 ```json
@@ -198,27 +201,27 @@ kiểm tra mask IoU >= 0.99, rồi so sánh toàn pipeline trong process CUDA ri
 Engine cần có p95 relative depth error <= 2% và, khi cả hai bản có grasp,
 tâm lệch <= 7.5 mm, hướng <= 10 độ, độ mở <= 5 mm. Nếu FP32 không đạt,
 lệnh dừng và khôi phục con trỏ `CURRENT` trước đó. Có thể chạy riêng
-`tools/validate_trt_parity.py` để xem lại số đo.
+`scripts/build/validate_pipeline.py` để xem lại số đo.
 
 ### 3. Cold start và quản lý worker
 
 ```bash
-bash scripts/cold.sh start
-bash scripts/cold.sh status
-bash scripts/cold.sh restart
-bash scripts/cold.sh stop
+bash scripts/worker.sh start
+bash scripts/worker.sh status
+bash scripts/worker.sh restart
+bash scripts/worker.sh stop
 ```
 
 `start` nạp và warmup YOLOE, Lite-Mono, VGN một lần rồi giữ process nền qua
 Unix socket riêng trên máy. Gọi `start` khi worker đã sẵn sàng sẽ dùng lại
-process hiện tại. Sau khi tạo bộ prompt mới, chạy `scripts/cold.sh restart` để nạp
+process hiện tại. Sau khi tạo bộ prompt mới, chạy `scripts/worker.sh restart` để nạp
 artifact mới. Worker từ chối prompt ID không có trong profile hoặc manifest
 không khớp checksum.
 
 ### 4. Inference một ảnh
 
 ```bash
-bash scripts/infer.sh img/frame.png \
+bash scripts/infer.sh artifacts/examples/bag_input.png \
   --prompt-id blue_cube \
   --camera-k 615.2 614.8 320.1 239.7
 ```
@@ -230,27 +233,27 @@ bash scripts/infer.sh /path/to/cam2.jpg --prompt-id cube \
   --camera-k 957.746642 948.820235 636.883856 352.232764 \
   --camera-k-size 1280 720 --render
 # Dùng RUN_ID vừa in ra để chờ bốn ảnh hoàn tất khi cần:
-bash scripts/get_output.sh wait RUN_ID
+bash scripts/output.sh wait RUN_ID
 ```
 
 CLI chỉ nhận prompt ID đã bake, không nhận prompt text tự do. Mỗi request gửi
 ảnh qua worker resident và mặc định trả ngay `RUN_ID`, số detection/mask/grasp,
 độ sâu, danh sách grasp pose và latency mà không render hay ghi ảnh. Dùng
-`scripts/get_output.sh RUN_ID` để khởi chạy renderer riêng sau đó. `--render` tự xếp
+`scripts/output.sh RUN_ID` để khởi chạy renderer riêng sau đó. `--render` tự xếp
 việc xuất bốn ảnh vào một tiến trình riêng và trả pose ngay; dùng
-`scripts/get_output.sh wait RUN_ID` khi cần chờ ảnh hoàn tất:
+`scripts/output.sh wait RUN_ID` khi cần chờ ảnh hoàn tất:
 
 ```text
-output/<RUN_ID>/box.png
-output/<RUN_ID>/mask.png
-output/<RUN_ID>/depthmap.png
-output/<RUN_ID>/grasp.png
+artifacts/output/<RUN_ID>/box.png
+artifacts/output/<RUN_ID>/mask.png
+artifacts/output/<RUN_ID>/depthmap.png
+artifacts/output/<RUN_ID>/grasp.png
 ```
 
 Output renderer giữ snapshot có giới hạn (tối đa 8 frame / 128 MiB / 10 phút);
 snapshot hết hạn khi worker khởi động lại. Xếp việc xuất ảnh theo `RUN_ID` bằng
-`bash scripts/get_output.sh RUN_ID`; kiểm tra tiến trình bằng
-`bash scripts/get_output.sh status RUN_ID` hoặc `bash scripts/get_output.sh wait RUN_ID`.
+`bash scripts/output.sh RUN_ID`; kiểm tra tiến trình bằng
+`bash scripts/output.sh status RUN_ID` hoặc `bash scripts/output.sh wait RUN_ID`.
 `--out DIR` hoặc `OUTPUT_DIR` chọn output directory. Renderer ghi PNG
 lossless song song với
 mức nén 1; có thể chỉnh qua `GRASP_PNG_COMPRESSION_LEVEL` (0–9). Dùng
@@ -258,7 +261,7 @@ mức nén 1; có thể chỉnh qua `GRASP_PNG_COMPRESSION_LEVEL` (0–9). Dùng
 Để đo latency inference sau cold start (không tính render PNG):
 
 ```bash
-python tools/benchmark_infer.py img/frame.png \
+python tests/performance/benchmark_infer.py artifacts/examples/bag_input.png \
   --prompt-id blue_cube \
   --camera-k 615.2 614.8 320.1 239.7 \
   --runs 20
@@ -271,13 +274,13 @@ chỉ đại diện cho prompt/ảnh validation đã đo.
 
 ```bash
 export CAMERA_K="615.2 614.8 320.1 239.7"
-bash scripts/space.sh --host 0.0.0.0 --port 8080
+bash scripts/gradio.sh --host 0.0.0.0 --port 8080
 ```
 
 UI gửi inference tới worker, xếp việc xuất ảnh ở tiến trình riêng rồi chờ
 bốn ảnh để hiển thị; worker có thể nhận frame tiếp theo trong lúc UI chờ.
 UI dùng dropdown prompt ID và gửi request tới cùng worker với CLI. Khi đổi bộ
-prompt rồi `scripts/cold.sh restart`, tải lại trang hoặc nhấn `Lam moi prompts` để lấy
+prompt rồi `scripts/worker.sh restart`, tải lại trang hoặc nhấn `Lam moi prompts` để lấy
 danh sách ID từ worker mới mà không cần khởi động lại Gradio.
 
 ## Python API

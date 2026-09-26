@@ -39,8 +39,8 @@ if [ -n "${CAMERA_K_SIZE:-}" ]; then
   CAMERA_K_SIZE_ARGS=(--camera-k-size "${CAMERA_K_SIZE_VALUES[@]}")
 fi
 
-if bash "$ROOT/scripts/cold.sh" status >/dev/null 2>&1; then
-  echo "Stop the resident worker before preprocessing: bash scripts/cold.sh stop" >&2
+if bash "$ROOT/scripts/worker.sh" status >/dev/null 2>&1; then
+  echo "Stop the resident worker before preprocessing: bash scripts/worker.sh stop" >&2
   exit 2
 fi
 
@@ -51,8 +51,8 @@ if [ -f "$CURRENT_FILE" ]; then
   OLD_CURRENT="$(cat "$CURRENT_FILE")"
 fi
 
-"$PYTHON" tools/preprocess_yoloe.py "$1"
-if "$PYTHON" tools/validate_yoloe_fp32.py "$1" \
+"$PYTHON" scripts/build/preprocess_yoloe.py "$1"
+if "$PYTHON" scripts/build/validate_yoloe.py "$1" \
     --camera-k "${CAMERA_K_VALUES[@]}" \
     "${CAMERA_K_SIZE_ARGS[@]}"; then
   exit 0

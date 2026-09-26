@@ -10,13 +10,13 @@ import numpy as np
 from PIL import Image
 
 from grasppose.config import RUNTIME_DIR
-from grasppose.worker_client import infer_image, request_worker
-from tools.output_control import wait as wait_output
+from grasppose.infrastructure.worker.client import infer_image, request_worker
+from grasppose.infrastructure.output.control import wait as wait_output
 
 TOP_GRASPS = 5
 PORT_DEFAULT = 8080
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUTPUT_DIR = os.environ.get("OUTPUT_DIR", os.path.join(ROOT, "output"))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+OUTPUT_DIR = os.environ.get("OUTPUT_DIR", os.path.join(ROOT, "artifacts", "output"))
 
 
 def _camera_k():
