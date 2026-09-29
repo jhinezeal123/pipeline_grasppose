@@ -19,4 +19,5 @@ if [ "$#" -lt 1 ]; then
   exit 2
 fi
 
-exec "$PYTHON" -m apps.cli.infer "$@"
+# The per-frame CLI uses only stdlib RPC; keep model packages out of startup.
+exec "$PYTHON" -S -m apps.cli.infer "$@"

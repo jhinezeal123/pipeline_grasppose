@@ -39,7 +39,7 @@ def main(argv=None):
     if not image.is_file():
         parser.error("image does not exist: %s" % image)
 
-    command = ["bash", str(ROOT / "scripts" / "scripts/infer.sh"), str(image),
+    command = ["bash", str(ROOT / "scripts" / "infer.sh"), str(image),
                "--prompt-id", args.prompt_id]
     if args.render:
         command.extend(["--render", "--out", args.out])
