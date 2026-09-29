@@ -4,12 +4,14 @@ from unittest.mock import patch
 import numpy as np
 
 from grasppose.application.grasp_pipeline import GraspPipeline
-from grasppose.domain.types import (
-    DepthResult,
+from grasppose.application.interface import GraspEstimator
+from grasppose.application.service import LocalGraspEstimator
+from grasppose.modules.depth.types import DepthResult
+from grasppose.modules.grasp.types import GraspResult
+from grasppose.modules.tsdf.types import TSDFResult
+from grasppose.modules.vision.types import (
     DetectionResult,
-    GraspResult,
     SegmentationResult,
-    TSDFResult,
     VisionResult,
 )
 
@@ -111,6 +113,12 @@ class ArchitectureTests(unittest.TestCase):
             depth=Depth(calls),
             tsdf_builder=TSDF(calls),
             grasper=Grasper(calls),
+        )
+
+    def test_local_estimator_implements_public_contract(self):
+        self.assertIsInstance(
+            LocalGraspEstimator(self._pipeline([])),
+            GraspEstimator,
         )
 
     def test_models_load_once_and_stay_resident_across_frames(self):

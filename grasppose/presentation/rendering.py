@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from ..config import GRIP_HW_OPEN_M, GRIP_MAX_OPEN_M
+from ..modules.grasp.constants import GRIP_HW_OPEN_M, GRIP_MAX_OPEN_M
 
 
 def _put(image, text, xy=(8, 24), color=(255, 80, 80),

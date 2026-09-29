@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tools.fetch_prebuilt_trt import (
+from scripts.setup.fetch_prebuilt_trt import (
     BUNDLES,
     _extract_archive,
     _write_current,
