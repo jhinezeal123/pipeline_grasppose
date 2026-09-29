@@ -19,4 +19,4 @@ if [ "$#" -lt 1 ]; then
   exit 2
 fi
 
-exec "$PYTHON" -S -m apps.cli.infer "$@"
+exec "$PYTHON" -m apps.cli.infer "$@"
