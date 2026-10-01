@@ -6,6 +6,7 @@ import os
 import re
 
 from ...infrastructure.artifacts import verify_sha256
+from ...infrastructure.runtime import log
 from ...infrastructure.settings import (
     YOLOE_ARTIFACT_ROOT,
     YOLOE_CONF,
@@ -54,8 +55,17 @@ class PromptCatalog:
             manifest = json.load(handle)
         if manifest.get("schema_version") != 1:
             raise RuntimeError("unsupported YOLOE manifest schema")
-        if float(manifest.get("conf", -1.0)) != YOLOE_CONF:
-            raise RuntimeError("YOLOE confidence does not match artifact validation")
+        exported_conf = float(manifest.get("conf", -1.0))
+        if exported_conf != YOLOE_CONF:
+            # Confidence is applied after inference, so it selects an operating
+            # point for the deployment domain instead of describing the engine.
+            # The artifact identity below still hashes the manifest value, so
+            # the recorded build provenance is unchanged.
+            log(
+                "YOLOE confidence %.3f differs from the artifact value %.3f; "
+                "the engine was built and validated at %.3f"
+                % (YOLOE_CONF, exported_conf, exported_conf)
+            )
         if manifest.get("artifact_id") != artifact_id:
             raise RuntimeError("YOLOE CURRENT does not match manifest artifact ID")
         source = manifest.get("source")

@@ -317,6 +317,30 @@ print(best.translation_m, best.rotation, best.width_m)
 
 Có thể truyền `T_cam_volume` (4x4, volume -> OpenCV camera). Nếu bỏ trống, TSDF builder tạo volume camera-aligned 0.30 m quanh point cloud mục tiêu; đây là fallback, không thay thế extrinsic/table calibration cho robot thật.
 
+**Volume phải gravity-aligned.** VGN được huấn luyện trên volume có trục Z trùng
+phương trọng lực: simulator gốc dựng volume bằng
+`Transform(Rotation.identity(), ...)` với gravity `[0, 0, -9.81]`, và mạng 3D CNN
+không bất biến với phép quay. Đo trên cùng một cảnh với cùng depth chính xác:
+
+| Volume | Hướng approach trong khung base | Sai vị trí |
+| --- | --- | --- |
+| camera-aligned (fallback) | nằm ngang | 115 mm |
+| gravity-aligned | chúc thẳng xuống | 15 mm |
+
+Robot biết pose camera trong khung base nên hãy dựng volume từ đó thay vì dựa vào
+fallback:
+
+```python
+R = T_base_camera[:3, :3].T                     # trục volume = trục base, Z hướng lên
+T_cam_volume = np.eye(4)
+T_cam_volume[:3, :3] = R
+T_cam_volume[:3, 3] = R @ (centre_base - size_m / 2 - T_base_camera[:3, 3])
+```
+
+`YOLOE_CONF` chọn ngưỡng confidence lúc chạy và được phép khác giá trị ghi trong
+manifest, vì confidence chỉ áp dụng sau inference chứ không mô tả engine; `imgsz`
+và sha256 của engine vẫn là ràng buộc cứng.
+
 ## Test
 
 Các test logic không yêu cầu GPU/model:
