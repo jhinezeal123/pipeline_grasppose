@@ -167,6 +167,19 @@ class PromptCatalogTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "unknown prompt ID"):
                 catalog.require("cube")
 
+    def test_runtime_confidence_may_differ_from_the_artifact(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _, _, checkpoint, _, current = self.make_artifact(root)
+            contexts = self.patched_catalog_paths(root, checkpoint, current)
+            with contexts[0], contexts[1], contexts[2], patch.object(
+                    prompt_catalog, "YOLOE_CONF", 0.05):
+                catalog = PromptCatalog.load(verify_engine=True)
+            # The artifact keeps the confidence it was built at; only the
+            # runtime operating point moves.
+            self.assertEqual(float(catalog.manifest["conf"]), 0.20)
+            self.assertEqual(catalog.require("blue_cube")["class_index"], 0)
+
     def test_worker_requires_parity_for_fp32_engine(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

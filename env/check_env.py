@@ -280,10 +280,8 @@ def main():
     artifacts = (
         ROOT / "model/yoloe-26s-seg.pt",
         ROOT / "mobileclip2_b.ts",
-        ROOT / "model/lite-mono/encoder.pth",
-        ROOT / "model/lite-mono/depth.pth",
+        ROOT / "model/da3metric_large/model.onnx",
         ROOT / "model/runtime/yoloe/CURRENT",
-        ROOT / "model/runtime/lite-mono/CURRENT",
         vgn_engine_path,
         vgn_manifest_path,
     )
@@ -353,34 +351,53 @@ print("YOLOE text-encoder preparation smoke: boxes=%d" % len(result.boxes))
 
     if not problems:
         try:
-            from grasppose.modules.depth.lite_mono import LiteMonoDepth
+            from grasppose.modules.depth.da3_metric import Da3MetricDepth
 
-            image = np.zeros((192, 640, 3), dtype=np.uint8)
+            # A structured synthetic frame rather than a blank one, so that a
+            # provider which silently returns a constant is actually caught.
+            ramp = np.linspace(40, 220, 256, dtype=np.float32)
+            image = np.repeat(ramp[None, :, None], 192, axis=0)
+            image = np.repeat(image, 3, axis=2)
+            image[40:150, 80:180] = 30.0
+            image = np.clip(image, 0, 255).astype(np.uint8)
             K = np.array(
-                [[500.0, 0.0, 320.0],
+                [[500.0, 0.0, 128.0],
                  [0.0, 500.0, 96.0],
                  [0.0, 0.0, 1.0]],
                 dtype=np.float64,
             )
-            smoke = LiteMonoDepth()
+            smoke = Da3MetricDepth()
             smoke.load()
             result = smoke.predict(image, camera_K=K)
             smoke.close()
-            if result.depth.shape != (192, 640):
+            if result.depth.shape != (192, 256):
                 raise RuntimeError(
                     "unexpected depth shape %r"
                     % (result.depth.shape,)
                 )
-            if not np.isfinite(result.depth).all():
+            if (not np.isfinite(result.depth).all()
+                    or np.any(result.depth <= 0)
+                    or np.any(result.depth > 200.0)):
                 raise RuntimeError(
-                    "Lite-Mono returned non-finite depth")
+                    "model output is not finite positive metric depth in [0, 200] m")
+            # The CUDA and TensorRT providers return one repeated value for this
+            # fp16 graph without raising, which downstream code cannot detect.
+            # A spatially constant map is therefore treated as a hard failure.
+            if float(np.std(result.depth)) <= 0.0:
+                raise RuntimeError(
+                    "depth map is spatially constant (%0.4f everywhere); the "
+                    "execution provider is not computing. Set DA3_PROVIDER="
+                    "CPUExecutionProvider" % float(result.depth.flat[0]))
             print(
-                "[OK] Lite-Mono CUDA smoke inference | depth:",
+                "[OK] Depth Anything 3 metric-large smoke | depth:",
                 result.depth.shape,
+                "| range %.3f..%.3f m | std %.4f"
+                % (float(result.depth.min()), float(result.depth.max()),
+                   float(np.std(result.depth))),
             )
         except Exception as exc:
             problems.append(
-                "Lite-Mono CUDA smoke inference failed: %s: %s"
+                "Depth Anything 3 metric-large smoke inference failed: %s: %s"
                 % (type(exc).__name__, exc)
             )
 

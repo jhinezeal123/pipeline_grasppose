@@ -31,9 +31,14 @@ class Yoloe26sVision(VisionPort):
                 "YOLOE engine is fixed at imgsz=%s; runtime requested %s"
                 % (engine.get("imgsz"), self.imgsz)
             )
-        if self.conf != float(self._catalog.manifest.get("conf", -1.0)):
-            raise RuntimeError(
-                "YOLOE confidence does not match artifact validation"
+        exported_conf = float(self._catalog.manifest.get("conf", -1.0))
+        if self.conf != exported_conf:
+            # Confidence is applied after inference, so it selects an operating
+            # point for the deployment domain rather than describing the engine.
+            # Only imgsz and the engine digest are engine properties.
+            log(
+                "YOLOE confidence %.3f differs from the export value %.3f; "
+                "using the runtime value" % (self.conf, exported_conf)
             )
         path = self.engine_path or (
             self._catalog.artifact_dir + "/" + engine["file"])
