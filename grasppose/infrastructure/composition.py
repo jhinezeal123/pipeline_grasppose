@@ -13,11 +13,18 @@ from .settings import (
 from ..modules.tsdf.projective import ProjectiveTSDFBuilder
 
 
-def build_default_pipeline():
-    """Wire concrete adapters to application ports in one place."""
+def build_default_pipeline(depth=None):
+    """Wire concrete adapters to application ports in one place.
+
+    ``depth`` is an injection seam, not a configuration option. Validation
+    harnesses that need to drive the pipeline with a supplied depth map -- the
+    MuJoCo ground-truth bridge, for instance -- pass a ``DepthPort`` here rather
+    than patching a concrete adapter. The production call site passes nothing
+    and gets the real model.
+    """
     return GraspPipeline(
         vision=Yoloe26sVision(),
-        depth=Da3MetricDepth(),
+        depth=Da3MetricDepth() if depth is None else depth,
         tsdf_builder=ProjectiveTSDFBuilder(
             size_m=TSDF_SIZE_M,
             resolution=TSDF_RESOLUTION,
