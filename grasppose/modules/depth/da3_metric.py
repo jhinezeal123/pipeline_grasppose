@@ -1,17 +1,22 @@
-"""Depth Anything 3 metric-large adapter, running the ONNX graph on the CPU.
+"""Depth Anything 3 metric-large adapter, running the ONNX graph on the GPU.
 
 The checkpoint predicts canonical depth through a 300-pixel reference camera,
 so metres come from one multiply by the feed focal length (upstream FAQ):
 
     metric = raw * focal_at_network_input / 300
 
-Two deliberate choices, both measured on this project's Jetson AGX Xavier:
+Three deliberate choices, all measured on this project's Jetson AGX Xavier:
 
-* The CPU provider is used by default. The TensorRT and CUDA providers return a
-  silent *constant* for this fp16 graph: every pixel 0.9741, identical for a
-  real photograph, a simulation frame, uniform grey and pure noise, with no
-  error raised. The CPU provider produces a real depth map (0.174-2.697 over
-  3610 distinct values).
+* The **fp32** export is used, never the fp16 one. For the fp16 graph both CUDA
+  and TensorRT return a silent spatial constant -- every pixel 0.9741, identical
+  for a photograph, a simulation frame, uniform grey and pure noise -- and raise
+  nothing. The official fp32 export of the same weights computes correctly on
+  CUDA and agrees with the CPU fp16 result at correlation 0.991.
+
+* The **CUDA** provider is used. On the fp32 graph it costs ~1.7 s per frame
+  against ~20 s on CPU, which is the difference between a usable and an unusable
+  control rate. A cudnn algorithm search must be named explicitly, or the
+  provider spends about 45 s per inference searching for one.
 
 * ``DA3_METRIC_SCALE`` corrects the upstream formula by an empirically measured
   factor. See the setting's comment: it is fitted on the simulation test bed and
@@ -26,6 +31,7 @@ import numpy as np
 from ...infrastructure.artifacts import verify_sha256
 from ...infrastructure.runtime import log
 from ...infrastructure.settings import (
+    DA3_CUDNN_ALGO_SEARCH,
     DA3_INPUT_SIZE,
     DA3_METRIC_SCALE,
     DA3_PROVIDER,
@@ -90,8 +96,19 @@ class Da3MetricDepth(DepthPort):
         options.graph_optimization_level = (
             ort.GraphOptimizationLevel.ORT_ENABLE_ALL)
         options.log_severity_level = 3
+
+        providers = [self.provider]
+        if self.provider == "CUDAExecutionProvider":
+            # Without a named algorithm search the CUDA provider runs an
+            # exhaustive cudnn search on every inference: ~45 s against ~1.7 s.
+            providers = [
+                (self.provider,
+                 {"cudnn_conv_algo_search": DA3_CUDNN_ALGO_SEARCH}),
+                "CPUExecutionProvider",
+            ]
+
         started = time.time()
-        session = ort.InferenceSession(path, options, providers=[self.provider])
+        session = ort.InferenceSession(path, options, providers=providers)
 
         self._session = session
         self._input_name = session.get_inputs()[0].name
@@ -101,8 +118,8 @@ class Da3MetricDepth(DepthPort):
                 "Depth Anything 3 graph has no 'depth' output: %s"
                 % self._output_names)
         log(
-            "Depth Anything 3 metric-large loaded on %s in %.2fs (input %s %s)"
-            % (self.provider, time.time() - started,
+            "Depth Anything 3 metric-large loaded in %.2fs (granted %s, input %s %s)"
+            % (time.time() - started, session.get_providers(),
                self._input_name, session.get_inputs()[0].shape)
         )
         return self

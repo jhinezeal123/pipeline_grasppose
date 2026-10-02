@@ -189,7 +189,7 @@ class EnvironmentTests(unittest.TestCase):
         )
         self.assertIn('YOLOE("model/yoloe-26s-seg.pt")', source)
         self.assertIn('model.set_classes(["person"])', source)
-        self.assertIn("model/da3metric_large/model_fp16.onnx", source)
+        self.assertIn("model/da3metric_large/model.onnx", source)
         # A provider that silently returns a constant depth map cannot be
         # detected downstream, so check_env must reject it explicitly.
         self.assertIn("depth map is spatially constant", source)

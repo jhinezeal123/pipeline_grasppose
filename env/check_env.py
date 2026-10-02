@@ -280,7 +280,7 @@ def main():
     artifacts = (
         ROOT / "model/yoloe-26s-seg.pt",
         ROOT / "mobileclip2_b.ts",
-        ROOT / "model/da3metric_large/model_fp16.onnx",
+        ROOT / "model/da3metric_large/model.onnx",
         ROOT / "model/runtime/yoloe/CURRENT",
         vgn_engine_path,
         vgn_manifest_path,

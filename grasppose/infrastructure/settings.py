@@ -31,11 +31,17 @@ DA3_MODEL_ID = "depth-anything/DA3METRIC-LARGE"
 DA3_MODEL_DIR = os.environ.get(
     "DA3_MODEL_DIR", os.path.join(MODEL_DIR, "da3metric_large")
 )
+# The fp32 export is used, not the fp16 one, and that is a correctness decision.
+# The fp16 graph returns a silent spatial constant on every GPU provider tried:
+# 0.9741 for every pixel, identical for a photograph, a simulation frame, uniform
+# grey and pure noise, with no error raised. The official fp32 export of the same
+# weights computes correctly on CUDA and agrees with the CPU fp16 result at
+# correlation 0.991.
 DA3_WEIGHTS = os.environ.get(
-    "DA3_WEIGHTS", os.path.join(DA3_MODEL_DIR, "model_fp16.onnx")
+    "DA3_WEIGHTS", os.path.join(DA3_MODEL_DIR, "model.onnx")
 )
 DA3_WEIGHTS_SHA256 = (
-    "aa3cd58f4033728a8078271b248a1f4622ffb0b64802d718514ffd8bddc54e0d"
+    "ba0fd3c613901450c60f29ca7be63512ff06d0b8cd1601a60f4918726ea1a9cb"
 )
 
 # The ONNX export has a fixed trace resolution: only the batch axis is dynamic,
@@ -43,11 +49,15 @@ DA3_WEIGHTS_SHA256 = (
 # into the graph. A different resolution requires re-running the exporter.
 DA3_INPUT_SIZE = int(os.environ.get("DA3_INPUT_SIZE", "504"))
 
-# CPU by default, and this is not a performance preference. The TensorRT and
-# CUDA providers return a silent constant for this fp16 graph: every pixel
-# 0.9741, identical for a real photograph, a simulation frame, uniform grey and
-# pure noise, with no error raised. The CPU provider yields a real depth map.
-DA3_PROVIDER = os.environ.get("DA3_PROVIDER", "CPUExecutionProvider")
+# CUDA by default. On the fp32 graph it costs ~1.7 s per frame against ~20 s on
+# the CPU provider, which is the difference between a usable and an unusable
+# control rate. Set DA3_PROVIDER=CPUExecutionProvider to compare against CPU.
+DA3_PROVIDER = os.environ.get("DA3_PROVIDER", "CUDAExecutionProvider")
+
+# Without an explicit cudnn algorithm search the CUDA provider falls back to an
+# exhaustive search that takes ~45 s per inference. Setting it also fixes the
+# provider's memory planning: with it the run drops to 1.6-2.1 s.
+DA3_CUDNN_ALGO_SEARCH = os.environ.get("DA3_CUDNN_ALGO_SEARCH", "HEURISTIC")
 
 # The upstream recipe converts canonical depth to metres as focal_px / 300.
 # Measured against the simulation test bed (8.7 million ground-truth pixels over
@@ -55,12 +65,18 @@ DA3_PROVIDER = os.environ.get("DA3_PROVIDER", "CPUExecutionProvider")
 # the held-out cube then lands within 7.4 mm mean and 14.1 mm worst error against
 # a 25 mm object, which is inside the graspable tolerance.
 #
+# The value is tied to the fp32 export. Fitted on the fp16 graph first (0.38951),
+# then transferred: the two graphs differ by a systematic 1.01097 factor over
+# 5.08M pixels at correlation 0.9999, and using the fp16 constant on fp32 cost
+# one end-to-end case out of ten. Re-derive it if the weights ever change.
+#
 # VALIDATION STATUS: fitted on simulated renders only. It has NOT been checked
 # against real-world ground truth, and the figure may absorb a domain gap in the
 # simulation rather than express a true camera constant. Re-measure before
 # trusting absolute distances on the physical cell. Set DA3_METRIC_SCALE=1.0 to
 # recover the unmodified upstream formula.
-DA3_METRIC_SCALE = float(os.environ.get("DA3_METRIC_SCALE", "0.38951"))
+DA3_METRIC_SCALE = float(os.environ.get("DA3_METRIC_SCALE", "0.39378"))
+
 
 TSDF_SIZE_M = float(os.environ.get("TSDF_SIZE_M", "0.30"))
 TSDF_RESOLUTION = int(os.environ.get("TSDF_RESOLUTION", "40"))
