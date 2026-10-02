@@ -23,10 +23,54 @@ def process_vgn(tsdf, quality, rotation, width, gaussian_sigma=1.0,
     return quality, rotation, width
 
 
+def refine_to_surface(tsdf, index, voxel_size, max_shift_voxels=4.0):
+    """Move a decoded voxel corner onto the TSDF zero crossing.
+
+    ``ProjectiveTSDFBuilder`` stores ``0.5 * (clip(signed / truncation, -1, 1)
+    + 1)`` and leaves unobserved voxels at 0.0, so 0.5 is the observed surface,
+    values above it are free space in front of the surface, values below it are
+    behind it, and 0.0 is never a surface sample. One Gauss-Newton step on that
+    field, with central differences for the gradient, puts the point where the
+    trilinear field equals 0.5.
+
+    ``max_shift_voxels`` bounds the step by the truncation band: the field is
+    proportional to the signed distance only within ``TSDF_TRUNC_VOXELS``
+    (4.0) voxels of the surface and saturates outside it, so a longer step is
+    not bracketed. The plain voxel corner is returned whenever the crossing is
+    not bracketed this close, the gradient is degenerate, or a sample is
+    unobserved or non-finite.
+    """
+    grid = np.asarray(tsdf, np.float32).squeeze()
+    index = np.asarray(index, np.int64).reshape(3)
+    corner = index.astype(np.float64) * float(voxel_size)
+    if np.any(index < 1) or np.any(index + 2 > grid.shape):
+        return corner
+    i, j, k = index
+    patch = np.asarray(
+        grid[i - 1:i + 2, j - 1:j + 2, k - 1:k + 2], np.float64)
+    if not np.all(np.isfinite(patch) & (patch > 0.0)):
+        return corner
+    centre = patch[1, 1, 1]
+    gradient = 0.5 * np.array([
+        patch[2, 1, 1] - patch[0, 1, 1],
+        patch[1, 2, 1] - patch[1, 0, 1],
+        patch[1, 1, 2] - patch[1, 1, 0],
+    ])
+    norm_sq = float(gradient @ gradient)
+    if norm_sq < 1e-12:
+        return corner
+    step = (0.5 - centre) / norm_sq * gradient
+    shift = float(np.linalg.norm(step))
+    if not np.all(np.isfinite(step)) or shift > max_shift_voxels:
+        return corner
+    return corner + step * float(voxel_size)
+
+
 def vgn_to_graspgroup(tsdf, quality, rotation, width, voxel_size,
                       T_cam_volume, threshold=0.90,
                       max_filter_size=4, max_grasps=128,
-                      gripper_height=0.02, grasp_depth=0.04):
+                      gripper_height=0.02, grasp_depth=0.04,
+                      refine_subvoxel=False):
     quality, rotation, width = process_vgn(
         tsdf, quality, rotation, width)
     quality[quality < float(threshold)] = 0.0
@@ -58,6 +102,9 @@ def vgn_to_graspgroup(tsdf, quality, rotation, width, voxel_size,
         )
         point_volume = np.array(
             [i, j, k], np.float64) * float(voxel_size)
+        if refine_subvoxel:
+            point_volume = refine_to_surface(
+                tsdf, (i, j, k), voxel_size)
 
         graspgroup[n, 0] = float(scores[n])
         graspgroup[n, 1] = (
