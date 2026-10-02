@@ -309,6 +309,7 @@ class ArchitectureTests(unittest.TestCase):
         self.assertNotIn("ultralytics", source)
         self.assertNotIn("tensorrt", source)
         self.assertNotIn("LiteMonoDepth", source)
+        self.assertNotIn("Da3MetricDepth", source)
         self.assertNotIn("Yoloe26sVision", source)
         self.assertNotIn("VgnTensorRT", source)
 

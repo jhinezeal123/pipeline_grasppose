@@ -1,6 +1,6 @@
 """Composition root for the production Jetson pipeline."""
 
-from ..modules.depth.lite_mono import LiteMonoDepth
+from ..modules.depth.da3_metric import Da3MetricDepth
 from ..modules.grasp.vgn_trt import VgnTensorRT
 from ..modules.vision.yoloe import Yoloe26sVision
 from ..application import GraspPipeline
@@ -17,7 +17,7 @@ def build_default_pipeline():
     """Wire concrete adapters to application ports in one place."""
     return GraspPipeline(
         vision=Yoloe26sVision(),
-        depth=LiteMonoDepth(),
+        depth=Da3MetricDepth(),
         tsdf_builder=ProjectiveTSDFBuilder(
             size_m=TSDF_SIZE_M,
             resolution=TSDF_RESOLUTION,
