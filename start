@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Cổng vào tương tác; model vẫn chạy trong environment riêng của worker.
+set -euo pipefail
+console_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$console_root"
+console_python="${GRASP_CONSOLE_PYTHON:-$console_root/.venv/bin/python}"
+if [[ ! -x "$console_python" ]]; then
+  if [[ -n "${GRASP_CONSOLE_PYTHON:-}" ]]; then
+    echo "Không tìm thấy Python: $console_python" >&2
+    exit 1
+  fi
+  console_python="$(command -v python3 || command -v python)"
+fi
+export PYTHONIOENCODING=utf-8
+exec "$console_python" -S -m apps.operator "$@"

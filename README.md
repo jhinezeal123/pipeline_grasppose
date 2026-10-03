@@ -3,6 +3,22 @@
 Repo này nhận ảnh RGB + camera calibration và trả các pose gắp 6DoF.
 `6DoF_Grasp` là consumer; pipeline không điều khiển robot.
 
+## Bắt đầu ở đây
+
+```bash
+./start
+```
+
+Chọn việc muốn làm; menu tiếng Việt hướng dẫn đầu vào, hiện điều kiện còn thiếu
+và lệnh tương ứng. Cấu hình nhập một lần rồi lưu trên máy. `:q` quay lại khi nhập.
+
+- `./start --list`: xem toàn bộ tính năng, không nạp model hoặc mở serial.
+- `./start --dry-run`: xem lệnh dự kiến, không chạy tác vụ hay ghi profile.
+- Menu có thử ảnh, UI Gradio, worker, đối tượng và chuẩn bị model.
+
+<details>
+<summary>Chi tiết kỹ thuật, API và triển khai</summary>
+
 Đọc [bản đồ code](docs/kien-truc-vi.md) và
 [review đủ 14 PR](docs/review-pr-vi.md) trước khi thay runtime.
 Thông tin JetPack, artifact/checksum, prompt preprocessing và benchmark nằm
@@ -136,3 +152,5 @@ Không fallback âm thầm giữa hai model. Biến phải có trong process kh�
 worker; đổi biến ở CLI không đổi model resident. DA3 scale `0.39378` vẫn chỉ
 fit simulation, cần kiểm chứng ground truth của camera thật. Xem
 [deployment Jetson](docs/deployment-jetson.md) về wheel, checksum, NumPy và smoke.
+
+</details>
