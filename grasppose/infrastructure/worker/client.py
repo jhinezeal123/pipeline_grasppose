@@ -5,7 +5,7 @@ import os
 from ...application.interface import GraspEstimator
 from ...application.types import EstimateResult, GraspPose
 from ..settings import RUNTIME_DIR
-from .rpc import WorkerError, infer_image, request_worker
+from .rpc import WorkerError as WorkerError, infer_image, request_worker as request_worker
 
 
 

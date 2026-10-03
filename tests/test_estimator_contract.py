@@ -1,4 +1,5 @@
 """Khóa thứ tự grasp, đơn vị và calibration trước khi tách service."""
+
 import unittest
 
 import numpy as np
@@ -16,7 +17,8 @@ class EstimatorContractTests(unittest.TestCase):
         rows[:, 13] = [0.1, 0.2, 0.3]
         result.grasp.graspgroup = rows
         estimate = LocalGraspEstimator(FixtureCore(result)).estimate(
-            image, "cube", camera_K=np.eye(3), max_width=0.08, top=2)
+            image, "cube", camera_K=np.eye(3), max_width=0.08, top=2
+        )
         self.assertEqual([g.score for g in estimate.grasps], [0.8, 0.4])
         self.assertEqual([g.translation_m[0] for g in estimate.grasps], [0.3, 0.1])
         self.assertEqual(estimate.grasp_count, 3)
@@ -27,8 +29,12 @@ class EstimatorContractTests(unittest.TestCase):
         image, result = fixture_result()
         core = FixtureCore(result)
         LocalGraspEstimator(core).estimate(
-            image, "cube", camera_K=[200., 200., 80., 60.],
-            camera_K_size=(160, 120), fov_y=60.)
+            image,
+            "cube",
+            camera_K=[200.0, 200.0, 80.0, 60.0],
+            camera_K_size=(160, 120),
+            fov_y=60.0,
+        )
         np.testing.assert_array_equal(core.last_kwargs["camera_K"], result.camera_K)
         expected = 2 * np.degrees(np.arctan(np.tan(np.radians(30)) * 80 / 60))
         self.assertEqual(core.last_kwargs["fov_x"], float(expected))

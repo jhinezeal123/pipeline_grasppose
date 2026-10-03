@@ -6,18 +6,13 @@ import signal
 import socketserver
 import sys
 import threading
-import time
 import traceback
-import uuid
-
-import numpy as np
-from PIL import Image
 
 from ..settings import RUNTIME_DIR, WORKER_PID, WORKER_SOCKET
 from ..composition import DEFAULT_ESTIMATOR, DEFAULT_PIPELINE
-from ..output.snapshot import ARRAY_NAMES, OutputSnapshot, SnapshotCache
+from ..output.snapshot import ARRAY_NAMES, SnapshotCache
 from ...modules.vision.prompt_catalog import PromptCatalog
-from ..runtime import log
+from .inference import WorkerInference, reject_inline_render
 
 
 class WorkerServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
@@ -42,19 +37,25 @@ class Handler(socketserver.StreamRequestHandler):
             request = json.loads(raw.decode("utf-8"))
             operation = request.get("op")
             if operation == "status":
-                self._respond({
-                    "ok": self.server.state == "ready",
-                    "state": self.server.state,
-                    "pid": os.getpid(),
-                    "prompt_ids": list(self.server.catalog.by_id)
-                    if self.server.catalog else [],
-                    "prompts": (
-                        [{"id": item["id"], "text": item["text"]}
-                         for item in self.server.catalog.prompts]
-                        if self.server.catalog else []
-                    ),
-                    "error": self.server.error,
-                })
+                self._respond(
+                    {
+                        "ok": self.server.state == "ready",
+                        "state": self.server.state,
+                        "pid": os.getpid(),
+                        "prompt_ids": list(self.server.catalog.by_id)
+                        if self.server.catalog
+                        else [],
+                        "prompts": (
+                            [
+                                {"id": item["id"], "text": item["text"]}
+                                for item in self.server.catalog.prompts
+                            ]
+                            if self.server.catalog
+                            else []
+                        ),
+                        "error": self.server.error,
+                    }
+                )
                 return
             if operation in ("snapshot_status", "snapshot"):
                 run_id = request.get("run_id")
@@ -64,16 +65,23 @@ class Handler(socketserver.StreamRequestHandler):
                 if operation == "snapshot_status":
                     self._respond({"ok": True, "run_id": run_id})
                 else:
-                    specs = [{
-                        "name": name,
-                        "dtype": str(getattr(snapshot, name).dtype),
-                        "shape": list(getattr(snapshot, name).shape),
-                        "nbytes": int(getattr(snapshot, name).nbytes),
-                    } for name in ARRAY_NAMES]
-                    self._respond({
-                        "ok": True, "run_id": run_id,
-                        "metadata": snapshot.metadata(), "arrays": specs,
-                    })
+                    specs = [
+                        {
+                            "name": name,
+                            "dtype": str(getattr(snapshot, name).dtype),
+                            "shape": list(getattr(snapshot, name).shape),
+                            "nbytes": int(getattr(snapshot, name).nbytes),
+                        }
+                        for name in ARRAY_NAMES
+                    ]
+                    self._respond(
+                        {
+                            "ok": True,
+                            "run_id": run_id,
+                            "metadata": snapshot.metadata(),
+                            "arrays": specs,
+                        }
+                    )
                     for name in ARRAY_NAMES:
                         array = getattr(snapshot, name)
                         if array.nbytes:
@@ -82,9 +90,7 @@ class Handler(socketserver.StreamRequestHandler):
                 return
             if operation == "stop":
                 self._respond({"ok": True, "state": "stopping"})
-                threading.Thread(
-                    target=self.server.shutdown, daemon=True
-                ).start()
+                threading.Thread(target=self.server.shutdown, daemon=True).start()
                 return
             if operation != "infer":
                 raise ValueError("unsupported worker operation")
@@ -95,73 +101,18 @@ class Handler(socketserver.StreamRequestHandler):
                 )
             self._respond(self._infer(request))
         except Exception as exc:
-            self._respond({
-                "ok": False,
-                "error": "%s: %s" % (type(exc).__name__, exc),
-            })
+            self._respond(
+                {
+                    "ok": False,
+                    "error": "%s: %s" % (type(exc).__name__, exc),
+                }
+            )
 
     def _infer(self, request):
-        if request.get("render", False):
-            raise ValueError(
-                "inline worker rendering is unavailable; request inference "
-                "then queue output with scripts/output.sh RUN_ID"
-            )
-        prompt_id = str(request.get("prompt_id", ""))
-        self.server.catalog.require(prompt_id)
-        image_path = request.get("image")
-        if not isinstance(image_path, str) or not os.path.isfile(image_path):
-            raise ValueError("input image does not exist: %r" % image_path)
-        profile = os.environ.get("GRASP_PROFILE_INFER") == "1"
-        started = time.perf_counter()
-        image_started = time.perf_counter()
-        image = np.asarray(Image.open(image_path).convert("RGB"))
-        if profile:
-            log("profile image decode %.3f s" % (
-                time.perf_counter() - image_started))
-        max_width = float(request.get("max_width", 0.080))
-        top = int(request.get("top", 1))
-        if max_width <= 0 or top < 1:
-            raise ValueError("top and max_width must be positive")
-        estimate, result = self.server.estimator.estimate_with_details(
-            image,
-            prompt_id=prompt_id,
-            camera_K=request.get("camera_k"),
-            camera_K_size=request.get("camera_k_size"),
-            fov_x=request.get("fov_x"),
-            fov_y=request.get("fov_y"),
-            max_width=max_width,
-            top=top,
-            T_cam_volume=request.get("T_cam_volume"),
-        )
-        snapshot = OutputSnapshot.capture(image, result, max_width, top)
-        run_id = self.server.snapshots.put(snapshot)
-        snapshot_available = run_id is not None
-        if run_id is None:
-            run_id = uuid.uuid4().hex
-        files = []
-        render_ms = None
-        grasp_poses = [{
-            "score": pose.score,
-            "width_m": pose.width_m,
-            "translation_m": list(pose.translation_m),
-            "rotation": [list(row) for row in pose.rotation],
-        } for pose in estimate.grasps]
-        elapsed_ms = (time.perf_counter() - started) * 1000.0
-        if profile:
-            log("profile worker total %.3f s" % (elapsed_ms / 1000.0))
-        return {
-            "ok": True,
-            "run_id": run_id,
-            "snapshot_available": snapshot_available,
-            "files": files,
-            "grasps": grasp_poses,
-            "depth_m": estimate.depth_m,
-            "detection_count": estimate.detection_count,
-            "mask_pixels": estimate.mask_pixels,
-            "grasp_count": estimate.grasp_count,
-            "server_ms": elapsed_ms,
-            "render_ms": render_ms,
-        }
+        reject_inline_render(request)
+        return WorkerInference(
+            self.server.estimator, self.server.catalog, self.server.snapshots
+        ).infer(request)
 
     def _respond(self, value):
         self.wfile.write(
@@ -187,9 +138,12 @@ def serve():
     lock_handle = open(lock_path, "w")
     try:
         import fcntl
+
         fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except (ImportError, BlockingIOError) as exc:
-        raise RuntimeError("another inference worker is already starting/running") from exc
+        raise RuntimeError(
+            "another inference worker is already starting/running"
+        ) from exc
 
     if os.path.lexists(WORKER_SOCKET):
         os.unlink(WORKER_SOCKET)
@@ -250,6 +204,7 @@ def serve():
 
 def main(argv=None):
     import argparse
+
     parser = argparse.ArgumentParser()
     parser.add_argument("command", choices=("serve",))
     parser.parse_args(argv)
