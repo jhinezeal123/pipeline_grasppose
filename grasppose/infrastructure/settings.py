@@ -90,6 +90,13 @@ VGN_CHECKPOINT = os.environ.get("VGN_CHECKPOINT", os.path.join(MODEL_DIR, "vgn_c
 VGN_MANIFEST = os.environ.get(
     "VGN_MANIFEST", os.path.join(MODEL_DIR, "runtime", "vgn.json"))
 VGN_QUAL_THRESHOLD = float(os.environ.get("VGN_QUAL_THRESHOLD", "0.90"))
+# The decoded VGN grasp point is a voxel corner on the TSDF lattice (7.5 mm at
+# the default 40^3 grid), so it can sit up to the truncation distance in front
+# of the real surface. Refining it onto the TSDF zero crossing via
+# grasppose.modules.grasp.vgn.refine_to_surface is opt-in: off by default, so
+# production behaviour is unchanged.
+VGN_SUBVOXEL_REFINE = os.environ.get(
+    "VGN_SUBVOXEL_REFINE", "0").strip().lower() in ("1", "true", "yes", "on")
 
 WORKER_SOCKET = os.environ.get(
     "GRASP_WORKER_SOCKET", os.path.join(RUNTIME_DIR, "worker.sock"))

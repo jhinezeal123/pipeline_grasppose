@@ -7,7 +7,13 @@ import time
 import numpy as np
 
 from ...infrastructure.artifacts import verify_sha256
-from ...infrastructure.settings import VGN_CHECKPOINT, VGN_ENGINE, VGN_MANIFEST, VGN_QUAL_THRESHOLD
+from ...infrastructure.settings import (
+    VGN_CHECKPOINT,
+    VGN_ENGINE,
+    VGN_MANIFEST,
+    VGN_QUAL_THRESHOLD,
+    VGN_SUBVOXEL_REFINE,
+)
 from .types import GraspResult
 from .vgn import vgn_to_graspgroup
 from .port import GraspPort
@@ -17,11 +23,15 @@ from ...infrastructure.runtime import log, release_attributes
 class VgnTensorRT(GraspPort):
     """Persistent TensorRT VGN engine supporting TRT 8.x and 10.x APIs."""
 
-    def __init__(self, engine_path=None, threshold=None):
+    def __init__(self, engine_path=None, threshold=None, refine_subvoxel=None):
         self.model_path = engine_path or VGN_ENGINE
         self.threshold = (
             VGN_QUAL_THRESHOLD if threshold is None
             else float(threshold)
+        )
+        self.refine_subvoxel = (
+            VGN_SUBVOXEL_REFINE if refine_subvoxel is None
+            else bool(refine_subvoxel)
         )
         self._engine = None
         self._context = None
@@ -94,6 +104,7 @@ class VgnTensorRT(GraspPort):
             tsdf.voxel_size,
             tsdf.T_cam_volume,
             threshold=self.threshold,
+            refine_subvoxel=self.refine_subvoxel,
         )
         return GraspResult(graspgroup=graspgroup)
 

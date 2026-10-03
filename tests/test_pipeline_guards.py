@@ -16,12 +16,58 @@ from grasppose.modules.depth.geometry import (
     scale_camera_intrinsics,
 )
 from grasppose.modules.tsdf.projective import ProjectiveTSDFBuilder
-from grasppose.modules.grasp.vgn import vgn_to_graspgroup
+from grasppose.modules.grasp.vgn import refine_to_surface, vgn_to_graspgroup
 from grasppose.application.service import LocalGraspEstimator
 from grasppose.presentation.rendering import hw_open_note
 import grasppose.infrastructure.runtime as runtime
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# Refinement fixtures: the production 40^3 grid of 7.5 mm voxels and the
+# TSDF_TRUNC_VOXELS=4.0 truncation the encoded field saturates at.
+VOXEL_SIZE = 0.0075
+TRUNCATION = 4.0 * VOXEL_SIZE
+CENTRE = np.full(3, 0.15)
+GRID_INDICES = np.indices((40, 40, 40)).reshape(3, -1).T
+CORNERS = GRID_INDICES * VOXEL_SIZE
+
+
+def encode_sdf(sdf):
+    """Encode a signed distance field the way ProjectiveTSDFBuilder does."""
+    encoded = 0.5 * (
+        np.clip(np.asarray(sdf) / TRUNCATION, -1.0, 1.0) + 1.0)
+    return encoded.astype(np.float32).reshape(40, 40, 40)
+
+
+def _plane_distance(points, normal, offset):
+    return (np.asarray(points).reshape(-1, 3) - CENTRE) @ normal - offset
+
+
+def _sphere_distance(points, radius):
+    return np.linalg.norm(
+        np.asarray(points).reshape(-1, 3) - CENTRE, axis=1) - radius
+
+
+def _interior_band(distance, margin_voxels=2.0):
+    """Lattice points whose whole 3x3x3 stencil is observed and unsaturated."""
+    interior = np.all((GRID_INDICES >= 1) & (GRID_INDICES <= 38), axis=1)
+    return np.flatnonzero(interior & (
+        np.abs(distance(CORNERS)) <= TRUNCATION - margin_voxels * VOXEL_SIZE))
+
+
+def _refine_errors(grid, distance, sample):
+    """Per-point (corner error, refined error, shift) in voxels."""
+    corner_error, refined_error, shift = [], [], []
+    for n in sample:
+        index = GRID_INDICES[n]
+        corner = index * VOXEL_SIZE
+        refined = refine_to_surface(grid, index, VOXEL_SIZE)
+        corner_error.append(distance(corner[None])[0])
+        refined_error.append(distance(refined[None])[0])
+        shift.append(np.linalg.norm(refined - corner))
+    return (np.abs(corner_error) / VOXEL_SIZE,
+            np.abs(refined_error) / VOXEL_SIZE,
+            np.array(shift) / VOXEL_SIZE)
 
 
 class GeometryTests(unittest.TestCase):
@@ -152,6 +198,124 @@ class VGNTests(unittest.TestCase):
         self.assertGreaterEqual(len(graspgroup), 1)
         self.assertAlmostEqual(
             graspgroup[0, 1], 0.0375, places=5)
+
+
+class SubVoxelRefineTests(unittest.TestCase):
+    def test_refined_point_lands_on_plane_surface(self):
+        normal = np.array([0.6, 0.5, 0.6234])
+        normal /= np.linalg.norm(normal)
+        offset = 0.4 * TRUNCATION
+        distance = lambda points: _plane_distance(points, normal, offset)
+        grid = encode_sdf(distance(CORNERS))
+        sample = _interior_band(distance)
+        self.assertGreater(len(sample), 1000)
+
+        corner, refined, shift = _refine_errors(grid, distance, sample)
+
+        # The lattice really is coarse here: up to two voxels away from the
+        # plane, and never exactly on it.
+        self.assertGreater(corner.max(), 1.9)
+        self.assertGreater(corner.min(), 0.0)
+        # A single Gauss-Newton step on the encoded field is exact for a plane.
+        self.assertLess(refined.max(), 0.02)
+        self.assertLessEqual(shift.max(), 4.0)
+
+    def test_refined_point_lands_on_sphere_surface(self):
+        radius = 5.0 * VOXEL_SIZE  # 37.5 mm, the scale of the reported cube
+        distance = lambda points: _sphere_distance(points, radius)
+        grid = encode_sdf(distance(CORNERS))
+        sample = _interior_band(distance)
+        self.assertGreater(len(sample), 1000)
+
+        corner, refined, shift = _refine_errors(grid, distance, sample)
+
+        self.assertGreater(corner.max(), 1.9)
+        # Curvature costs the one-step estimate some accuracy, but only a
+        # twentieth of a voxel (measured 0.043).
+        self.assertLess(refined.max(), 0.1)
+        self.assertLessEqual(shift.max(), 4.0)
+
+    def test_refinement_is_off_by_default(self):
+        surface = 21.5 * VOXEL_SIZE
+        distance = lambda points: (
+            surface - np.asarray(points).reshape(-1, 3)[:, 0])
+        tsdf = encode_sdf(distance(CORNERS))[None]
+        quality = np.zeros((40, 40, 40), np.float32)
+        quality[19, 20, 20] = 1.0
+        rotation = np.zeros((4, 40, 40, 40), np.float32)
+        rotation[3, ...] = 1.0
+        width = np.full((40, 40, 40), 5.0, np.float32)
+        args = (tsdf, quality, rotation, width, VOXEL_SIZE, np.eye(4))
+        corner = np.array([19, 20, 20]) * VOXEL_SIZE
+
+        default = vgn_to_graspgroup(*args, threshold=0.01)
+        self.assertEqual(len(default), 1)
+        np.testing.assert_array_equal(default[0, 13:16], corner)
+
+        refined = vgn_to_graspgroup(
+            *args, threshold=0.01, refine_subvoxel=True)
+        self.assertEqual(len(refined), 1)
+        point = refined[0, 13:16]
+        self.assertLess(
+            abs(float(distance(point[None])[0])), 0.02 * VOXEL_SIZE)
+        self.assertGreater(
+            np.linalg.norm(point - corner), 2.0 * VOXEL_SIZE)
+        self.assertLessEqual(
+            np.linalg.norm(point - corner), 4.0 * VOXEL_SIZE)
+
+    def test_degenerate_and_out_of_range_refuse_to_move(self):
+        corner = np.array([5, 6, 7]) * VOXEL_SIZE
+        for grid in (
+            np.zeros((40, 40, 40), np.float32),        # unobserved everywhere
+            np.full((40, 40, 40), 0.7, np.float32),    # flat: no gradient
+            np.full((40, 40, 40), np.nan, np.float32),
+            np.full((40, 40, 40), np.inf, np.float32),
+        ):
+            refined = refine_to_surface(grid, (5, 6, 7), VOXEL_SIZE)
+            np.testing.assert_array_equal(refined, corner)
+            self.assertTrue(np.all(np.isfinite(refined)))
+
+        plane = encode_sdf(
+            _plane_distance(CORNERS, np.array([1.0, 0, 0]), 0.1))
+        for index in ((0, 0, 0), (39, 39, 39), (-1, 5, 5), (5, 5, 99)):
+            refined = refine_to_surface(plane, index, VOXEL_SIZE)
+            np.testing.assert_array_equal(
+                refined, np.array(index, np.float64) * VOXEL_SIZE)
+            self.assertTrue(np.all(np.isfinite(refined)))
+
+        # One unobserved voxel in the stencil is enough to refuse the step.
+        holed = plane.copy()
+        holed[6, 6, 8] = 0.0
+        np.testing.assert_array_equal(
+            refine_to_surface(holed, (5, 6, 7), VOXEL_SIZE), corner)
+
+    def test_shift_bound_is_enforced(self):
+        index = np.array([5, 6, 7])
+        corner = index * VOXEL_SIZE
+
+        # A shallow gradient predicts a crossing thousands of voxels away.
+        shallow = 0.9 + 1e-4 * np.arange(40, dtype=np.float32)
+        np.testing.assert_array_equal(
+            refine_to_surface(
+                np.broadcast_to(shallow, (40, 40, 40)).copy(),
+                index, VOXEL_SIZE),
+            corner)
+
+        two_voxels = encode_sdf(
+            (index[0] + 2.0) * VOXEL_SIZE - CORNERS[:, 0])
+        refined = refine_to_surface(two_voxels, index, VOXEL_SIZE)
+        self.assertAlmostEqual(
+            np.linalg.norm(refined - corner) / VOXEL_SIZE, 2.0, places=6)
+        np.testing.assert_array_equal(
+            refine_to_surface(
+                two_voxels, index, VOXEL_SIZE, max_shift_voxels=1.0),
+            corner)
+
+        # Beyond the truncation band the field saturates and says nothing.
+        saturated = encode_sdf(
+            (index[0] + 4.5) * VOXEL_SIZE - CORNERS[:, 0])
+        np.testing.assert_array_equal(
+            refine_to_surface(saturated, index, VOXEL_SIZE), corner)
 
 
 class RuntimeCleanupTests(unittest.TestCase):
