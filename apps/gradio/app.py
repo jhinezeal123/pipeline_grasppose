@@ -10,6 +10,7 @@ from PIL import Image
 
 from grasppose.infrastructure.worker.client import WorkerGraspEstimator, request_worker
 from grasppose.infrastructure.output.control import start as start_output, wait as wait_output
+from apps.camera_settings import CameraSettings
 
 ESTIMATOR = WorkerGraspEstimator()
 
@@ -20,22 +21,11 @@ OUTPUT_DIR = os.environ.get("OUTPUT_DIR", os.path.join(ROOT, "artifacts", "outpu
 
 
 def _camera_k():
-    values = os.environ.get("CAMERA_K", "").split()
-    if not values:
-        return None
-    if len(values) != 4:
-        raise ValueError("CAMERA_K must contain FX FY CX CY")
-    fx, fy, cx, cy = map(float, values)
-    return [fx, fy, cx, cy]
+    return CameraSettings().matrix()
 
 
 def _camera_k_size():
-    values = os.environ.get("CAMERA_K_SIZE", "").replace(",", " ").split()
-    if not values:
-        return None
-    if len(values) != 2:
-        raise ValueError("CAMERA_K_SIZE must contain WIDTH HEIGHT")
-    return [int(value) for value in values]
+    return CameraSettings().size()
 
 
 def prompt_choices():
