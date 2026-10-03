@@ -5,59 +5,15 @@ from dataclasses import replace
 from pathlib import Path
 
 from .config import ProfileStore
-from .tasks import Tasks
+from .tasks import FEATURES, Tasks
 from .terminal import Back, CommandRunner, Terminal
-
-FEATURES = (
-    ("status", "Kiểm tra trạng thái", "Xem Python, worker và cấu hình đang chọn."),
-    (
-        "infer",
-        "Tìm pose gắp trên một ảnh",
-        "Chọn ảnh, đối tượng và camera; nhận pose cùng ảnh chẩn đoán.",
-    ),
-    (
-        "ui",
-        "Mở giao diện xem ảnh",
-        "Gradio: tải ảnh, chọn đối tượng, xem mask/depth/grasp.",
-    ),
-    (
-        "prompts",
-        "Đối tượng có thể nhận diện",
-        "Xem bộ ID đã chuẩn bị; tùy chọn build bộ mới.",
-    ),
-    (
-        "worker",
-        "Khởi động / dừng worker",
-        "Model nạp một lần; đổi cấu hình cần khởi động lại.",
-    ),
-    (
-        "configure",
-        "Thiết lập camera và runtime",
-        "Lưu K, resolution, socket, backend, confidence, port UI.",
-    ),
-    (
-        "prepare",
-        "Chuẩn bị môi trường và model",
-        "Cần Jetson Xavier đúng stack; tải/cài artifact đã pin.",
-    ),
-    (
-        "output",
-        "Xem kết quả lần chạy trước",
-        "Xuất hoặc đợi bốn ảnh chẩn đoán của RUN_ID.",
-    ),
-    (
-        "benchmark",
-        "Đo thời gian inference (nâng cao)",
-        "Đo trên ảnh/đối tượng/camera bạn chọn; cần worker.",
-    ),
-)
 
 
 def main(argv=None, terminal=None):
     parser = argparse.ArgumentParser(
         description="Menu perception tiếng Việt. Chạy ./start; :q để quay lại khi nhập dữ liệu."
     )
-    parser.add_argument("action", nargs="?", choices=[f[0] for f in FEATURES])
+    parser.add_argument("action", nargs="?", choices=list(FEATURES))
     parser.add_argument(
         "--list", action="store_true", help="xem toàn bộ tính năng, không nạp model"
     )
@@ -72,7 +28,7 @@ def main(argv=None, terminal=None):
     root = Path(__file__).resolve().parents[2]
     if args.list:
         view.say("PIPELINE — các công việc có thể làm")
-        for key, title, summary in FEATURES:
+        for key, (title, summary, _) in FEATURES.items():
             view.say(f"./start {key} — {title}\n  {summary}")
         return 0
     try:
@@ -102,15 +58,15 @@ def main(argv=None, terminal=None):
                 selected = view.choose(
                     "Bạn muốn làm gì?",
                     {
-                        str(i + 1): f"{item[1]} [{tasks.availability(item[0])}]"
-                        for i, item in enumerate(FEATURES)
+                        str(i + 1): f"{title} [{tasks.availability(action)}]"
+                        for i, (action, (title, _, _)) in enumerate(FEATURES.items())
                     },
                 )
                 if selected is None:
                     return 0
-                key = FEATURES[int(selected) - 1][0]
+                key = list(FEATURES)[int(selected) - 1]
             try:
-                view.say(next(f[2] for f in FEATURES if f[0] == key))
+                view.say(FEATURES[key][1])
                 getattr(tasks, key)()
             except Back:
                 view.say("Đã quay lại.")

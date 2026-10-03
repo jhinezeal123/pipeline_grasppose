@@ -6,12 +6,14 @@ Luồng chính: `GraspEstimator.estimate()` → chuẩn hóa input →
 | Việc cần hiểu/sửa | File sở hữu trách nhiệm |
 | --- | --- |
 | API dùng từ 6DoF hoặc ứng dụng khác | `grasppose/api.py`, `application/interface.py`, `application/types.py` |
+| Danh mục/menu tác vụ | `apps/operator/tasks.py`: `FEATURES` khai báo tên, mô tả và điều kiện; `console.py` chỉ lo menu |
 | Đọc ảnh, kiểm tra request, scale K/FOV | `application/input.py` — `EstimateInput` |
 | Trình tự vision → depth → TSDF → grasp | `application/grasp_pipeline.py` — `GraspPipeline` |
 | Lifecycle và kết quả public | `application/service.py` — `LocalGraspEstimator` |
-| Lọc width, sắp score, chọn top | `application/selection.py` — `GraspSelector` |
+| Lọc width, sắp score, chọn top | `application/selection.py` — hàm `select_grasps`; `GraspSelector` là shim tương thích |
 | Chọn implementation thật | `infrastructure/composition.py` |
 | Vision/depth/TSDF/grasp và port tương ứng | `modules/vision`, `modules/depth`, `modules/tsdf`, `modules/grasp` |
+| Contract vision/depth tại một nơi | `modules/{vision,depth}/types.py`; `port.py` giữ đường import cũ |
 | Nhận một request, gọi estimator, giữ snapshot, tạo JSON | `infrastructure/worker/inference.py` — `WorkerInference` |
 | Unix socket, framing, status/stop/snapshot, lifecycle process | `infrastructure/worker/server.py` |
 | RPC nhẹ cho CLI | `infrastructure/worker/rpc.py` |

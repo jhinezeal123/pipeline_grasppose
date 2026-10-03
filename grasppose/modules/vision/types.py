@@ -1,5 +1,6 @@
-"""Data contracts for the vision feature."""
+"""Port and data contracts for the vision feature."""
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -46,3 +47,21 @@ class SegmentationResult:
 class VisionResult:
     detection: DetectionResult
     segmentation: SegmentationResult
+
+
+class VisionPort(ABC):
+    @abstractmethod
+    def load(self):
+        raise NotImplementedError
+
+    @abstractmethod
+    def predict(self, image, prompt_id):
+        """Return VisionResult for one frame."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def close(self):
+        raise NotImplementedError
+
+# Giữ identity/pickle của đường import đã công khai.
+VisionPort.__module__ = "grasppose.modules.vision.port"

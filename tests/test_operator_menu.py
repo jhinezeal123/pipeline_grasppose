@@ -304,6 +304,24 @@ class OperatorMenuTests(unittest.TestCase):
         rpc.assert_not_called()
         self.assertIn("dry-run", self.output.getvalue())
 
+    def test_readiness_labels_keep_their_priority(self):
+        task = self.tasks()
+        expected = {
+            "status": "có thể mở", "infer": "cần worker", "ui": "cần worker",
+            "prompts": "cần worker", "worker": "có thể mở", "configure": "có thể mở",
+            "prepare": "cần Jetson Xavier", "output": "chưa có lượt chạy",
+            "benchmark": "cần worker",
+        }
+        self.assertEqual({key: task.availability(key) for key in expected}, expected)
+        task.profile = replace(task.profile, camera_k="", camera_k_size="")
+        for key in ("infer", "ui", "benchmark"):
+            expected[key] = "cần camera K"
+        self.assertEqual({key: task.availability(key) for key in expected}, expected)
+        (self.root / ".venv/bin/python").unlink()
+        for key in ("infer", "ui", "prompts", "worker", "output", "benchmark"):
+            expected[key] = "cần môi trường"
+        self.assertEqual({key: task.availability(key) for key in expected}, expected)
+
     def test_child_interrupt_keeps_exit_130(self):
         out = io.StringIO()
         with patch.object(Tasks, "status", side_effect=KeyboardInterrupt):

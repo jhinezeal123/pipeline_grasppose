@@ -16,8 +16,7 @@ from ...infrastructure.settings import (
     LITEMONO_WEIGHTS,
 )
 from .geometry import resolve_camera_intrinsics
-from .types import DepthResult
-from .port import DepthPort
+from .types import DepthPort, DepthResult
 from ...infrastructure.runtime import log
 from ...infrastructure.tensorrt.engine import TensorRTEngine
 

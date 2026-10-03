@@ -39,8 +39,7 @@ from ...infrastructure.settings import (
     DA3_WEIGHTS_SHA256,
 )
 from .geometry import resolve_camera_intrinsics
-from .port import DepthPort
-from .types import DepthResult
+from .types import DepthPort, DepthResult
 
 # ImageNet statistics, as required by the upstream preprocessing recipe.
 _MEAN = np.array([0.485, 0.456, 0.406], np.float32)
