@@ -60,6 +60,8 @@ class Tasks:
         )
 
     def probe(self):
+        if self.runner.dry_run:
+            return None
         try:
             return request_worker(
                 {"op": "status"}, timeout=2, socket_path=self.profile.socket
@@ -96,6 +98,9 @@ class Tasks:
         )
         self.view.say(f"Socket: {self.profile.socket}")
         self.view.say(f"Profile: {self.store.path}")
+        if self.runner.dry_run:
+            self.view.say("Worker: chưa kiểm tra trong dry-run.")
+            return
         status = self.probe()
         if status is None:
             self.view.say("Worker chưa sẵn sàng — chọn Khởi động / dừng worker.")

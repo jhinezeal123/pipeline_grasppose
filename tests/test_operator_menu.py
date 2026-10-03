@@ -84,7 +84,7 @@ class OperatorMenuTests(unittest.TestCase):
 
     def test_eof_and_bad_choice_do_not_start_any_task(self):
         out = io.StringIO()
-        with patch("apps.operator.terminal.subprocess.run") as run, patch(
+        with patch("apps.operator.terminal.CommandRunner._execute") as run, patch(
             "apps.operator.tasks.request_worker"
         ) as rpc:
             self.assertEqual(
@@ -147,7 +147,7 @@ class OperatorMenuTests(unittest.TestCase):
         with patch.object(task, "probe", return_value=READY), patch.object(
             task, "worker_environment", return_value=None
         ), patch(
-            "apps.operator.terminal.subprocess.run", return_value=self.response()
+            "apps.operator.terminal.CommandRunner._execute", return_value=self.response()
         ) as run:
             task.infer()
         (argv,) = run.call_args.args
@@ -174,7 +174,7 @@ class OperatorMenuTests(unittest.TestCase):
         with patch.object(task, "probe", return_value=READY), patch.object(
             task, "worker_environment", return_value=None
         ), patch(
-            "apps.operator.terminal.subprocess.run", side_effect=[self.response(), job]
+            "apps.operator.terminal.CommandRunner._execute", side_effect=[self.response(), job]
         ) as run:
             task.infer()
         self.assertIn("--render", run.call_args_list[0].args[0])
@@ -184,7 +184,7 @@ class OperatorMenuTests(unittest.TestCase):
     def test_dry_run_never_forks_probes_or_writes_profile(self):
         before = self.store.path.read_bytes()
         task = self.tasks(str(self.image) + "\ncube\nn\n", dry=True)
-        with patch("apps.operator.terminal.subprocess.run") as run, patch(
+        with patch("apps.operator.terminal.CommandRunner._execute") as run, patch(
             "apps.operator.tasks.request_worker"
         ) as rpc:
             task.infer()
@@ -196,7 +196,7 @@ class OperatorMenuTests(unittest.TestCase):
     def test_missing_worker_can_be_declined_without_starting_process(self):
         task = self.tasks("n\n")
         with patch.object(task, "probe", return_value=None), patch(
-            "apps.operator.terminal.subprocess.run"
+            "apps.operator.terminal.CommandRunner._execute"
         ) as run, self.assertRaises(Back):
             task.ensure_worker()
         run.assert_not_called()
@@ -206,7 +206,7 @@ class OperatorMenuTests(unittest.TestCase):
         with patch.object(task, "probe", side_effect=[None, READY]), patch.object(
             task, "worker_environment", return_value=None
         ), patch(
-            "apps.operator.terminal.subprocess.run",
+            "apps.operator.terminal.CommandRunner._execute",
             return_value=subprocess.CompletedProcess([], 0),
         ) as run:
             self.assertEqual(task.ensure_worker(), READY)
@@ -222,7 +222,7 @@ class OperatorMenuTests(unittest.TestCase):
             "worker_environment",
             return_value={"YOLOE_CONF": "0.05", "GRASP_DEPTH_BACKEND": "da3"},
         ), patch(
-            "apps.operator.terminal.subprocess.run",
+            "apps.operator.terminal.CommandRunner._execute",
             return_value=subprocess.CompletedProcess([], 0),
         ) as run:
             task.ensure_worker()
@@ -233,7 +233,7 @@ class OperatorMenuTests(unittest.TestCase):
         task = self.tasks("n\n")
         with patch.object(task, "probe", return_value=READY), patch.object(
             task, "worker_environment", return_value={"YOLOE_CONF": "0.05"}
-        ), patch("apps.operator.terminal.subprocess.run") as run, self.assertRaises(
+        ), patch("apps.operator.terminal.CommandRunner._execute") as run, self.assertRaises(
             Back
         ):
             task.ensure_worker()
@@ -244,7 +244,7 @@ class OperatorMenuTests(unittest.TestCase):
         task.profile = replace(task.profile, confidence=0.05)
         before = dict(os.environ)
         with patch(
-            "apps.operator.terminal.subprocess.run",
+            "apps.operator.terminal.CommandRunner._execute",
             return_value=subprocess.CompletedProcess([], 0),
         ) as run:
             task.worker()
@@ -254,7 +254,7 @@ class OperatorMenuTests(unittest.TestCase):
     def test_output_failure_and_child_exit_are_not_reported_as_success(self):
         task = self.tasks("a" * 32 + "\n")
         with patch(
-            "apps.operator.terminal.subprocess.run",
+            "apps.operator.terminal.CommandRunner._execute",
             return_value=subprocess.CompletedProcess([], 2, "", "snapshot expired"),
         ), self.assertRaisesRegex(RuntimeError, "mã 2"):
             task.output()
@@ -265,7 +265,7 @@ class OperatorMenuTests(unittest.TestCase):
         with patch.object(task, "probe", return_value=READY), patch.object(
             task, "worker_environment", return_value=None
         ), patch(
-            "apps.operator.terminal.subprocess.run",
+            "apps.operator.terminal.CommandRunner._execute",
             return_value=subprocess.CompletedProcess([], 0),
         ) as run:
             task.benchmark()
@@ -284,6 +284,26 @@ class OperatorMenuTests(unittest.TestCase):
             )
         self.assertIn("worker error", out.getvalue())
 
+    def test_root_back_exits_without_running_a_task(self):
+        out = io.StringIO()
+        with patch("apps.operator.terminal.CommandRunner._execute") as run, patch(
+            "apps.operator.tasks.request_worker"
+        ) as rpc:
+            self.assertEqual(main(
+                ["--config", str(self.store.path)], Terminal(io.StringIO(":q\n"), out)
+            ), 0)
+        run.assert_not_called()
+        rpc.assert_not_called()
+        self.assertIn("Đã thoát menu", out.getvalue())
+
+    def test_status_dry_run_never_contacts_worker(self):
+        task = self.tasks(dry=True)
+        with patch("apps.operator.tasks.request_worker") as rpc:
+            task.status()
+            self.assertIsNone(task.probe())
+        rpc.assert_not_called()
+        self.assertIn("dry-run", self.output.getvalue())
+
     def test_child_interrupt_keeps_exit_130(self):
         out = io.StringIO()
         with patch.object(Tasks, "status", side_effect=KeyboardInterrupt):
@@ -296,7 +316,7 @@ class OperatorMenuTests(unittest.TestCase):
             )
         task = self.tasks()
         with patch(
-            "apps.operator.terminal.subprocess.run",
+            "apps.operator.terminal.CommandRunner._execute",
             return_value=subprocess.CompletedProcess([], 130, "", ""),
         ), self.assertRaises(KeyboardInterrupt):
             task.runner.run(["fake"])
