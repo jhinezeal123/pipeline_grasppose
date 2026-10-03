@@ -13,28 +13,15 @@ if ROOT not in sys.path:
 
 from grasppose.infrastructure.worker.rpc import WorkerError, infer_image
 from grasppose.modules.grasp.constants import GRIP_MAX_OPEN_M
+from apps.camera_settings import CameraSettings
 
 
 def _camera_k(args):
-    values = args.camera_k
-    if values is None:
-        configured = os.environ.get("CAMERA_K", "").split()
-        if configured:
-            if len(configured) != 4:
-                raise ValueError("CAMERA_K must contain FX FY CX CY")
-            values = [float(value) for value in configured]
-    return values
+    return CameraSettings().matrix(args.camera_k)
 
 
 def _camera_k_size(args):
-    values = args.camera_k_size
-    if values is None:
-        configured = os.environ.get("CAMERA_K_SIZE", "").replace(",", " ").split()
-        if configured:
-            if len(configured) != 2:
-                raise ValueError("CAMERA_K_SIZE must contain WIDTH HEIGHT")
-            values = [int(value) for value in configured]
-    return values
+    return CameraSettings().size(args.camera_k_size)
 
 
 def main(argv=None):
