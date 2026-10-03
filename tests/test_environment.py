@@ -189,7 +189,8 @@ class EnvironmentTests(unittest.TestCase):
         )
         self.assertIn('YOLOE("model/yoloe-26s-seg.pt")', source)
         self.assertIn('model.set_classes(["person"])', source)
-        self.assertIn("model/da3metric_large/model.onnx", source)
+        # Depth weights now follow the selected backend. Their actual paths
+        # and both smoke checks are covered by test_depth_backend.py.
         # A provider that silently returns a constant depth map cannot be
         # detected downstream, so check_env must reject it explicitly.
         self.assertIn("depth map is spatially constant", source)

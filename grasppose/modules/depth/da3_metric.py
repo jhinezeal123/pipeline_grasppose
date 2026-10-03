@@ -109,14 +109,19 @@ class Da3MetricDepth(DepthPort):
 
         started = time.time()
         session = ort.InferenceSession(path, options, providers=providers)
-
-        self._session = session
-        self._input_name = session.get_inputs()[0].name
-        self._output_names = [output.name for output in session.get_outputs()]
-        if "depth" not in self._output_names:
+        active = session.get_providers()
+        if self.provider not in active:
+            raise RuntimeError(
+                "requested provider %s did not activate; session has %s"
+                % (self.provider, active))
+        output_names = [output.name for output in session.get_outputs()]
+        if "depth" not in output_names:
             raise RuntimeError(
                 "Depth Anything 3 graph has no 'depth' output: %s"
-                % self._output_names)
+                % output_names)
+        self._session = session
+        self._input_name = session.get_inputs()[0].name
+        self._output_names = output_names
         log(
             "Depth Anything 3 metric-large loaded in %.2fs (granted %s, input %s %s)"
             % (time.time() - started, session.get_providers(),

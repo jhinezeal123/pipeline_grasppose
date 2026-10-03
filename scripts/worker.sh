@@ -118,7 +118,7 @@ start_worker() {
   nohup "$PYTHON" -m grasppose.infrastructure.worker.server serve >> "$LOG_FILE" 2>&1 < /dev/null 9>&- &
   pid="$!"
   printf '%s\n' "$pid" > "$PID_FILE"
-  echo "Starting worker and warming YOLOE, Lite-Mono, and VGN ..."
+  echo "Starting worker and warming YOLOE, depth, and VGN ..."
   wait_for_worker
 }
 

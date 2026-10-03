@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from grasppose.infrastructure.artifacts import atomic_write_json, sha256_file
+from grasppose.infrastructure.settings import DEPTH_BACKEND
 
 BUNDLES = {
     "yoloe-26s-cube-trt-fp32": {
@@ -357,9 +358,13 @@ def main(argv=None):
     parser.add_argument("--install-root", default=str(ROOT))
     parser.add_argument("--archive-dir", default=None,
                         help="use local release bundles for offline verification")
+    parser.add_argument("--depth-backend", choices=("da3", "lite-mono"),
+                        default=DEPTH_BACKEND)
     args = parser.parse_args(argv)
     records = read_dependencies(args.dependencies)
     for name in BUNDLES:
+        if name == "lite-mono-trt-fp32" and args.depth_backend != "lite-mono":
+            continue
         record = records.get(name)
         if record is None:
             raise RuntimeError("missing %s from dependencies" % name)

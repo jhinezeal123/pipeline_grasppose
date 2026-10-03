@@ -14,10 +14,14 @@ RGB → YOLOE mask → depth → cloud → TSDF → VGN → `EstimateResult`.
 Composition ở `grasppose/infrastructure/composition.py`. Model resident được
 nạp/warmup một lần trong worker; render ảnh chẩn đoán ở process riêng.
 
-Ở nền `c417fd0`, depth mặc định là **DA3 metric-large**. Bootstrap hiện vẫn
-chuẩn bị Lite-Mono, chưa tải DA3/cài ONNX Runtime. Refactor giữ nguyên sự lựa
-chọn này; việc hoàn thiện bootstrap DA3 nằm trong PR sau. Không coi test CPU
-xanh là bằng chứng cài mới hoặc inference Jetson đã chạy được.
+Depth mặc định vẫn là **DA3 metric-large FP32/CUDA** như #13. Bootstrap tải
+graph ở revision cố định, kiểm SHA-256 và cài wheel ONNX Runtime GPU NVIDIA
+đúng Python 3.8/aarch64; không thay stack JetPack. Preflight chạy depth thật,
+chặn CPU fallback toàn session và depth hằng. Người dùng đã đối chứng code
+deployed và code sau PR trên Jetson: e2e 10/10 với `--volume gravity` và
+`YOLOE_CONF=0.05`, latency chênh khoảng 2%. Xem lệnh tái lập và giới hạn volume
+ground-truth trong [run book](docs/deployment-jetson.md#volume-extrinsic-và-confidence).
+Phép đo này không thay cho nghiệm thu clean bootstrap hoặc camera/robot thật.
 
 ## Nơi tìm code
 
@@ -46,6 +50,12 @@ Pin và SHA checkout worker thực tế là hai thông tin khác nhau; ghi cả 
 triển khai. Đợt refactor không tự đổi pin hoặc server đang chạy.
 
 ## Worker và inference
+
+Trên Jetson đúng target, chuẩn bị graph/runtime/engine rồi khởi động worker:
+
+```bash
+bash scripts/prepare.sh
+```
 
 Với checkout có đầy đủ dependency/artifact tương ứng:
 
@@ -109,3 +119,20 @@ python -m tests.test_app
 CI chạy Python 3.8/3.12, không cần GPU. Full GPU inference, TensorRT parity và
 depth metric phải kiểm chứng trên Jetson. Refactor và thay hành vi nằm trong
 **hai PR khác nhau**; chia commit trong một diff chưa đủ.
+
+## Backend depth thử nghiệm
+
+`GRASP_DEPTH_BACKEND=lite-mono bash scripts/prepare.sh` chỉ chuẩn bị backend
+Lite-Mono cùng YOLOE/VGN. Khi chạy worker, truyền cùng biến môi trường:
+
+```bash
+GRASP_DEPTH_BACKEND=lite-mono bash scripts/worker.sh restart
+# Trở lại mặc định DA3:
+bash scripts/prepare.sh
+GRASP_DEPTH_BACKEND=da3 bash scripts/worker.sh restart
+```
+
+Không fallback âm thầm giữa hai model. Biến phải có trong process khởi động
+worker; đổi biến ở CLI không đổi model resident. DA3 scale `0.39378` vẫn chỉ
+fit simulation, cần kiểm chứng ground truth của camera thật. Xem
+[deployment Jetson](docs/deployment-jetson.md) về wheel, checksum, NumPy và smoke.
