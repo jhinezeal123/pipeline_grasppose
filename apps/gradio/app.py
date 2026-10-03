@@ -89,31 +89,31 @@ def build_ui():
         return gr.update(choices=current, value=current[0][1])
     with gr.Blocks(title="Jetson grasp pipeline") as demo:
         gr.Markdown(
-            "# YOLOE TensorRT → Lite-Mono TensorRT → TSDF → VGN TensorRT\n"
-            "Chọn prompt ID đã được chuẩn bị trước; inference không nhận prompt tự do."
+            "# Tìm đối tượng và pose gắp trên ảnh\n"
+            "Chọn ảnh và đối tượng đã được chuẩn bị. Pose gắp ở khung camera."
         )
         with gr.Row():
             with gr.Column():
-                input_image = gr.Image(type="numpy", label="Anh dau vao")
+                input_image = gr.Image(type="numpy", label="Ảnh đầu vào")
                 input_prompt = gr.Dropdown(
                     choices=choices,
                     value=choices[0][1],
-                    label="Prompt ID",
+                    label="Đối tượng cần tìm",
                 )
-                refresh = gr.Button("Lam moi prompts")
-                submit = gr.Button("Submit", variant="primary")
+                refresh = gr.Button("Làm mới đối tượng")
+                submit = gr.Button("Tìm pose gắp", variant="primary")
             with gr.Column():
                 output_depth = gr.Number(
-                    label="Do sau vat (m)", precision=3)
+                    label="Độ sâu vật (m)", precision=3)
                 output_status = gr.Textbox(
-                    label="Trang thai", interactive=False, lines=3)
+                    label="Kết quả", interactive=False, lines=3)
 
         with gr.Row():
-            output_box = gr.Image(label="1. YOLOE box", interactive=False)
-            output_mask = gr.Image(label="2. YOLOE mask", interactive=False)
+            output_box = gr.Image(label="1. Vị trí đối tượng", interactive=False)
+            output_mask = gr.Image(label="2. Vùng đối tượng", interactive=False)
             output_depthmap = gr.Image(
-                label="3. Lite-Mono depth", interactive=False)
-            output_grasp = gr.Image(label="4. VGN grasp", interactive=False)
+                label="3. Độ sâu", interactive=False)
+            output_grasp = gr.Image(label="4. Pose gắp", interactive=False)
 
         demo.load(refresh_prompt_dropdown, outputs=input_prompt)
         refresh.click(refresh_prompt_dropdown, outputs=input_prompt)
