@@ -1,20 +1,3 @@
-"""Vision contract: RGB + prepared prompt ID -> detections and target mask."""
+"""Compatibility import; contract nằm cùng Result trong types.py."""
 
-from abc import ABC, abstractmethod
-
-from .types import VisionResult
-
-
-class VisionPort(ABC):
-    @abstractmethod
-    def load(self):
-        raise NotImplementedError
-
-    @abstractmethod
-    def predict(self, image, prompt_id):
-        """Return VisionResult for one frame."""
-        raise NotImplementedError
-
-    @abstractmethod
-    def close(self):
-        raise NotImplementedError
+from .types import VisionPort as VisionPort, VisionResult as VisionResult

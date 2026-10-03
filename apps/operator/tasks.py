@@ -10,6 +10,55 @@ from grasppose.infrastructure.worker.rpc import WorkerError, request_worker
 
 from .terminal import Back
 
+# Một nơi khai báo action → (tên, mô tả, điều kiện sẵn sàng).
+FEATURES = {
+    "status": (
+        "Kiểm tra trạng thái",
+        "Xem Python, worker và cấu hình đang chọn.",
+        "có thể mở",
+    ),
+    "infer": (
+        "Tìm pose gắp trên một ảnh",
+        "Chọn ảnh, đối tượng và camera; nhận pose cùng ảnh chẩn đoán.",
+        "camera",
+    ),
+    "ui": (
+        "Mở giao diện xem ảnh",
+        "Gradio: tải ảnh, chọn đối tượng, xem mask/depth/grasp.",
+        "camera",
+    ),
+    "prompts": (
+        "Đối tượng có thể nhận diện",
+        "Xem bộ ID đã chuẩn bị; tùy chọn build bộ mới.",
+        "catalogue",
+    ),
+    "worker": (
+        "Khởi động / dừng worker",
+        "Model nạp một lần; đổi cấu hình cần khởi động lại.",
+        "python",
+    ),
+    "configure": (
+        "Thiết lập camera và runtime",
+        "Lưu K, resolution, socket, backend, confidence, port UI.",
+        "có thể mở",
+    ),
+    "prepare": (
+        "Chuẩn bị môi trường và model",
+        "Cần Jetson Xavier đúng stack; tải/cài artifact đã pin.",
+        "cần Jetson Xavier",
+    ),
+    "output": (
+        "Xem kết quả lần chạy trước",
+        "Xuất hoặc đợi bốn ảnh chẩn đoán của RUN_ID.",
+        "output",
+    ),
+    "benchmark": (
+        "Đo thời gian inference (nâng cao)",
+        "Đo trên ảnh/đối tượng/camera bạn chọn; cần worker.",
+        "camera",
+    ),
+}
+
 
 class Tasks:
     def __init__(self, root, store, view, runner):
@@ -17,20 +66,16 @@ class Tasks:
         self.profile = store.load()
 
     def availability(self, action):
-        if action in ("status", "configure"):
-            return "có thể mở"
-        if action == "prepare":
-            return "cần Jetson Xavier"
+        needs = FEATURES.get(action, (None, None, "python"))[2]
+        if needs in ("có thể mở", "cần Jetson Xavier"):
+            return needs
         if not os.access(str(self.root / ".venv/bin/python"), os.X_OK):
             return "cần môi trường"
-        if action == "output":
+        if needs == "output":
             return "có RUN_ID" if self.profile.last_run else "chưa có lượt chạy"
-        if action in ("infer", "ui", "benchmark") and not self.profile.camera_k:
+        if needs == "camera" and not self.profile.camera_k:
             return "cần camera K"
-        if (
-            action in ("infer", "ui", "prompts", "benchmark")
-            and not Path(self.profile.socket).exists()
-        ):
+        if needs in ("camera", "catalogue") and not Path(self.profile.socket).exists():
             return "cần worker"
         return "có thể mở"
 

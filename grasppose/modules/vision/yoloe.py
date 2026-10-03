@@ -6,7 +6,7 @@ import numpy as np
 
 from ...infrastructure.settings import YOLOE_ARTIFACT_ROOT, YOLOE_CONF, YOLOE_IMGSZ, YOLOE_MODEL
 from .types import DetectionResult, SegmentationResult, VisionResult
-from .port import VisionPort
+from .types import VisionPort
 from .prompt_catalog import PromptCatalog
 from ...infrastructure.runtime import log, release_attributes
 

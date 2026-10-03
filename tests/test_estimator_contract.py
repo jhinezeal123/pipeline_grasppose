@@ -9,6 +9,22 @@ from tests.test_output_runtime import FixtureCore, fixture_result
 
 
 class EstimatorContractTests(unittest.TestCase):
+    def test_existing_selector_object_can_still_override_the_default(self):
+        from unittest.mock import Mock
+
+        from grasppose.application.selection import GraspSelector
+
+        image, result = fixture_result()
+        expected = GraspSelector().select(result.grasp.graspgroup, 0.08, 1)
+        selector = Mock()
+        selector.select.return_value = expected
+        estimate = LocalGraspEstimator(FixtureCore(result), selector=selector).estimate(
+            image, "cube", camera_K=np.eye(3), max_width=0.08, top=1
+        )
+        self.assertEqual(estimate.grasps, expected)
+        selector.select.assert_called_once()
+        self.assertEqual(selector.select.call_args.args[1:], (0.08, 1))
+
     def test_selection_preserves_width_boundary_score_order_and_plain_floats(self):
         image, result = fixture_result()
         rows = np.repeat(result.grasp.graspgroup, 3, axis=0)

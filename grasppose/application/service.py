@@ -5,7 +5,7 @@ import numpy as np
 from .interface import GraspEstimator
 from .types import EstimateResult
 from .input import EstimateInput, _camera_matrix as _camera_matrix
-from .selection import GraspSelector
+from .selection import select_grasps
 
 
 class LocalGraspEstimator(GraspEstimator):
@@ -13,7 +13,7 @@ class LocalGraspEstimator(GraspEstimator):
 
     def __init__(self, pipeline, selector=None):
         self._pipeline = pipeline
-        self._selector = GraspSelector() if selector is None else selector
+        self._selector = selector
 
     def load(self):
         self._pipeline.load()
@@ -74,7 +74,11 @@ class LocalGraspEstimator(GraspEstimator):
             T_cam_volume=request.T_cam_volume,
         )
         grasps = np.asarray(result.grasp.graspgroup, np.float64).reshape(-1, 17)
-        poses = self._selector.select(grasps, max_width, top)
+        poses = (
+            select_grasps(grasps, max_width, top)
+            if self._selector is None
+            else self._selector.select(grasps, max_width, top)
+        )
         estimate = EstimateResult(
             grasps=poses,
             depth_m=result.depth_m,

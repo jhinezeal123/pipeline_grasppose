@@ -1,5 +1,6 @@
-"""Data contracts for depth estimation."""
+"""Port and data contracts for depth estimation."""
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
 
@@ -23,3 +24,21 @@ class DepthResult:
             scale=1.0,
             reason=reason,
         )
+
+
+class DepthPort(ABC):
+    @abstractmethod
+    def load(self):
+        raise NotImplementedError
+
+    @abstractmethod
+    def predict(self, image, camera_K=None, fov_x=None):
+        """Return DepthResult for one frame."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def close(self):
+        raise NotImplementedError
+
+# Giữ identity/pickle của đường import đã công khai.
+DepthPort.__module__ = "grasppose.modules.depth.port"
