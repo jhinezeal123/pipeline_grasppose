@@ -20,6 +20,12 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from grasppose.infrastructure.composition import build_depth
+from grasppose.infrastructure.settings import (
+    DEPTH_BACKEND, DA3_WEIGHTS, LITEMONO_WEIGHTS, LITEMONO_CURRENT_FILE,
+)
+from scripts.setup.prepare_da3 import da3_records, check_ort_runtime
+
 ENV = ROOT / ".venv"
 
 REQUIRED = (
@@ -57,6 +63,54 @@ def _mem_total_gib():
     except Exception:
         pass
     return None
+
+
+def depth_artifacts(backend=None):
+    selected = DEPTH_BACKEND if backend is None else backend
+    if selected == "lite-mono":
+        return (Path(LITEMONO_WEIGHTS) / "encoder.pth",
+                Path(LITEMONO_WEIGHTS) / "depth.pth", Path(LITEMONO_CURRENT_FILE))
+    if selected == "da3":
+        return (Path(DA3_WEIGHTS),)
+    raise ValueError("unknown depth backend: %r" % selected)
+
+
+def depth_smoke(backend=None):
+    """Preflight chạy chính backend đã chọn; không bắt DA3 khi dùng Lite-Mono."""
+    selected = DEPTH_BACKEND if backend is None else backend
+    if selected == "da3":
+        ramp = np.linspace(40, 220, 256, dtype=np.float32)
+        image = np.repeat(ramp[None, :, None], 192, axis=0)
+        image = np.repeat(image, 3, axis=2)
+        image[40:150, 80:180] = 30.0
+        image = np.clip(image, 0, 255).astype(np.uint8)
+    elif selected == "lite-mono":
+        image = np.zeros((192, 640, 3), dtype=np.uint8)
+    else:
+        raise ValueError("unknown depth backend: %r" % selected)
+    height, width = image.shape[:2]
+    K = np.array([[500., 0., width / 2.], [0., 500., height / 2.], [0., 0., 1.]],
+                 dtype=np.float64)
+    smoke = build_depth(selected)
+    try:
+        smoke.load()
+        result = smoke.predict(image, camera_K=K)
+    finally:
+        smoke.close()
+    if result.depth.shape != (height, width):
+        raise RuntimeError("unexpected depth shape %r" % (result.depth.shape,))
+    if not np.isfinite(result.depth).all():
+        raise RuntimeError("depth returned non-finite distances")
+    if selected == "da3":
+        if np.any(result.depth <= 0) or np.any(result.depth > 200.):
+            raise RuntimeError("model output is not positive metric depth in [0, 200] m")
+        if float(np.std(result.depth)) <= 0.:
+            raise RuntimeError("DA3 depth map is spatially constant; provider is not computing")
+    print("[OK] %s depth smoke | shape:" % selected, result.depth.shape,
+          "| range %.3f..%.3f m | std %.4f" % (
+              float(result.depth.min()), float(result.depth.max()),
+              float(np.std(result.depth))))
+    return result
 
 
 def main():
@@ -97,7 +151,8 @@ def main():
         )
 
     modules = {}
-    for name in REQUIRED:
+    required = REQUIRED + (("onnxruntime",) if DEPTH_BACKEND == "da3" else ())
+    for name in required:
         try:
             module = importlib.import_module(name)
             modules[name] = module
@@ -108,6 +163,13 @@ def main():
         except Exception as exc:
             print("[--] %-12s %s" % (name, exc))
             problems.append("missing/broken %s: %s" % (name, exc))
+
+    if DEPTH_BACKEND == "da3" and "onnxruntime" in modules:
+        try:
+            _, wheel = da3_records()
+            check_ort_runtime(modules["onnxruntime"], wheel)
+        except (RuntimeError, ValueError, KeyError) as exc:
+            problems.append("DA3 ONNX Runtime validation failed: %s" % exc)
 
     target_versions = {
         "ultralytics": "8.4.140",
@@ -280,11 +342,11 @@ def main():
     artifacts = (
         ROOT / "model/yoloe-26s-seg.pt",
         ROOT / "mobileclip2_b.ts",
-        ROOT / "model/da3metric_large/model.onnx",
         ROOT / "model/runtime/yoloe/CURRENT",
         vgn_engine_path,
         vgn_manifest_path,
     )
+    artifacts += depth_artifacts()
     for path in artifacts:
         ok = path.is_file() and path.stat().st_size > 0
         print("[%s] %s" % ("OK" if ok else "--", path))
@@ -351,55 +413,10 @@ print("YOLOE text-encoder preparation smoke: boxes=%d" % len(result.boxes))
 
     if not problems:
         try:
-            from grasppose.modules.depth.da3_metric import Da3MetricDepth
-
-            # A structured synthetic frame rather than a blank one, so that a
-            # provider which silently returns a constant is actually caught.
-            ramp = np.linspace(40, 220, 256, dtype=np.float32)
-            image = np.repeat(ramp[None, :, None], 192, axis=0)
-            image = np.repeat(image, 3, axis=2)
-            image[40:150, 80:180] = 30.0
-            image = np.clip(image, 0, 255).astype(np.uint8)
-            K = np.array(
-                [[500.0, 0.0, 128.0],
-                 [0.0, 500.0, 96.0],
-                 [0.0, 0.0, 1.0]],
-                dtype=np.float64,
-            )
-            smoke = Da3MetricDepth()
-            smoke.load()
-            result = smoke.predict(image, camera_K=K)
-            smoke.close()
-            if result.depth.shape != (192, 256):
-                raise RuntimeError(
-                    "unexpected depth shape %r"
-                    % (result.depth.shape,)
-                )
-            if (not np.isfinite(result.depth).all()
-                    or np.any(result.depth <= 0)
-                    or np.any(result.depth > 200.0)):
-                raise RuntimeError(
-                    "model output is not finite positive metric depth in [0, 200] m")
-            # The CUDA and TensorRT providers return one repeated value for this
-            # fp16 graph without raising, which downstream code cannot detect.
-            # A spatially constant map is therefore treated as a hard failure.
-            if float(np.std(result.depth)) <= 0.0:
-                raise RuntimeError(
-                    "depth map is spatially constant (%0.4f everywhere); the "
-                    "execution provider is not computing. Set DA3_PROVIDER="
-                    "CPUExecutionProvider" % float(result.depth.flat[0]))
-            print(
-                "[OK] Depth Anything 3 metric-large smoke | depth:",
-                result.depth.shape,
-                "| range %.3f..%.3f m | std %.4f"
-                % (float(result.depth.min()), float(result.depth.max()),
-                   float(np.std(result.depth))),
-            )
+            depth_smoke()
         except Exception as exc:
-            problems.append(
-                "Depth Anything 3 metric-large smoke inference failed: %s: %s"
-                % (type(exc).__name__, exc)
-            )
+            problems.append("%s depth smoke inference failed: %s: %s"
+                            % (DEPTH_BACKEND, type(exc).__name__, exc))
 
     # Deserialize and execute the exact TensorRT engine once. This verifies
     # the 8.5.x API path, engine compatibility and CUDA execution on sm_72.

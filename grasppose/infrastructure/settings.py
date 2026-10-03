@@ -6,6 +6,9 @@ HERE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 MODEL_DIR = os.environ.get("MODEL_DIR", os.path.join(HERE, "model"))
 RUNTIME_DIR = os.environ.get("GRASP_RUNTIME_DIR", os.path.join(HERE, ".runtime"))
 
+# DA3 giữ nguyên mặc định của #13; Lite-Mono chỉ chọn explicit để thử nghiệm.
+DEPTH_BACKEND = os.environ.get("GRASP_DEPTH_BACKEND", "da3")
+
 YOLOE_MODEL = os.environ.get("YOLOE_MODEL", os.path.join(MODEL_DIR, "yoloe-26s-seg.pt"))
 YOLOE_TEXT_ENCODER = os.environ.get(
     "YOLOE_TEXT_ENCODER", os.path.join(HERE, "mobileclip2_b.ts"))

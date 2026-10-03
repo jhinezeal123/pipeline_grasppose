@@ -3,11 +3,11 @@
 Tài liệu này giữ lại kiến thức deployment từ README trước refactor
 (`main@c417fd0`). Code và lệnh trong bước refactor vẫn giữ nguyên hành vi.
 
-**Trạng thái ở bước 1:** #13 đã chọn DA3 FP32/CUDA làm depth mặc định, nhưng
-`prepare.sh` cũ chỉ chuẩn bị Lite-Mono. Clean checkout chưa đủ graph/ONNX
-Runtime cho DA3. PR bước 2 sẽ sửa bootstrap, không đổi lựa chọn mặc định.
-Những bundle Lite-Mono dưới đây vẫn cần cho backend thử nghiệm; chúng không
-thay cho graph DA3. Không suy diễn benchmark Lite-Mono thành benchmark DA3.
+**Bước 2 hoàn thiện deployment:** giữ DA3 FP32/CUDA mặc định của #13 và bổ sung
+graph/ONNX Runtime còn thiếu ở bootstrap. `GRASP_DEPTH_BACKEND=lite-mono` chọn
+backend thử nghiệm, không phải fallback ngầm. Những bundle Lite-Mono dưới đây
+chỉ được chuẩn bị khi chọn backend đó. Không suy diễn benchmark Lite-Mono
+thành benchmark DA3. Native CUDA smoke vẫn cần chạy trên Jetson khi triển khai.
 
 ## Hardware target
 
@@ -36,7 +36,8 @@ bằng checksum trong manifest. Worker từ chối mọi manifest YOLOE không c
 FP32 hoặc thiếu bản ghi full-pipeline parity đạt ngưỡng.
 
 Lite-Mono dùng TensorRT FP32 engine tĩnh 192x640 gồm encoder và decoder.
-`scripts/prepare.sh` tải YOLOE `cube`, Lite-Mono và VGN đã build trên AGX Xavier
+Khi chọn Lite-Mono, `scripts/prepare.sh` tải thêm bundle Lite-Mono. YOLOE `cube`
+và VGN luôn dùng bundle đã build trên AGX Xavier
 L4T R35.6.4 / TensorRT 8.5.2.2 từ các URL cùng SHA-256 trong `dependencies`.
 Gói VGN chứa cả engine và checkpoint; cả ba được cài trong chính checkout đang
 chạy. Nó kiểm tra checksum weights, profile, engine và manifest trước khi kích
@@ -64,7 +65,7 @@ TensorRT khác.
 - Torch/torchvision/NumPy/SciPy trong venv không bị thay khỏi host versions;
 - CUDA torchvision NMS hoạt động;
 - TensorRT 8.5.2.2 khớp các engine đã đóng gói;
-- YOLOE checkpoint, MobileCLIP source, Lite-Mono TensorRT artifact và VGN engine/manifest đầy đủ;
+- YOLOE checkpoint, MobileCLIP source, artifact của depth đã chọn và VGN engine/manifest đầy đủ;
 - chạy YOLOE text-encoder preparation smoke trong subprocess sạch, dùng `ultralytics/assets/bus.jpg` + prompt `person` và bắt buộc có ít nhất một box;
 - chạy inference thật của depth adapter đang được composition chọn;
 - deserialize và chạy một VGN TensorRT dummy inference thật.
@@ -107,10 +108,11 @@ bash scripts/prepare.sh
 ```
 
 Script tạo `.venv`, cài dependency tương thích JetPack, tải YOLOE/MobileCLIP
-và Lite-Mono weights, rồi tải các bundle TensorRT FP32 đã kiểm tra từ GitHub
-Release theo URL/SHA-256 trong `dependencies`. Bundle YOLOE chứa đúng prompt
-ID/text `cube`/`cube`; Lite-Mono chứa encoder + decoder 192x640. Script không build lại engine phát hành; nó kiểm tra VGN và chạy các
-preflight inference ở cuối. Không xóa
+và chuẩn bị depth đã chọn. Mặc định tải graph DA3 FP32 và wheel ONNX Runtime
+NVIDIA từ URL/SHA-256 trong `dependencies`; chỉ khi chọn `lite-mono` mới tải
+source/weights/bundle Lite-Mono. Bundle YOLOE chứa đúng prompt ID/text
+`cube`/`cube`; Lite-Mono chứa encoder + decoder 192x640. Script không build lại
+engine phát hành; nó kiểm tra VGN và chạy preflight inference ở cuối. Không xóa
 hoặc thay Torch, CUDA hay package hệ thống của JetPack. Bundle chỉ dùng được
 trên AGX Xavier L4T R35.6.4 / TensorRT 8.5.2.2; môi trường khác cần build
 engine riêng trên thiết bị đích.
@@ -258,6 +260,31 @@ T_cam_volume[:3, 3] = R @ (centre_base - size_m / 2 - T_base_camera[:3, 3])
 manifest, vì confidence chỉ áp dụng sau inference chứ không mô tả engine; `imgsz`
 và sha256 của engine vẫn là ràng buộc cứng.
 
+Để tái lập simulation gate 10/10 của 6DoF với depth do DA3 tính:
+
+```bash
+cd /workspace/6DoF_Grasp/grasp_pipeline_repo
+GRASP_DEPTH_BACKEND=da3 YOLOE_CONF=0.05 bash scripts/worker.sh restart
+cd /workspace/6DoF_Grasp
+MUJOCO_GL=egl .venv/bin/python tools/sim_grasp_validation.py \
+  --mode all --volume gravity --depth-source worker \
+  --socket /workspace/6DoF_Grasp/grasp_pipeline_repo/.runtime/worker.sock \
+  --photo .local_data/private/cam2.jpg
+```
+
+Worker đang tắt có thể dùng `start`; worker đã chạy cần `restart` để áp dụng
+backend/confidence mới. Script không tự đặt ngưỡng `0.05`, nên cần giữ biến này
+trong lệnh khởi động hoặc cấu hình service. Trên phép đối chứng do người dùng
+chạy ở Jetson, mặc định `auto` cho 0/10; volume `gravity` với confidence `0.20`
+cho 6/10; `gravity` với `0.05` cho 10/10 ở cả code deployed và code sau PR.
+Không thay các mặc định này trong bản vá run book.
+
+Harness dựng volume `gravity` từ pose camera và **tâm vật thể ground-truth**.
+10/10 kiểm chuỗi perception → TSDF → VGN → IK → thực thi vật lý với volume đó;
+chưa chứng minh robot thật tự định vị được volume. Ghi SHA hai checkout, biến
+môi trường và tham số harness cùng report; pin consumer không thay cho SHA
+của worker thật.
+
 
 ## Số đo depth và giới hạn kiểm chứng
 
@@ -276,3 +303,53 @@ Pipeline và 6DoF dùng hai environment khác nhau. Ghi SHA checkout của worke
 thật cùng pin consumer và calibration; pin metadata của 6DoF không tự chứng
 minh process worker đang chạy cùng SHA. Sau khi đổi code/model/artifact, restart
 worker; biến môi trường ở CLI không thay worker resident đã chạy.
+
+## DA3 graph và ONNX Runtime đã pin
+
+| Artifact | Pin |
+| --- | --- |
+| DA3 graph FP32 | Hugging Face revision `159aa982e543db46b672e196d3658f1d39a258b6`, file `model.onnx`, 1.337.201.123 byte |
+| Graph SHA-256 | `ba0fd3c613901450c60f29ca7be63512ff06d0b8cd1601a60f4918726ea1a9cb`, giữ nguyên từ #13 |
+| ONNX Runtime | Wheel NVIDIA Jetson Zoo `onnxruntime_gpu-1.16.0-cp38-cp38-linux_aarch64.whl` |
+| Wheel SHA-256 | `44c82c33c41a0670702c67af1f1425002d57f66d5efb971b35e86067d0e971d9` |
+| Target | Python 3.8/aarch64, CUDA 11.x/cuDNN 8; toàn pipeline vẫn khóa Xavier L4T R35.6.4/CUDA 11.4/TensorRT 8.5.2.2 |
+
+Nguồn wheel: [NVIDIA xác nhận wheel và checksum MD5](https://forums.developer.nvidia.com/t/cant-install-onnxruntime-on-jetpack-5-1-2/277379).
+Đợt sửa này đã tải wheel thật, đối chiếu MD5 `a50941a48fbd216da67be82a5314ee5f`
+và tính SHA-256 trên bytes tải về. Metadata có tag `cp38-cp38-linux_aarch64`;
+CUDA library của wheel liên kết `libcudart.so.11.0`, `libcudnn.so.8` và
+`libcublas.so.11`. Đây là kiểm tra file, chưa phải native execution trên Xavier.
+Graph lấy đúng [revision nguồn](https://huggingface.co/Heliosoph/da3metric-large-onnx/tree/159aa982e543db46b672e196d3658f1d39a258b6);
+LFS SHA/size khớp adapter, graph IR=8 và opset=17. Không tải graph FP16.
+
+**NumPy:** wheel NVIDIA khai báo `numpy>=1.24.4` trong metadata, còn target của
+repo giữ NumPy 1.23.5. Installer dùng `--no-deps` để không cho pip thay host,
+và requirements pin các dependency khác của ORT. Đây là lựa chọn có chủ ý theo
+[hướng dẫn JetPack 5 của Ultralytics](https://docs.ultralytics.com/guides/nvidia-jetson/#run-on-jetpack-512),
+vốn yêu cầu đưa NumPy về 1.23.5 sau khi cài ORT. Không sửa metadata wheel hay
+nâng NumPy/Torch âm thầm; `pip check` có thể báo xung đột NumPy này.
+Import, version/provider và inference DA3 thật là **gate bắt buộc** trong
+`env/check_env.py`; nếu native runtime không hoạt động, prepare báo lỗi, không
+fallback sang CPU/Lite-Mono và không tuyên bố environment đã sẵn sàng.
+
+`prepare_da3.py` kiểm hash cả file có sẵn. Download vào file tạm cùng filesystem,
+chỉ rename sau khi hash đúng; lỗi download/hash không kích hoạt file tải dở.
+`DA3_WEIGHTS` đổi vị trí lưu graph nhưng không đổi pin/hash. Wheel chỉ cài trong
+venv Python 3.8/aarch64; không dùng wheel CUDA 12/cuDNN 9 hoặc package CPU từ
+PyPI thay cho build Jetson này. Dependency khác nằm trong requirements với
+constraints bảo vệ host Torch/torchvision/NumPy/SciPy.
+
+Khi chuẩn bị và nghiệm thu trên Xavier:
+
+```bash
+bash scripts/prepare.sh
+.venv/bin/python env/check_env.py
+GRASP_DEPTH_BACKEND=da3 bash scripts/worker.sh restart
+```
+
+Preflight phải thấy ORT 1.16.0 và `CUDAExecutionProvider`. Adapter kiểm provider
+thực đã được native session kích hoạt, không chỉ danh sách provider của package.
+DA3 smoke kiểm shape, giá trị hữu hạn/dương và map không hằng; YOLOE/VGN giữ các
+gate hiện có. Sau đó chạy lại simulation gate của 6DoF trên **depth-source worker**,
+ảnh/K/extrinsic/calibration đúng, ghi SHA hai checkout và latency. Không dùng
+unit test hoặc import/provider list để thay thế lần chạy này.

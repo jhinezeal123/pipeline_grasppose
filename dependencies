@@ -1,5 +1,27 @@
 # Edge pipeline model/source dependencies.
 
+# DA3 FP32 graph at an immutable Hugging Face revision; matches #13 weights.
+NAME = da3metric-large-fp32
+KIND = onnx
+URL = https://huggingface.co/Heliosoph/da3metric-large-onnx/resolve/159aa982e543db46b672e196d3658f1d39a258b6/model.onnx
+SHA256 = ba0fd3c613901450c60f29ca7be63512ff06d0b8cd1601a60f4918726ea1a9cb
+DEST = model/da3metric_large/model.onnx
+REVISION = 159aa982e543db46b672e196d3658f1d39a258b6
+PRECISION = fp32
+---
+# NVIDIA Jetson Zoo wheel. Source and checksum provenance: deployment-jetson.md.
+NAME = onnxruntime-gpu-jetson
+KIND = wheel
+URL = https://nvidia.box.com/shared/static/iizg3ggrtdkqawkmebbfixo7sce6j365.whl
+SHA256 = 44c82c33c41a0670702c67af1f1425002d57f66d5efb971b35e86067d0e971d9
+FILENAME = onnxruntime_gpu-1.16.0-cp38-cp38-linux_aarch64.whl
+VERSION = 1.16.0
+PYTHON = 3.8
+ARCH = aarch64
+CUDA = 11.4
+CUDNN = 8
+---
+
 # YOLOE-26s checkpoint is resolved by Ultralytics during prepare.sh.
 NAME = yoloe-26s-seg
 KIND = url

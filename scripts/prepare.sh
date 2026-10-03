@@ -6,6 +6,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 mkdir -p model artifacts/output
 
+export GRASP_DEPTH_BACKEND="${GRASP_DEPTH_BACKEND:-da3}"
+case "$GRASP_DEPTH_BACKEND" in
+  da3|lite-mono) ;;
+  *) echo "GRASP_DEPTH_BACKEND must be da3 or lite-mono" >&2; exit 1 ;;
+esac
+
 HOST_PYTHON="$(command -v "${PYTHON:-python3}")"
 "$HOST_PYTHON" env/setup_env.py
 
@@ -20,6 +26,10 @@ export PATH="$ROOT/.venv/bin:/usr/src/tensorrt/bin:/usr/local/cuda/bin:$PATH"
 command -v git >/dev/null || { echo "git is required" >&2; exit 1; }
 command -v curl >/dev/null || { echo "curl is required" >&2; exit 1; }
 
+if [ "$GRASP_DEPTH_BACKEND" = da3 ]; then
+  "$PYTHON" scripts/setup/prepare_da3.py
+fi
+
 # YOLOE text prompting lazily installs CLIP and downloads MobileCLIP on first
 # set_classes(). Do both here under the JetPack constraints so inference never
 # mutates the environment at runtime.
@@ -32,12 +42,14 @@ if [ ! -s "$CLIP_STAMP" ] || [ "$(cat "$CLIP_STAMP")" != "$CLIP_REV" ]; then
   printf '%s\n' "$CLIP_REV" > "$CLIP_STAMP"
 fi
 
-LITEMONO_REV="4874b35df8ed4da16159ce8be8c697028b72bf76"
-if [ ! -d model/Lite-Mono/.git ]; then
-  git clone https://github.com/noahzn/Lite-Mono.git model/Lite-Mono
+if [ "$GRASP_DEPTH_BACKEND" = lite-mono ]; then
+  LITEMONO_REV="4874b35df8ed4da16159ce8be8c697028b72bf76"
+  if [ ! -d model/Lite-Mono/.git ]; then
+    git clone https://github.com/noahzn/Lite-Mono.git model/Lite-Mono
+  fi
+  git -C model/Lite-Mono fetch --depth 1 origin "$LITEMONO_REV"
+  git -C model/Lite-Mono checkout --detach "$LITEMONO_REV"
 fi
-git -C model/Lite-Mono fetch --depth 1 origin "$LITEMONO_REV"
-git -C model/Lite-Mono checkout --detach "$LITEMONO_REV"
 
 if [ ! -s model/yoloe-26s-seg.pt ]; then
   "$PYTHON" - <<'PY'
@@ -87,7 +99,8 @@ model.set_classes(["object"])
 print("YOLOE text prompt ready:", asset)
 PY
 
-if [ ! -s model/lite-mono/encoder.pth ] || [ ! -s model/lite-mono/depth.pth ]; then
+if [ "$GRASP_DEPTH_BACKEND" = lite-mono ] &&
+   { [ ! -s model/lite-mono/encoder.pth ] || [ ! -s model/lite-mono/depth.pth ]; }; then
   TMP="$(mktemp -d)"
   trap 'rm -rf "$TMP"' EXIT
   echo "Downloading Lite-Mono weights ..."
@@ -122,11 +135,11 @@ PY
   trap - EXIT
 fi
 
-# Fetch the prevalidated YOLOE/Lite-Mono FP32 and VGN TensorRT bundles for
+# Fetch YOLOE FP32 and VGN bundles, plus Lite-Mono only when selected, for
 # this Xavier/L4T/TensorRT stack. The installer verifies each release archive
 # and its weights/engine checksums before activating checkout-local artifacts.
 echo "Downloading and validating checkout-local TensorRT engines ..."
-"$PYTHON" scripts/setup/fetch_prebuilt_trt.py
+"$PYTHON" scripts/setup/fetch_prebuilt_trt.py --depth-backend "$GRASP_DEPTH_BACKEND"
 
 # Always validate the VGN files installed in this checkout. An inherited
 # VGN_ENGINE path must not silently reuse an engine from another checkout.

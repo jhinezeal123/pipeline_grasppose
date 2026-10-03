@@ -169,7 +169,7 @@ class GraspPipeline:
             if os.environ.get("GRASP_VERBOSE_DEPTH") == "1"
             else "ready"
         )
-        log("Lite-Mono: depth %s | scale=%.5g | %.3fs" % (
+        log("Depth: %s | scale=%.5g | %.3fs" % (
             depth_summary,
             float(depth.scale),
             time.time() - started,
