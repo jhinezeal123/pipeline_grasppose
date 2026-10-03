@@ -5,6 +5,8 @@ Repo này nhận ảnh RGB + camera calibration và trả các pose gắp 6DoF.
 
 Đọc [bản đồ code](docs/kien-truc-vi.md) và
 [review đủ 14 PR](docs/review-pr-vi.md) trước khi thay runtime.
+Thông tin JetPack, artifact/checksum, prompt preprocessing và benchmark nằm
+trong [hướng dẫn deployment Jetson](docs/deployment-jetson.md).
 
 ## Luồng chạy
 
@@ -14,7 +16,7 @@ nạp/warmup một lần trong worker; render ảnh chẩn đoán ở process ri
 
 Ở nền `c417fd0`, depth mặc định là **DA3 metric-large**. Bootstrap hiện vẫn
 chuẩn bị Lite-Mono, chưa tải DA3/cài ONNX Runtime. Refactor giữ nguyên sự lựa
-chọn này; việc rollback mặc định depth nằm trong PR sau. Không coi test CPU
+chọn này; việc hoàn thiện bootstrap DA3 nằm trong PR sau. Không coi test CPU
 xanh là bằng chứng cài mới hoặc inference Jetson đã chạy được.
 
 ## Nơi tìm code

@@ -21,7 +21,7 @@ chứng do tác giả cung cấp, không phải một lần đo mới của đ�
 | [#10](https://github.com/jhinezeal123/pipeline_grasppose/pull/10) | Đã merge | Giữ API/ports; sửa cấu trúc tiếp | Feature modules hữu ích nhưng PR cũng đổi entry point/API và làm CLI import model stack; #11 sửa phần khởi động. Revert cả PR sẽ phá consumer. |
 | [#11](https://github.com/jhinezeal123/pipeline_grasppose/pull/11) | Đã merge | Giữ | RPC dùng standard library, CLI không import NumPy/Torch/model. Có regression test khởi động nhẹ. Đây là pin đang được 6DoF khai báo. |
 | [#12](https://github.com/jhinezeal123/pipeline_grasppose/pull/12) | Đã merge | Giữ | Confidence là hậu xử lý; engine/checksum vẫn bị ràng buộc. Hướng dẫn gravity-aligned volume cần giữ. |
-| [#13](https://github.com/jhinezeal123/pipeline_grasppose/pull/13) | Đã merge | Rollback mặc định DA3; giữ adapter để thử nghiệm | Composition chuyển sang DA3 nhưng bootstrap/requirements vẫn chuẩn bị Lite-Mono. Scale `0.39378` mới fit simulation, chưa được đo với camera thật. Giữ seam `build_default_pipeline(depth=...)` vì harness dùng nó. |
+| [#13](https://github.com/jhinezeal123/pipeline_grasppose/pull/13) | Đã merge | Giữ DA3 mặc định; hoàn thiện deployment riêng | Trên cùng simulation gate, tác giả ghi DA3 FP32/CUDA 10/10, Lite-Mono 3/10 và Pearson depth −0.43. Bootstrap thiếu DA3 là bug deployment, không đủ căn cứ chọn lại Lite-Mono. Scale `0.39378` vẫn cần đo trên camera thật. Giữ depth injection seam. |
 | [#14](https://github.com/jhinezeal123/pipeline_grasppose/pull/14) | Đang mở | Chưa merge; nên bỏ cách refine hiện tại | Dịch grasp tới TSDF=0.5 nhưng giữ orientation, width và score của voxel cũ. Chưa đánh giá lại collision/grasp quality hay lift success. Các test plane/sphere chỉ chứng minh phép chiếu, không chứng minh grasp tốt hơn. |
 
 ## Những lỗi cần hành động
@@ -30,8 +30,12 @@ chứng do tác giả cung cấp, không phải một lần đo mới của đ�
 `infrastructure/composition.py` tạo `Da3MetricDepth()`; `scripts/prepare.sh`,
 `dependencies` và `requirements.txt` không tải graph DA3/cài ONNX Runtime.
 `env/check_env.py` lại bắt buộc graph đó. Checkout sạch làm theo README sẽ không
-đủ tài nguyên để chạy. Khuyến nghị rollback riêng lựa chọn mặc định, giữ code
-DA3 và depth injection; không revert mù toàn bộ PR.
+đủ tài nguyên để chạy. Sửa riêng bootstrap: tải graph FP32 đã pin/SHA-256,
+cài ONNX Runtime GPU đúng Jetson và kiểm tra provider/inference thực. Giữ DA3
+mặc định theo số đo #13; Lite-Mono chỉ là lựa chọn thử nghiệm explicit.
+Khuyến nghị rollback ban đầu đã được sửa sau khi đối chiếu lại gate 10/10 so
+với 3/10. Các số đo đó là kết quả simulation của tác giả, không phải bảo đảm
+thành công trên camera/robot thật.
 
 **P1 — #14 thay pose mà score không được đánh giá lại.**
 Giới hạn 4 voxel có thể dịch tới 30 mm trên grid hiện tại, không chỉ sửa một
@@ -64,7 +68,7 @@ PR chức năng riêng. Đợt refactor này không sửa pin, model hoặc cali
 
 1. Merge PR refactor sau khi full CI xanh: input/selection/service và
    inference/socket được tách, hành vi mặc định giữ nguyên.
-2. Review PR rollback mặc định DA3 riêng, trên nền refactor.
+2. Review PR hoàn thiện bootstrap DA3 riêng, trên nền refactor; DA3 vẫn mặc định.
 3. Giữ 6DoF ở pin hiện tại cho tới khi chạy integration trên server.
 4. Với DA3/refinement: replay cùng ảnh, K, extrinsic và robot calibration;
    so sánh depth, pose, collision và lift success trước khi chọn cho robot thật.

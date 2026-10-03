@@ -30,7 +30,6 @@ class WorkerInference:
         self._snapshots = snapshots
 
     def infer(self, request):
-        reject_inline_render(request)
         prompt_id = str(request.get("prompt_id", ""))
         self._catalog.require(prompt_id)
         image_path = request.get("image")
